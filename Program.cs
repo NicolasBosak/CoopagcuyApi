@@ -1,6 +1,7 @@
-using System.Text;
+using CoopagcuyApi.Common.Auth;
 using CoopagcuyApi.Features.Productoras.Services;
 using CoopagcuyApi.Features.Productoras.Validators;
+using CoopagcuyApi.Features.Recepcion.Services;
 using CoopagcuyApi.Infrastructure.Data;
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -8,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Serilog;
+using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -51,10 +53,21 @@ builder.Services.AddValidatorsFromAssemblyContaining<CrearProductoraValidator>()
 
 // ── Servicios de módulos ─────────────────────────────────────────────
 builder.Services.AddScoped<IProductoraService, ProductoraService>();
-// Aquí se agregarán los servicios de M2–M5 conforme se implementen
+builder.Services.AddScoped<IRecepcionService, RecepcionService>();
+// Aquí se agregarán los servicios de M5 conforme se implementen
+
+// ── Servicios de autenticación ───────────────────────────────────────
+builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
+builder.Services.AddScoped<IAuthService, AuthService>();
 
 // ── Controllers + Swagger ────────────────────────────────────────────
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        // Permite enviar enums como strings en el JSON ("PAT" en lugar de 0)
+        options.JsonSerializerOptions.Converters.Add(
+            new System.Text.Json.Serialization.JsonStringEnumConverter());
+    });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
@@ -95,6 +108,10 @@ builder.Services.AddCors(options =>
               .AllowAnyMethod()
               .AllowAnyHeader());
 });
+
+// Evita el error "Cannot write DateTime with Kind=Unspecified"
+// Npgsql tratará todos los DateTime sin zona horaria como UTC
+AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
 var app = builder.Build();
 

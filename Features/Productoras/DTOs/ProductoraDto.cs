@@ -2,14 +2,15 @@
 
 namespace CoopagcuyApi.Features.Productoras.DTOs;
 
-public record CrearProductoraDto(
-    string NombreCompleto,
-    string Cedula,
-    string Comunidad,
-    string Canton,
-    CentroAcopio CatAsignado,
-    string? Telefono
-);
+public class CrearProductoraDto
+{
+    public string NombreCompleto { get; set; } = string.Empty;
+    public string Cedula { get; set; } = string.Empty;
+    public string Comunidad { get; set; } = string.Empty;
+    public string Canton { get; set; } = string.Empty;
+    public CentroAcopio CatAsignado { get; set; }
+    public string? Telefono { get; set; }
+}
 
 public record ProductoraResponseDto(
     int Id,
