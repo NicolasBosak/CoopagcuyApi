@@ -1,0 +1,127 @@
+﻿using CoopagcuyApi.Features.Faenamiento.DTOs;
+using CoopagcuyApi.Features.Faenamiento.Services;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace CoopagcuyApi.Features.Faenamiento.Controllers;
+
+[ApiController]
+[Route("api/[controller]")]
+[Authorize]
+public class FaenamientoController(IFaenamientoService service) : ControllerBase
+{
+    /// <summary>
+    /// Registra el faenamiento de un lote proveniente de un CAT.
+    /// Valida que el lote no esté rechazado y que no tenga faenamiento previo.
+    /// </summary>
+    [HttpPost]
+    [Authorize(Roles = "OperadorFaenamiento,AdminCooperativa,AdminTecnico")]
+    public async Task<IActionResult> Registrar([FromBody] RegistrarFaenamientoDto dto)
+    {
+        try
+        {
+            var resultado = await service.RegistrarFaenamientoAsync(dto);
+            return CreatedAtAction(
+                nameof(ObtenerPorLoteId),
+                new { loteId = resultado.LoteId },
+                resultado);
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { mensaje = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { mensaje = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Obtiene el faenamiento de un lote por su Id de lote.
+    /// </summary>
+    [HttpGet("lote/{loteId:int}")]
+    public async Task<IActionResult> ObtenerPorLoteId(int loteId)
+    {
+        var resultado = await service.ObtenerPorLoteIdAsync(loteId);
+        return resultado is null ? NotFound() : Ok(resultado);
+    }
+
+    /// <summary>
+    /// Obtiene el faenamiento por código de lote (ej: PAT-20260628-001).
+    /// </summary>
+    [HttpGet("lote/codigo/{codigoLote}")]
+    public async Task<IActionResult> ObtenerPorCodigoLote(string codigoLote)
+    {
+        var resultado = await service.ObtenerPorCodigoLoteAsync(codigoLote);
+        return resultado is null ? NotFound() : Ok(resultado);
+    }
+
+    /// <summary>
+    /// Lista faenamientos con filtro opcional por rango de fechas.
+    /// </summary>
+    [HttpGet]
+    public async Task<IActionResult> Listar(
+        [FromQuery] DateTime? desde,
+        [FromQuery] DateTime? hasta)
+    {
+        var resultado = await service.ListarAsync(desde, hasta);
+        return Ok(resultado);
+    }
+
+    /// <summary>
+    /// Retorna los datos formateados para el codificador Ink Jet — RF-305.
+    /// Incluye código de lote, fecha de faenamiento, vencimiento y datos de origen.
+    /// </summary>
+    [HttpGet("inkjet/{codigoLote}")]
+    [Authorize(Roles = "OperadorFaenamiento,AdminCooperativa,AdminTecnico")]
+    public async Task<IActionResult> ObtenerDatosInkJet(string codigoLote)
+    {
+        var resultado = await service.ObtenerDatosInkJetAsync(codigoLote);
+        return resultado is null
+            ? NotFound(new { mensaje = $"No se encontró faenamiento para el lote {codigoLote}." })
+            : Ok(resultado);
+    }
+
+    /// <summary>
+    /// Registra el despacho del producto terminado a un cliente.
+    /// Requiere que el lote tenga faenamiento registrado previamente.
+    /// </summary>
+    [HttpPost("despachos")]
+    [Authorize(Roles = "OperadorFaenamiento,AdminCooperativa,AdminTecnico")]
+    public async Task<IActionResult> RegistrarDespacho([FromBody] RegistrarDespachoDto dto)
+    {
+        try
+        {
+            var resultado = await service.RegistrarDespachoAsync(dto);
+            return CreatedAtAction(
+                nameof(ListarDespachosPorLote),
+                new { loteId = resultado.LoteId },
+                resultado);
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { mensaje = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { mensaje = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Lista todos los despachos asociados a un lote.
+    /// </summary>
+    [HttpGet("despachos/lote/{loteId:int}")]
+    public async Task<IActionResult> ListarDespachosPorLote(int loteId)
+    {
+        try
+        {
+            var resultado = await service.ListarDespachosPorLoteAsync(loteId);
+            return Ok(resultado);
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { mensaje = ex.Message });
+        }
+    }
+}

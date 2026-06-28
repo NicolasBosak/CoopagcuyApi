@@ -28,6 +28,6 @@ public class Lote
 
     // Navegación
     public ICollection<Novedad> Novedades { get; set; } = [];
-    public CoopagcuyApi.Features.Faenamiento.Models.Faenamiento? Faenamiento { get; set; }
+    public RegistroFaenamiento? Faenamiento { get; set; }
     public CodigoQR? CodigoQR { get; set; }
 }

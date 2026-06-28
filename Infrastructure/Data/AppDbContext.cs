@@ -12,7 +12,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Productora> Productoras => Set<Productora>();
     public DbSet<Lote> Lotes => Set<Lote>();
     public DbSet<Novedad> Novedades => Set<Novedad>();
-    public DbSet<Faenamiento> Faenamientos => Set<Faenamiento>();
+    public DbSet<RegistroFaenamiento> Faenamientos => Set<RegistroFaenamiento>();
     public DbSet<Despacho> Despachos => Set<Despacho>();
     public DbSet<CodigoQR> CodigosQR => Set<CodigoQR>();
     public DbSet<Usuario> Usuarios => Set<Usuario>();
@@ -60,7 +60,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         });
 
         // Faenamiento
-        modelBuilder.Entity<Faenamiento>(e =>
+        modelBuilder.Entity<RegistroFaenamiento>(e =>
         {
             e.HasKey(f => f.Id);
             e.Property(f => f.PesoTotalCanalGramos).HasPrecision(10, 2);
@@ -68,7 +68,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(f => f.EstadoCanal).HasConversion<string>();
             e.HasOne(f => f.Lote)
              .WithOne(l => l.Faenamiento)
-             .HasForeignKey<Faenamiento>(f => f.LoteId);
+             .HasForeignKey<RegistroFaenamiento>(f => f.LoteId);
         });
 
         // Despacho

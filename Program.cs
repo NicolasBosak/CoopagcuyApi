@@ -1,4 +1,5 @@
 using CoopagcuyApi.Common.Auth;
+using CoopagcuyApi.Features.Faenamiento.Services;
 using CoopagcuyApi.Features.Productoras.Services;
 using CoopagcuyApi.Features.Productoras.Validators;
 using CoopagcuyApi.Features.Recepcion.Services;
@@ -112,6 +113,8 @@ builder.Services.AddCors(options =>
 // Evita el error "Cannot write DateTime with Kind=Unspecified"
 // Npgsql tratará todos los DateTime sin zona horaria como UTC
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
+
+builder.Services.AddScoped<IFaenamientoService, FaenamientoService>();
 
 var app = builder.Build();
 
