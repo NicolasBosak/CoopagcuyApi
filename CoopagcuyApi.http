@@ -1,0 +1,6 @@
+@CoopagcuyApi_HostAddress = http://localhost:5227
+
+GET {{CoopagcuyApi_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
