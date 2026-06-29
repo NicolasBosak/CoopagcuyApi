@@ -2,8 +2,11 @@ using CoopagcuyApi.Common.Auth;
 using CoopagcuyApi.Features.Faenamiento.Services;
 using CoopagcuyApi.Features.Productoras.Services;
 using CoopagcuyApi.Features.Productoras.Validators;
+using CoopagcuyApi.Features.QR.Services;
 using CoopagcuyApi.Features.Recepcion.Services;
+using CoopagcuyApi.Features.Reportes.Services;
 using CoopagcuyApi.Infrastructure.Data;
+using CoopagcuyApi.Infrastructure.Storage;
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -55,7 +58,10 @@ builder.Services.AddValidatorsFromAssemblyContaining<CrearProductoraValidator>()
 // ── Servicios de módulos ─────────────────────────────────────────────
 builder.Services.AddScoped<IProductoraService, ProductoraService>();
 builder.Services.AddScoped<IRecepcionService, RecepcionService>();
-// Aquí se agregarán los servicios de M5 conforme se implementen
+builder.Services.AddScoped<IFaenamientoService, FaenamientoService>();
+builder.Services.AddScoped<IQRService, QRService>();
+builder.Services.AddScoped<IBlobStorageService, BlobStorageService>();
+builder.Services.AddScoped<IReportesService, ReportesService>();
 
 // ── Servicios de autenticación ───────────────────────────────────────
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
@@ -113,8 +119,6 @@ builder.Services.AddCors(options =>
 // Evita el error "Cannot write DateTime with Kind=Unspecified"
 // Npgsql tratará todos los DateTime sin zona horaria como UTC
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
-
-builder.Services.AddScoped<IFaenamientoService, FaenamientoService>();
 
 var app = builder.Build();
 
