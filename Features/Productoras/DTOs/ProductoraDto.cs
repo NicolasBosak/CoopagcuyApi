@@ -23,3 +23,13 @@ public record ProductoraResponseDto(
     bool Activa,
     DateTime FechaRegistro
 );
+
+// Historial de cambios de una productora — RF-105
+public record ProductoraCambioDto(
+    int Id,
+    string CampoModificado,
+    string? ValorAnterior,
+    string? ValorNuevo,
+    string ModificadoPor,
+    DateTime FechaCambio
+);

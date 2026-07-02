@@ -109,6 +109,45 @@ public class FaenamientoController(IFaenamientoService service) : ControllerBase
     }
 
     /// <summary>
+    /// Registra la devolución de producto por parte de un cliente — RF-307.
+    /// Queda vinculada al lote de origen y a su productora.
+    /// </summary>
+    [HttpPost("devoluciones")]
+    [Authorize(Roles = "OperadorFaenamiento,AdminCooperativa,AdminTecnico")]
+    public async Task<IActionResult> RegistrarDevolucion([FromBody] RegistrarDevolucionDto dto)
+    {
+        try
+        {
+            var resultado = await service.RegistrarDevolucionAsync(dto);
+            return CreatedAtAction(
+                nameof(ListarDevoluciones),
+                new { productoraId = (int?)null },
+                resultado);
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { mensaje = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { mensaje = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Lista devoluciones con filtros por fecha y productora — RF-307.
+    /// </summary>
+    [HttpGet("devoluciones")]
+    public async Task<IActionResult> ListarDevoluciones(
+        [FromQuery] DateTime? desde,
+        [FromQuery] DateTime? hasta,
+        [FromQuery] int? productoraId)
+    {
+        var resultado = await service.ListarDevolucionesAsync(desde, hasta, productoraId);
+        return Ok(resultado);
+    }
+
+    /// <summary>
     /// Lista todos los despachos asociados a un lote.
     /// </summary>
     [HttpGet("despachos/lote/{loteId:int}")]

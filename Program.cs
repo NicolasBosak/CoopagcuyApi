@@ -1,4 +1,5 @@
 using CoopagcuyApi.Common.Auth;
+using CoopagcuyApi.Features.Catalogos.Services;
 using CoopagcuyApi.Features.Faenamiento.Services;
 using CoopagcuyApi.Features.Productoras.Services;
 using CoopagcuyApi.Features.Productoras.Validators;
@@ -9,11 +10,13 @@ using CoopagcuyApi.Infrastructure.Data;
 using CoopagcuyApi.Infrastructure.Storage;
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Serilog;
 using System.Text;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -58,14 +61,38 @@ builder.Services.AddValidatorsFromAssemblyContaining<CrearProductoraValidator>()
 // ── Servicios de módulos ─────────────────────────────────────────────
 builder.Services.AddScoped<IProductoraService, ProductoraService>();
 builder.Services.AddScoped<IRecepcionService, RecepcionService>();
+builder.Services.AddScoped<IGuiaMovilizacionService, GuiaMovilizacionService>();
 builder.Services.AddScoped<IFaenamientoService, FaenamientoService>();
 builder.Services.AddScoped<IQRService, QRService>();
 builder.Services.AddScoped<IBlobStorageService, BlobStorageService>();
 builder.Services.AddScoped<IReportesService, ReportesService>();
+builder.Services.AddScoped<ICatalogosService, CatalogosService>();
 
 // ── Servicios de autenticación ───────────────────────────────────────
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IUsuarioService, UsuarioService>();
+
+// ── Rate limiting ─────────────────────────────────────────────────────
+// Protege login y setup contra fuerza bruta: 10 intentos/minuto por IP
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    options.AddFixedWindowLimiter("auth", limiter =>
+    {
+        limiter.PermitLimit = 10;
+        limiter.Window = TimeSpan.FromMinutes(1);
+        limiter.QueueLimit = 0;
+    });
+
+    options.OnRejected = (context, _) =>
+    {
+        context.HttpContext.Response.ContentType = "application/json";
+        return new ValueTask(context.HttpContext.Response.WriteAsync(
+            """{"mensaje":"Demasiados intentos. Espera un minuto e intenta de nuevo."}"""));
+    };
+});
 
 // ── Controllers + Swagger ────────────────────────────────────────────
 builder.Services.AddControllers()
@@ -131,7 +158,24 @@ if (app.Environment.IsDevelopment())
 
 app.UseSerilogRequestLogging();
 app.UseHttpsRedirection();
+
+// Cabeceras de seguridad en toda respuesta del API
+app.Use(async (context, next) =>
+{
+    var headers = context.Response.Headers;
+    headers["X-Content-Type-Options"] = "nosniff";
+    headers["X-Frame-Options"] = "DENY";
+    headers["Referrer-Policy"] = "no-referrer";
+
+    // Swagger UI necesita cargar sus propios scripts y estilos
+    if (!context.Request.Path.StartsWithSegments("/swagger"))
+        headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'";
+
+    await next();
+});
+
 app.UseCors("FrontendPolicy");
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();

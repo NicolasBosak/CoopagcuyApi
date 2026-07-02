@@ -9,7 +9,9 @@ namespace CoopagcuyApi.Features.Recepcion.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
-public class RecepcionController(IRecepcionService service) : ControllerBase
+public class RecepcionController(
+    IRecepcionService service,
+    IGuiaMovilizacionService guiaService) : ControllerBase
 {
     /// <summary>
     /// Registra un nuevo lote de cuyes en un CAT.
@@ -66,6 +68,26 @@ public class RecepcionController(IRecepcionService service) : ControllerBase
     {
         var resultado = await service.ListarLotesAsync(cat, estado, desde, hasta);
         return Ok(resultado);
+    }
+
+    /// <summary>
+    /// Genera la guía de movilización del lote en PDF — RF-210.
+    /// Documento imprimible que acompaña el transporte del lote
+    /// desde el CAT hasta la planta de faenamiento.
+    /// </summary>
+    [HttpGet("lotes/{codigoLote}/guia")]
+    [Authorize(Roles = "OperadorCAT,AdminCooperativa,AdminTecnico")]
+    public async Task<IActionResult> GuiaMovilizacion(string codigoLote)
+    {
+        try
+        {
+            var bytes = await guiaService.GenerarGuiaPdfAsync(codigoLote);
+            return File(bytes, "application/pdf", $"Guia-{codigoLote}.pdf");
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { mensaje = ex.Message });
+        }
     }
 
     /// <summary>

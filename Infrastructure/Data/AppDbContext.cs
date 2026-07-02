@@ -1,4 +1,6 @@
-﻿using CoopagcuyApi.Common.Auth;
+﻿using CoopagcuyApi.Common;
+using CoopagcuyApi.Common.Auth;
+using CoopagcuyApi.Features.Catalogos.Models;
 using CoopagcuyApi.Features.Faenamiento.Models;
 using CoopagcuyApi.Features.Productoras.Models;
 using CoopagcuyApi.Features.QR.Models;
@@ -16,6 +18,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Despacho> Despachos => Set<Despacho>();
     public DbSet<CodigoQR> CodigosQR => Set<CodigoQR>();
     public DbSet<Usuario> Usuarios => Set<Usuario>();
+    public DbSet<Devolucion> Devoluciones => Set<Devolucion>();
+    public DbSet<ProductoraCambio> ProductoraCambios => Set<ProductoraCambio>();
+    public DbSet<Comunidad> Comunidades => Set<Comunidad>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -98,6 +103,51 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasIndex(u => u.Email).IsUnique();
             e.Property(u => u.Email).HasMaxLength(200).IsRequired();
             e.Property(u => u.Rol).HasConversion<string>();
+        });
+
+        // Devolución — RF-307
+        modelBuilder.Entity<Devolucion>(e =>
+        {
+            e.HasKey(d => d.Id);
+            e.Property(d => d.ClienteDevuelve).HasMaxLength(200).IsRequired();
+            e.Property(d => d.Motivo).HasMaxLength(500).IsRequired();
+            e.Property(d => d.Responsable).HasMaxLength(150).IsRequired();
+            e.Property(d => d.Observaciones).HasMaxLength(500);
+            e.HasOne(d => d.Lote)
+             .WithMany()
+             .HasForeignKey(d => d.LoteId);
+        });
+
+        // Historial de cambios de productora — RF-105
+        modelBuilder.Entity<ProductoraCambio>(e =>
+        {
+            e.HasKey(c => c.Id);
+            e.Property(c => c.CampoModificado).HasMaxLength(50).IsRequired();
+            e.Property(c => c.ValorAnterior).HasMaxLength(200);
+            e.Property(c => c.ValorNuevo).HasMaxLength(200);
+            e.Property(c => c.ModificadoPor).HasMaxLength(200).IsRequired();
+            e.HasOne(c => c.Productora)
+             .WithMany()
+             .HasForeignKey(c => c.ProductoraId);
+        });
+
+        // Comunidad — catálogo gestionable RF-102 / RF-506
+        modelBuilder.Entity<Comunidad>(e =>
+        {
+            e.HasKey(c => c.Id);
+            e.HasIndex(c => c.Nombre).IsUnique();
+            e.Property(c => c.Nombre).HasMaxLength(100).IsRequired();
+            e.Property(c => c.Canton).HasMaxLength(100).IsRequired();
+            e.Property(c => c.CatReferencia).HasConversion<string>();
+
+            // Comunidades relevadas en el diagnóstico PRODUCTO1
+            e.HasData(
+                new Comunidad { Id = 1, Nombre = "Patococha", Canton = "Pucará", CatReferencia = CentroAcopio.PAT },
+                new Comunidad { Id = 2, Nombre = "Las Nieves", Canton = "Nabón", CatReferencia = CentroAcopio.NIE },
+                new Comunidad { Id = 3, Nombre = "Huertas", Canton = "Santa Isabel", CatReferencia = CentroAcopio.HUE },
+                new Comunidad { Id = 4, Nombre = "Nabón / El Progreso", Canton = "Nabón", CatReferencia = CentroAcopio.NAB },
+                new Comunidad { Id = 5, Nombre = "Pelincay", Canton = "Pucará", CatReferencia = CentroAcopio.PEL }
+            );
         });
     }
 }

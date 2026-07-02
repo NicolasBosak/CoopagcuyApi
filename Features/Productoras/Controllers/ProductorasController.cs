@@ -1,4 +1,5 @@
-﻿using CoopagcuyApi.Features.Productoras.DTOs;
+﻿using System.Security.Claims;
+using CoopagcuyApi.Features.Productoras.DTOs;
 using CoopagcuyApi.Features.Productoras.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -39,7 +40,19 @@ public class ProductorasController(IProductoraService service) : ControllerBase
     [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
     public async Task<IActionResult> Actualizar(int id, [FromBody] CrearProductoraDto dto)
     {
-        var ok = await service.ActualizarAsync(id, dto);
+        var modificadoPor = User.FindFirstValue(ClaimTypes.Email) ?? "desconocido";
+        var ok = await service.ActualizarAsync(id, dto, modificadoPor);
         return ok ? NoContent() : NotFound();
+    }
+
+    /// <summary>
+    /// Historial de cambios de la productora — RF-105.
+    /// </summary>
+    [HttpGet("{id:int}/historial")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
+    public async Task<IActionResult> Historial(int id)
+    {
+        var result = await service.ObtenerHistorialAsync(id);
+        return Ok(result);
     }
 }

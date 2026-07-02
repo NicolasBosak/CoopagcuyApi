@@ -53,6 +53,31 @@ public record DespachoResponseDto(
     string? Observaciones
 );
 
+public class RegistrarDevolucionDto
+{
+    public int LoteId { get; set; }
+    public string ClienteDevuelve { get; set; } = string.Empty;
+    public DateTime FechaDevolucion { get; set; }
+    public int CantidadUnidades { get; set; }
+    public string Motivo { get; set; } = string.Empty;
+    public string Responsable { get; set; } = string.Empty;
+    public string? Observaciones { get; set; }
+}
+
+public record DevolucionResponseDto(
+    int Id,
+    int LoteId,
+    string CodigoLote,
+    string NombreProductora,
+    string Comunidad,
+    string ClienteDevuelve,
+    DateTime FechaDevolucion,
+    int CantidadUnidades,
+    string Motivo,
+    string Responsable,
+    string? Observaciones
+);
+
 // Datos que se envían al codificador Ink Jet — RF-305
 public record InkJetCodigoDto(
     string CodigoLote,

@@ -15,6 +15,9 @@ public interface IFaenamientoService
     Task<IEnumerable<FaenamientoResponseDto>> ListarAsync(DateTime? desde, DateTime? hasta);
     Task<DespachoResponseDto> RegistrarDespachoAsync(RegistrarDespachoDto dto);
     Task<IEnumerable<DespachoResponseDto>> ListarDespachosPorLoteAsync(int loteId);
+    Task<DevolucionResponseDto> RegistrarDevolucionAsync(RegistrarDevolucionDto dto);
+    Task<IEnumerable<DevolucionResponseDto>> ListarDevolucionesAsync(
+        DateTime? desde, DateTime? hasta, int? productoraId);
     Task<InkJetCodigoDto?> ObtenerDatosInkJetAsync(string codigoLote);
 }
 
@@ -166,6 +169,81 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
                 d.Transporte, d.Observaciones))
             .ToListAsync();
     }
+
+    // ── Devoluciones de clientes — RF-307 ─────────────────────────────
+
+    public async Task<DevolucionResponseDto> RegistrarDevolucionAsync(
+        RegistrarDevolucionDto dto)
+    {
+        // La devolución solo aplica a producto despachado: el lote debe
+        // tener faenamiento registrado.
+        var lote = await db.Lotes
+            .Include(l => l.Productora)
+            .Include(l => l.Faenamiento)
+            .FirstOrDefaultAsync(l => l.Id == dto.LoteId)
+            ?? throw new KeyNotFoundException(
+                $"Lote con Id {dto.LoteId} no encontrado.");
+
+        if (lote.Faenamiento is null)
+            throw new InvalidOperationException(
+                $"El lote {lote.CodigoLote} no tiene faenamiento registrado. " +
+                "No es posible registrar una devolución.");
+
+        var devolucion = new Devolucion
+        {
+            LoteId = dto.LoteId,
+            ClienteDevuelve = dto.ClienteDevuelve,
+            FechaDevolucion = DateTime.SpecifyKind(dto.FechaDevolucion, DateTimeKind.Utc),
+            CantidadUnidades = dto.CantidadUnidades,
+            Motivo = dto.Motivo,
+            Responsable = dto.Responsable,
+            Observaciones = dto.Observaciones
+        };
+
+        db.Devoluciones.Add(devolucion);
+        await db.SaveChangesAsync();
+
+        return MapearDevolucion(devolucion, lote);
+    }
+
+    public async Task<IEnumerable<DevolucionResponseDto>> ListarDevolucionesAsync(
+        DateTime? desde, DateTime? hasta, int? productoraId)
+    {
+        var query = db.Devoluciones
+            .Include(d => d.Lote).ThenInclude(l => l.Productora)
+            .AsQueryable();
+
+        if (desde.HasValue)
+            query = query.Where(d =>
+                d.FechaDevolucion >= DateTime.SpecifyKind(desde.Value, DateTimeKind.Utc));
+
+        if (hasta.HasValue)
+            query = query.Where(d =>
+                d.FechaDevolucion <= DateTime.SpecifyKind(hasta.Value, DateTimeKind.Utc));
+
+        if (productoraId.HasValue)
+            query = query.Where(d => d.Lote.ProductoraId == productoraId.Value);
+
+        var lista = await query
+            .OrderByDescending(d => d.FechaDevolucion)
+            .ToListAsync();
+
+        return lista.Select(d => MapearDevolucion(d, d.Lote));
+    }
+
+    private static DevolucionResponseDto MapearDevolucion(Devolucion d, Lote lote) => new(
+        Id: d.Id,
+        LoteId: d.LoteId,
+        CodigoLote: lote.CodigoLote,
+        NombreProductora: lote.Productora?.NombreCompleto ?? string.Empty,
+        Comunidad: lote.Productora?.Comunidad ?? string.Empty,
+        ClienteDevuelve: d.ClienteDevuelve,
+        FechaDevolucion: d.FechaDevolucion,
+        CantidadUnidades: d.CantidadUnidades,
+        Motivo: d.Motivo,
+        Responsable: d.Responsable,
+        Observaciones: d.Observaciones
+    );
 
     // ── Datos para codificador Ink Jet — RF-305 ───────────────────────
 

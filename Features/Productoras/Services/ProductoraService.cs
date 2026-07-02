@@ -1,4 +1,4 @@
-﻿using CoopagcuyApi.Features.Productoras.DTOs;
+using CoopagcuyApi.Features.Productoras.DTOs;
 using CoopagcuyApi.Features.Productoras.Models;
 using CoopagcuyApi.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
@@ -10,7 +10,8 @@ public interface IProductoraService
     Task<ProductoraResponseDto> CrearAsync(CrearProductoraDto dto);
     Task<IEnumerable<ProductoraResponseDto>> ObtenerTodasAsync(string? comunidad, string? cat);
     Task<ProductoraResponseDto?> ObtenerPorIdAsync(int id);
-    Task<bool> ActualizarAsync(int id, CrearProductoraDto dto);
+    Task<bool> ActualizarAsync(int id, CrearProductoraDto dto, string modificadoPor);
+    Task<IEnumerable<ProductoraCambioDto>> ObtenerHistorialAsync(int id);
 }
 
 public class ProductoraService(AppDbContext db) : IProductoraService
@@ -52,10 +53,17 @@ public class ProductoraService(AppDbContext db) : IProductoraService
         return p is null ? null : MapToDto(p);
     }
 
-    public async Task<bool> ActualizarAsync(int id, CrearProductoraDto dto)
+    // Actualiza la productora registrando cada campo modificado — RF-105
+    public async Task<bool> ActualizarAsync(int id, CrearProductoraDto dto, string modificadoPor)
     {
         var productora = await db.Productoras.FindAsync(id);
         if (productora is null) return false;
+
+        RegistrarCambio(id, "NombreCompleto", productora.NombreCompleto, dto.NombreCompleto, modificadoPor);
+        RegistrarCambio(id, "Comunidad", productora.Comunidad, dto.Comunidad, modificadoPor);
+        RegistrarCambio(id, "Canton", productora.Canton, dto.Canton, modificadoPor);
+        RegistrarCambio(id, "CatAsignado", productora.CatAsignado.ToString(), dto.CatAsignado.ToString(), modificadoPor);
+        RegistrarCambio(id, "Telefono", productora.Telefono, dto.Telefono, modificadoPor);
 
         productora.NombreCompleto = dto.NombreCompleto;
         productora.Comunidad = dto.Comunidad;
@@ -65,6 +73,33 @@ public class ProductoraService(AppDbContext db) : IProductoraService
 
         await db.SaveChangesAsync();
         return true;
+    }
+
+    public async Task<IEnumerable<ProductoraCambioDto>> ObtenerHistorialAsync(int id)
+    {
+        return await db.ProductoraCambios
+            .Where(c => c.ProductoraId == id)
+            .OrderByDescending(c => c.FechaCambio)
+            .Select(c => new ProductoraCambioDto(
+                c.Id, c.CampoModificado, c.ValorAnterior,
+                c.ValorNuevo, c.ModificadoPor, c.FechaCambio))
+            .ToListAsync();
+    }
+
+    private void RegistrarCambio(
+        int productoraId, string campo,
+        string? anterior, string? nuevo, string modificadoPor)
+    {
+        if (anterior == nuevo) return;
+
+        db.ProductoraCambios.Add(new ProductoraCambio
+        {
+            ProductoraId = productoraId,
+            CampoModificado = campo,
+            ValorAnterior = anterior,
+            ValorNuevo = nuevo,
+            ModificadoPor = modificadoPor
+        });
     }
 
     private static ProductoraResponseDto MapToDto(Productora p) => new(

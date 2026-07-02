@@ -1,11 +1,16 @@
-﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace CoopagcuyApi.Common.Auth;
 
 [ApiController]
 [Route("api/[controller]")]
-public class AuthController(IAuthService authService) : ControllerBase
+[EnableRateLimiting("auth")]
+public class AuthController(
+    IAuthService authService,
+    IConfiguration configuration,
+    ILogger<AuthController> logger) : ControllerBase
 {
     /// <summary>
     /// Inicia sesión y retorna un token JWT.
@@ -17,36 +22,59 @@ public class AuthController(IAuthService authService) : ControllerBase
         var resultado = await authService.LoginAsync(dto);
 
         if (resultado is null)
+        {
+            logger.LogWarning(
+                "Intento de login fallido para {Email} desde {IP}",
+                dto.Email, HttpContext.Connection.RemoteIpAddress);
             return Unauthorized(new { mensaje = "Correo o contraseña incorrectos." });
+        }
 
         return Ok(resultado);
     }
 
     /// <summary>
     /// Crea el usuario administrador inicial del sistema.
-    /// Solo ejecutar una vez en el despliegue inicial.
-    /// Proteger o eliminar este endpoint en producción.
+    /// Solo funciona si el sistema no tiene ningún usuario registrado
+    /// y requiere la clave configurada en Setup:Key (variable de entorno).
     /// </summary>
     [HttpPost("setup")]
     [AllowAnonymous]
     public async Task<IActionResult> Setup([FromBody] SetupRequestDto dto)
     {
-        if (dto.ClaveSetup != "COOPAGCUY-SETUP-2026")
-            return Forbid();
-
-        var usuario = await authService.CrearUsuarioInicialAsync(
-            dto.Nombre,
-            dto.Email,
-            dto.Password,
-            RolUsuario.AdminTecnico);
-
-        return Ok(new
+        // Solo utilizable en el arranque inicial: si ya existe algún
+        // usuario, el endpoint queda deshabilitado permanentemente.
+        if (await authService.ExistenUsuariosAsync())
         {
-            mensaje = "Usuario administrador creado correctamente.",
-            id = usuario.Id,
-            email = usuario.Email,
-            rol = usuario.Rol.ToString()
-        });
+            logger.LogWarning(
+                "Intento de uso de /setup con el sistema ya inicializado desde {IP}",
+                HttpContext.Connection.RemoteIpAddress);
+            return NotFound();
+        }
+
+        var claveConfigurada = configuration["Setup:Key"];
+        if (string.IsNullOrEmpty(claveConfigurada) || dto.ClaveSetup != claveConfigurada)
+            return Unauthorized(new { mensaje = "Clave de instalación incorrecta." });
+
+        try
+        {
+            var usuario = await authService.CrearUsuarioInicialAsync(
+                dto.Nombre,
+                dto.Email,
+                dto.Password,
+                RolUsuario.AdminTecnico);
+
+            return Ok(new
+            {
+                mensaje = "Usuario administrador creado correctamente.",
+                id = usuario.Id,
+                email = usuario.Email,
+                rol = usuario.Rol.ToString()
+            });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { mensaje = ex.Message });
+        }
     }
 }
 
