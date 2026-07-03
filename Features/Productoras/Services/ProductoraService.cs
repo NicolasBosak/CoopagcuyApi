@@ -18,10 +18,16 @@ public class ProductoraService(AppDbContext db) : IProductoraService
 {
     public async Task<ProductoraResponseDto> CrearAsync(CrearProductoraDto dto)
     {
+        var cedula = dto.Cedula.Trim();
+        var existe = await db.Productoras.AnyAsync(p => p.Cedula == cedula);
+        if (existe)
+            throw new InvalidOperationException(
+                $"Ya existe una productora registrada con la cédula {cedula}.");
+
         var productora = new Productora
         {
             NombreCompleto = dto.NombreCompleto,
-            Cedula = dto.Cedula,
+            Cedula = cedula,
             Comunidad = dto.Comunidad,
             Canton = dto.Canton,
             CatAsignado = dto.CatAsignado,

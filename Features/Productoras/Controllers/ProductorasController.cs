@@ -32,8 +32,15 @@ public class ProductorasController(IProductoraService service) : ControllerBase
     [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
     public async Task<IActionResult> Crear([FromBody] CrearProductoraDto dto)
     {
-        var result = await service.CrearAsync(dto);
-        return CreatedAtAction(nameof(ObtenerPorId), new { id = result.Id }, result);
+        try
+        {
+            var result = await service.CrearAsync(dto);
+            return CreatedAtAction(nameof(ObtenerPorId), new { id = result.Id }, result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { mensaje = ex.Message });
+        }
     }
 
     [HttpPut("{id:int}")]

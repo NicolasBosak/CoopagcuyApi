@@ -26,6 +26,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<CuyRegistro> CuyRegistros => Set<CuyRegistro>();
     public DbSet<CuyFaenamiento> CuyFaenamientos => Set<CuyFaenamiento>();
     public DbSet<RetornoProductora> RetornosProductora => Set<RetornoProductora>();
+    public DbSet<LoteFaenado> LotesFaenados => Set<LoteFaenado>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -93,7 +94,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
              .HasForeignKey(d => d.LoteId);
         });
 
-        // CodigoQR
+        // CodigoQR: del lote faenado (producto) o de la jaula (histórico)
         modelBuilder.Entity<CodigoQR>(e =>
         {
             e.HasKey(q => q.Id);
@@ -101,6 +102,23 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasOne(q => q.Lote)
              .WithOne(l => l.CodigoQR)
              .HasForeignKey<CodigoQR>(q => q.LoteId);
+            e.HasOne(q => q.LoteFaenado)
+             .WithMany()
+             .HasForeignKey(q => q.LoteFaenadoId);
+        });
+
+        // Lote faenado: producto terminado con código propio (FAE-…)
+        modelBuilder.Entity<LoteFaenado>(e =>
+        {
+            e.HasKey(lf => lf.Id);
+            e.HasIndex(lf => lf.Codigo).IsUnique();
+            e.Property(lf => lf.Codigo).HasMaxLength(20).IsRequired();
+            e.Property(lf => lf.OperarioResponsable).HasMaxLength(150).IsRequired();
+            e.Property(lf => lf.TemperaturaAlmacenamiento).HasPrecision(5, 2);
+            e.Property(lf => lf.Observaciones).HasMaxLength(500);
+            e.HasMany(lf => lf.Sesiones)
+             .WithOne(f => f.LoteFaenado)
+             .HasForeignKey(f => f.LoteFaenadoId);
         });
 
         // Usuario
@@ -110,6 +128,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasIndex(u => u.Email).IsUnique();
             e.Property(u => u.Email).HasMaxLength(200).IsRequired();
             e.Property(u => u.Rol).HasConversion<string>();
+            e.Property(u => u.CatAsignado).HasConversion<string>();
         });
 
         // Devolución — RF-307

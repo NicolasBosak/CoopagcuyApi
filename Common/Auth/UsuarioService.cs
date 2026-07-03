@@ -24,7 +24,9 @@ public class UsuarioService(AppDbContext db) : IUsuarioService
             .OrderBy(u => u.NombreCompleto)
             .Select(u => new UsuarioResponseDto(
                 u.Id, u.NombreCompleto, u.Email,
-                u.Rol.ToString(), u.Activo, u.FechaCreacion))
+                u.Rol.ToString(),
+                u.CatAsignado != null ? u.CatAsignado.ToString() : null,
+                u.Activo, u.FechaCreacion))
             .ToListAsync();
     }
 
@@ -37,6 +39,7 @@ public class UsuarioService(AppDbContext db) : IUsuarioService
     public async Task<UsuarioResponseDto> CrearAsync(CrearUsuarioDto dto)
     {
         ValidarPassword(dto.Password);
+        ValidarCatOperador(dto.Rol, dto.CatAsignado);
 
         var email = dto.Email.Trim().ToLowerInvariant();
         var existe = await db.Usuarios.AnyAsync(u => u.Email == email);
@@ -49,7 +52,9 @@ public class UsuarioService(AppDbContext db) : IUsuarioService
             NombreCompleto = dto.NombreCompleto.Trim(),
             Email = email,
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password),
-            Rol = dto.Rol
+            Rol = dto.Rol,
+            CatAsignado = dto.Rol == RolUsuario.OperadorCAT
+                ? dto.CatAsignado : null
         };
 
         db.Usuarios.Add(usuario);
@@ -62,8 +67,12 @@ public class UsuarioService(AppDbContext db) : IUsuarioService
         var usuario = await db.Usuarios.FindAsync(id);
         if (usuario is null) return false;
 
+        ValidarCatOperador(dto.Rol, dto.CatAsignado);
+
         usuario.NombreCompleto = dto.NombreCompleto.Trim();
         usuario.Rol = dto.Rol;
+        usuario.CatAsignado = dto.Rol == RolUsuario.OperadorCAT
+            ? dto.CatAsignado : null;
 
         if (!string.IsNullOrEmpty(dto.NuevaPassword))
         {
@@ -73,6 +82,15 @@ public class UsuarioService(AppDbContext db) : IUsuarioService
 
         await db.SaveChangesAsync();
         return true;
+    }
+
+    // Un Operador de CAT debe tener centro asignado: es lo que limita
+    // dónde puede registrar entregas
+    private static void ValidarCatOperador(RolUsuario rol, CentroAcopio? cat)
+    {
+        if (rol == RolUsuario.OperadorCAT && cat is null)
+            throw new InvalidOperationException(
+                "Un Operador de CAT debe tener un centro de acopio asignado.");
     }
 
     public async Task<bool> CambiarEstadoAsync(int id, bool activo, int usuarioActualId)
@@ -116,5 +134,6 @@ public class UsuarioService(AppDbContext db) : IUsuarioService
 
     private static UsuarioResponseDto MapToDto(Usuario u) => new(
         u.Id, u.NombreCompleto, u.Email,
-        u.Rol.ToString(), u.Activo, u.FechaCreacion);
+        u.Rol.ToString(), u.CatAsignado?.ToString(),
+        u.Activo, u.FechaCreacion);
 }

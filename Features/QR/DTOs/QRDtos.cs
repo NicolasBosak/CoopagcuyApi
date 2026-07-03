@@ -30,5 +30,21 @@ public record PaginaPublicaDto(
     string Marca,
     // Trazabilidad hacia adelante: comercialización (último despacho)
     DateTime? FechaComercializacion,
-    string? DestinoComercial
+    string? DestinoComercial,
+    // Novedades registradas en planta sobre los animales faenados
+    List<string> ObservacionesProceso,
+    // Comunidades que aportaron animales, con su cantidad
+    List<ComunidadAporteDto> ComunidadesAporte,
+    // Estado individual de cada animal faenado
+    List<CuyPublicoDto> DetalleCuyes
+);
+
+public record ComunidadAporteDto(string Comunidad, int Cantidad);
+
+public record CuyPublicoDto(
+    string Comunidad,
+    string CodigoJaula,
+    int NumeroEnLote,
+    decimal? PesoCanalGramos,
+    string Estado
 );

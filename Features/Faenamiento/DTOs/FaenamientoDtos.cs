@@ -39,6 +39,9 @@ public class FaenamientoLoteDto
 }
 
 public record FaenamientoBatchResultadoDto(
+    // Código único del lote de producto terminado (FAE-AAAAMMDD-SEC):
+    // toda la sesión de planta genera UN solo código, QR y ficha
+    string CodigoLoteFaenado,
     List<FaenamientoResponseDto> Registros,
     // Novedades marcadas en planta que YA venían registradas desde el CAT,
     // con la productora que envió ese cuy específico
@@ -100,6 +103,7 @@ public class RegistrarDespachoDto
 public record FaenamientoResponseDto(
     int Id,
     int NumeroSesion,
+    string? CodigoLoteFaenado,
     int LoteId,
     string CodigoLote,
     string NombreProductora,

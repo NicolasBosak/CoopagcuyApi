@@ -14,6 +14,22 @@ public class RecepcionController(
     IGuiaMovilizacionService guiaService,
     IMovilizacionService movilizacionService) : ControllerBase
 {
+    // Un Operador de CAT solo puede registrar en su centro asignado.
+    // El CAT del operador viaja como claim en el token JWT.
+    private string? CatNoAutorizado(CentroAcopio cat)
+    {
+        if (!User.IsInRole("OperadorCAT")) return null;
+
+        var catOperador = User.FindFirst("cat")?.Value;
+        if (string.IsNullOrEmpty(catOperador))
+            return "Tu usuario no tiene un centro de acopio asignado. " +
+                   "Pide a un administrador que te lo asigne.";
+
+        return catOperador != cat.ToString()
+            ? $"Tu usuario solo puede registrar en el centro {catOperador}."
+            : null;
+    }
+
     // ── Entregas por productora: armado de jaulas de hasta 20 ─────────
 
     /// <summary>
@@ -25,6 +41,9 @@ public class RecepcionController(
     [Authorize(Roles = "OperadorCAT,AdminCooperativa,AdminTecnico")]
     public async Task<IActionResult> RegistrarEntrega([FromBody] RegistrarEntregaDto dto)
     {
+        if (CatNoAutorizado(dto.CentroAcopio) is string motivo)
+            return StatusCode(StatusCodes.Status403Forbidden, new { mensaje = motivo });
+
         try
         {
             var resultado = await service.RegistrarEntregaAsync(dto);
@@ -58,6 +77,12 @@ public class RecepcionController(
     [Authorize(Roles = "OperadorCAT,AdminCooperativa,AdminTecnico")]
     public async Task<IActionResult> CerrarLote(string codigoLote)
     {
+        // El código de jaula empieza con el CAT (PAT-…, NIE-…)
+        var prefijo = codigoLote.Split('-')[0];
+        if (Enum.TryParse<CentroAcopio>(prefijo, out var catLote) &&
+            CatNoAutorizado(catLote) is string motivo)
+            return StatusCode(StatusCodes.Status403Forbidden, new { mensaje = motivo });
+
         try
         {
             var resultado = await service.CerrarLoteAsync(codigoLote);
@@ -133,6 +158,13 @@ public class RecepcionController(
     [Authorize(Roles = "OperadorCAT,AdminCooperativa,AdminTecnico")]
     public async Task<IActionResult> SincronizarEntregas([FromBody] SyncEntregasDto dto)
     {
+        foreach (var entrega in dto.Entregas)
+        {
+            if (CatNoAutorizado(entrega.CentroAcopio) is string motivo)
+                return StatusCode(StatusCodes.Status403Forbidden,
+                    new { mensaje = motivo });
+        }
+
         var resultado = await service.SincronizarEntregasAsync(dto);
         return Ok(resultado);
     }

@@ -21,13 +21,18 @@ public class JwtTokenService(IConfiguration configuration) : IJwtTokenService
             new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key)),
             SecurityAlgorithms.HmacSha256);
 
-        var claims = new[]
+        var claims = new List<Claim>
         {
-            new Claim(ClaimTypes.NameIdentifier, usuario.Id.ToString()),
-            new Claim(ClaimTypes.Email,           usuario.Email),
-            new Claim(ClaimTypes.Name,            usuario.NombreCompleto),
-            new Claim(ClaimTypes.Role,            usuario.Rol.ToString())
+            new(ClaimTypes.NameIdentifier, usuario.Id.ToString()),
+            new(ClaimTypes.Email,           usuario.Email),
+            new(ClaimTypes.Name,            usuario.NombreCompleto),
+            new(ClaimTypes.Role,            usuario.Rol.ToString())
         };
+
+        // El CAT asignado viaja en el token para restringir al operador
+        // a registrar solo en su propio centro de acopio
+        if (usuario.CatAsignado is not null)
+            claims.Add(new Claim("cat", usuario.CatAsignado.ToString()!));
 
         var token = new JwtSecurityToken(
             issuer: configuration["Jwt:Issuer"],

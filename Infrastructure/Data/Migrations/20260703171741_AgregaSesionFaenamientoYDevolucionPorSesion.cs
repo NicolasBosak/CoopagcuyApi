@@ -17,6 +17,21 @@ namespace CoopagcuyApi.Infrastructure.Data.Migrations
                 nullable: false,
                 defaultValue: 0);
 
+            // Numera las sesiones ya existentes de cada lote en orden
+            // cronológico (F1, F2, …)
+            migrationBuilder.Sql("""
+                UPDATE "Faenamientos" f
+                SET "NumeroSesion" = sub.rn
+                FROM (
+                    SELECT "Id",
+                           ROW_NUMBER() OVER (
+                               PARTITION BY "LoteId"
+                               ORDER BY "FechaFaenamiento", "Id") AS rn
+                    FROM "Faenamientos"
+                ) sub
+                WHERE f."Id" = sub."Id";
+                """);
+
             migrationBuilder.AddColumn<int>(
                 name: "RegistroFaenamientoId",
                 table: "Devoluciones",

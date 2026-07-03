@@ -440,6 +440,226 @@ public class ReportesService(AppDbContext db) : IReportesService
         );
     }
 
+    // Ficha del lote de producto terminado: agrupa toda la sesión de
+    // planta bajo el código FAE con el detalle por comunidad y por animal
+    private async Task<byte[]> ExportarPDFLoteFaenadoAsync(string codigo)
+    {
+        var loteFaenado = await db.LotesFaenados
+            .Include(lf => lf.Sesiones).ThenInclude(f => f.Cuyes)
+            .Include(lf => lf.Sesiones).ThenInclude(f => f.Lote)
+                .ThenInclude(l => l.Productora)
+            .Include(lf => lf.Sesiones).ThenInclude(f => f.Lote)
+                .ThenInclude(l => l.Cuyes).ThenInclude(c => c.Productora)
+            .FirstOrDefaultAsync(lf => lf.Codigo == codigo)
+            ?? throw new KeyNotFoundException(
+                $"Lote faenado {codigo} no encontrado.");
+
+        // Animales procesados con su origen individual
+        var animales = loteFaenado.Sesiones
+            .SelectMany(f => f.Cuyes.Select(cf => (
+                Faenado: cf,
+                Jaula: f.Lote,
+                Comunidad: f.Lote.Cuyes
+                    .FirstOrDefault(c => c.NumeroEnLote == cf.NumeroEnLote)
+                    ?.Productora?.Comunidad
+                    ?? f.Lote.Productora?.Comunidad ?? "—")))
+            .OrderBy(a => a.Jaula.CodigoLote)
+            .ThenBy(a => a.Faenado.NumeroEnLote)
+            .ToList();
+
+        var aportes = animales
+            .Where(a => a.Faenado.Estado != EstadoCanal.Rechazado)
+            .GroupBy(a => a.Comunidad)
+            .Select(g => (Comunidad: g.Key, Cantidad: g.Count()))
+            .OrderByDescending(x => x.Cantidad)
+            .ToList();
+
+        var unidades = loteFaenado.Sesiones.Sum(f => f.UnidadesFaenadas);
+        var pesoTotal = loteFaenado.Sesiones.Sum(f => f.PesoTotalCanalGramos);
+        var promedio = unidades > 0 ? pesoTotal / unidades : 0;
+
+        byte[]? qrPng = null;
+        var qr = await db.CodigosQR.FirstOrDefaultAsync(
+            q => q.LoteFaenadoId == loteFaenado.Id && q.Activo);
+        if (qr is not null)
+        {
+            using var generador = new QRCodeGenerator();
+            var datos = generador.CreateQrCode(
+                qr.UrlPublica, QRCodeGenerator.ECCLevel.Q);
+            qrPng = new PngByteQRCode(datos).GetGraphic(10);
+        }
+
+        return Document.Create(doc =>
+        {
+            doc.Page(page =>
+            {
+                page.Size(PageSizes.A4);
+                page.Margin(2, Unit.Centimetre);
+                page.DefaultTextStyle(t => t.FontSize(10));
+
+                page.Header().Column(col =>
+                {
+                    col.Item().Row(row =>
+                    {
+                        row.RelativeItem().Column(c =>
+                        {
+                            c.Item().Text("COOPAGCUY — Cuy Azuayito")
+                                .FontSize(16).Bold().FontColor("#2E7D32");
+                            c.Item().Text("Ficha de Lote Faenado")
+                                .FontSize(11).FontColor("#555555");
+                        });
+                        row.ConstantItem(140).AlignRight().Column(c =>
+                        {
+                            c.Item().Text(codigo)
+                                .FontSize(13).Bold().FontColor("#B71C1C");
+                            c.Item().Text(DateTime.Now.ToString("dd/MM/yyyy"))
+                                .FontSize(9).FontColor("#777777");
+                        });
+                    });
+                    col.Item().PaddingTop(4)
+                        .BorderBottom(1).BorderColor("#2E7D32");
+                });
+
+                page.Content().PaddingTop(16).Column(col =>
+                {
+                    // Comunidades que aportaron al lote faenado
+                    col.Item().Background("#F1F8E9").Padding(8).Column(c =>
+                    {
+                        c.Item().Text("COMUNIDADES QUE APORTARON AL LOTE")
+                            .FontSize(9).Bold().FontColor("#2E7D32");
+                        foreach (var (comunidad, cantidad) in aportes)
+                        {
+                            c.Item().PaddingTop(2).Row(r =>
+                            {
+                                r.RelativeItem(3).Text($"• {comunidad}");
+                                r.RelativeItem(1).AlignRight().Text(
+                                    $"{cantidad} {(cantidad == 1 ? "cuy" : "cuyes")}")
+                                    .Bold();
+                            });
+                        }
+                        c.Item().PaddingTop(3).Text(
+                            "Jaulas de origen: " + string.Join(", ",
+                                loteFaenado.Sesiones
+                                    .Select(s => s.Lote.CodigoLote).Distinct()))
+                            .FontSize(8).FontColor("#555555");
+                    });
+
+                    // Datos del proceso
+                    col.Item().PaddingTop(8).Background("#FAFAFA").Padding(8).Column(c =>
+                    {
+                        c.Item().Text("FAENAMIENTO — Sulupali Chico, Santa Isabel")
+                            .FontSize(9).Bold().FontColor("#1565C0");
+                        c.Item().PaddingTop(4).Row(r =>
+                        {
+                            r.RelativeItem().Text(
+                                $"Fecha: {loteFaenado.FechaFaenamiento:dd/MM/yyyy HH:mm}");
+                            r.RelativeItem().Text(
+                                $"Operario: {loteFaenado.OperarioResponsable}");
+                        });
+                        c.Item().Row(r =>
+                        {
+                            r.RelativeItem().Text(
+                                $"Unidades faenadas: {unidades}");
+                            r.RelativeItem().Text(
+                                $"Peso canal total: {pesoTotal:N0}g " +
+                                $"(promedio {promedio:N0}g)");
+                        });
+                        if (loteFaenado.TemperaturaAlmacenamiento is decimal temp)
+                            c.Item().Text($"Temperatura: {temp}°C");
+                    });
+
+                    // Detalle individual: cómo llegó cada cuy de su comunidad
+                    col.Item().PaddingTop(8).Background("#FAFAFA").Padding(8).Column(c =>
+                    {
+                        c.Item().Text("DETALLE POR ANIMAL")
+                            .FontSize(9).Bold().FontColor("#2E7D32");
+
+                        c.Item().PaddingTop(4).Table(tabla =>
+                        {
+                            tabla.ColumnsDefinition(cols =>
+                            {
+                                cols.RelativeColumn(2);    // Jaula origen
+                                cols.ConstantColumn(30);   // N°
+                                cols.RelativeColumn(2);    // Comunidad
+                                cols.ConstantColumn(65);   // Peso canal
+                                cols.ConstantColumn(70);   // Estado
+                                cols.RelativeColumn(2);    // Observación
+                            });
+
+                            tabla.Header(h =>
+                            {
+                                foreach (var titulo in new[]
+                                    { "Jaula origen", "N°", "Comunidad",
+                                      "Peso canal", "Estado", "Observación" })
+                                {
+                                    h.Cell().BorderBottom(1).BorderColor("#CCCCCC")
+                                        .PaddingBottom(2)
+                                        .Text(titulo).FontSize(7).Bold();
+                                }
+                            });
+
+                            foreach (var animal in animales)
+                            {
+                                var colorEstado = animal.Faenado.Estado switch
+                                {
+                                    EstadoCanal.Rechazado => "#B71C1C",
+                                    EstadoCanal.ConNovedad => "#E65100",
+                                    _ => "#2E7D32"
+                                };
+
+                                tabla.Cell().PaddingVertical(1)
+                                    .Text(animal.Jaula.CodigoLote).FontSize(7);
+                                tabla.Cell().PaddingVertical(1)
+                                    .Text($"{animal.Faenado.NumeroEnLote}").FontSize(7);
+                                tabla.Cell().PaddingVertical(1)
+                                    .Text(animal.Comunidad).FontSize(7);
+                                tabla.Cell().PaddingVertical(1)
+                                    .Text(animal.Faenado.PesoCanalGramos is decimal p
+                                        ? $"{p:F0}g" : "—").FontSize(7);
+                                tabla.Cell().PaddingVertical(1)
+                                    .Text(animal.Faenado.Estado.ToString()).FontSize(7)
+                                    .FontColor(colorEstado);
+                                tabla.Cell().PaddingVertical(1)
+                                    .Text(animal.Faenado.Motivo ?? "—").FontSize(7);
+                            }
+                        });
+                    });
+
+                    // Código QR del producto
+                    if (qrPng is not null)
+                    {
+                        col.Item().PaddingTop(8).Background("#FAFAFA").Padding(8).Row(r =>
+                        {
+                            r.ConstantItem(90).Image(qrPng);
+                            r.RelativeItem().PaddingLeft(8).Column(c =>
+                            {
+                                c.Item().Text("CÓDIGO QR DEL PRODUCTO")
+                                    .FontSize(9).Bold().FontColor("#2E7D32");
+                                c.Item().PaddingTop(4).Text(
+                                    "Escanea el código para ver la trazabilidad " +
+                                    "pública de este lote faenado.")
+                                    .FontSize(8).FontColor("#555555");
+                            });
+                        });
+                    }
+
+                    col.Item().PaddingTop(16).BorderTop(1).BorderColor("#CCCCCC")
+                        .PaddingTop(8).Column(c =>
+                        {
+                            c.Item().Text(
+                                "Este documento certifica la trazabilidad del lote " +
+                                "faenado indicado conforme al Sistema Cuy Azuayito — COOPAGCUY.")
+                                .FontSize(8).FontColor("#777777").Italic();
+                            c.Item().Text(
+                                "Proyecto Familias Campesinas Liderando — " +
+                                "Financiado por la Comisión Europea · Ayuda en Acción")
+                                .FontSize(7).FontColor("#AAAAAA");
+                        });
+                });
+            });
+        }).GeneratePdf();
+    }
+
     // Nombre de origen para la ficha: una productora o el conteo de varias
     private static string NombreOrigenLote(
         Features.Productoras.Models.Lote lote)
@@ -461,14 +681,33 @@ public class ReportesService(AppDbContext db) : IReportesService
     {
         QuestPDF.Settings.License = LicenseType.Community;
 
+        // Código de producto terminado (FAE-…): la ficha es del lote
+        // faenado completo, con las comunidades que aportaron
+        if (codigoLote.StartsWith("FAE-", StringComparison.OrdinalIgnoreCase))
+            return await ExportarPDFLoteFaenadoAsync(codigoLote);
+
         var lote = await db.Lotes
             .Include(l => l.Productora)
             .Include(l => l.Novedades)
             .Include(l => l.Cuyes).ThenInclude(c => c.Productora)
-            .Include(l => l.Faenamientos)
+            .Include(l => l.Faenamientos).ThenInclude(f => f.Cuyes)
             .Include(l => l.CodigoQR)
             .FirstOrDefaultAsync(l => l.CodigoLote == codigoLote)
             ?? throw new KeyNotFoundException($"Lote {codigoLote} no encontrado.");
+
+        // Solo los animales procesados en planta: la ficha refleja el
+        // producto faenado, no la recepción completa de la jaula
+        var animalesFaenados = lote.Faenamientos
+            .OrderBy(f => f.NumeroSesion)
+            .SelectMany(f => f.Cuyes.Select(cf => new
+            {
+                Sesion = f.NumeroSesion,
+                Faenado = cf,
+                Recepcion = lote.Cuyes
+                    .FirstOrDefault(c => c.NumeroEnLote == cf.NumeroEnLote)
+            }))
+            .OrderBy(x => x.Sesion).ThenBy(x => x.Faenado.NumeroEnLote)
+            .ToList();
 
         // Agregados sobre las sesiones parciales de faenamiento del lote
         var unidadesFaenadas = lote.Faenamientos.Sum(f => f.UnidadesFaenadas);
@@ -566,12 +805,13 @@ public class ReportesService(AppDbContext db) : IReportesService
                             $"Responsable: {lote.ResponsableRecepcion ?? "-"}");
                     });
 
-                    // Detalle individual por cuy
-                    if (lote.Cuyes.Count > 0)
+                    // Detalle de los animales faenados: la jaula puede reunir
+                    // cuyes de varias comunidades y cada uno lleva su origen
+                    if (animalesFaenados.Count > 0)
                     {
                         col.Item().PaddingTop(8).Background("#FAFAFA").Padding(8).Column(c =>
                         {
-                            c.Item().Text("DETALLE POR ANIMAL")
+                            c.Item().Text("DETALLE DE ANIMALES FAENADOS")
                                 .FontSize(9).Bold().FontColor("#2E7D32");
 
                             c.Item().PaddingTop(4).Table(tabla =>
@@ -579,16 +819,18 @@ public class ReportesService(AppDbContext db) : IReportesService
                                 tabla.ColumnsDefinition(cols =>
                                 {
                                     cols.ConstantColumn(30);   // N°
-                                    cols.ConstantColumn(60);   // Peso
-                                    cols.RelativeColumn(2);    // Color/Oreja/Tamaño
+                                    cols.ConstantColumn(35);   // Sesión
+                                    cols.RelativeColumn(2);    // Comunidad de origen
+                                    cols.ConstantColumn(65);   // Peso canal
                                     cols.ConstantColumn(70);   // Estado
-                                    cols.RelativeColumn(3);    // Motivo
+                                    cols.RelativeColumn(2);    // Observación
                                 });
 
                                 tabla.Header(h =>
                                 {
                                     foreach (var titulo in new[]
-                                        { "N°", "Peso", "Características", "Estado", "Observación" })
+                                        { "N°", "Sesión", "Comunidad de origen",
+                                          "Peso canal", "Estado", "Observación" })
                                     {
                                         h.Cell().BorderBottom(1).BorderColor("#CCCCCC")
                                             .PaddingBottom(2)
@@ -596,27 +838,32 @@ public class ReportesService(AppDbContext db) : IReportesService
                                     }
                                 });
 
-                                foreach (var cuy in lote.Cuyes.OrderBy(x => x.NumeroEnLote))
+                                foreach (var animal in animalesFaenados)
                                 {
-                                    var colorEstado = cuy.Estado switch
+                                    var colorEstado = animal.Faenado.Estado switch
                                     {
-                                        EstadoLote.Rechazado => "#B71C1C",
-                                        EstadoLote.ConNovedad => "#E65100",
+                                        EstadoCanal.Rechazado => "#B71C1C",
+                                        EstadoCanal.ConNovedad => "#E65100",
                                         _ => "#2E7D32"
                                     };
 
+                                    var comunidad = animal.Recepcion?.Productora?.Comunidad
+                                        ?? lote.Productora?.Comunidad ?? "—";
+
                                     tabla.Cell().PaddingVertical(1)
-                                        .Text($"{cuy.NumeroEnLote}").FontSize(7);
+                                        .Text($"{animal.Faenado.NumeroEnLote}").FontSize(7);
                                     tabla.Cell().PaddingVertical(1)
-                                        .Text($"{cuy.PesoGramos:F0}g").FontSize(7);
+                                        .Text($"F{animal.Sesion}").FontSize(7);
                                     tabla.Cell().PaddingVertical(1)
-                                        .Text($"{cuy.ColorPelaje} · {cuy.EstadoOreja} · {cuy.TamanoAnimal}")
-                                        .FontSize(7);
+                                        .Text(comunidad).FontSize(7);
                                     tabla.Cell().PaddingVertical(1)
-                                        .Text(cuy.Estado.ToString()).FontSize(7)
+                                        .Text(animal.Faenado.PesoCanalGramos is decimal p
+                                            ? $"{p:F0}g" : "—").FontSize(7);
+                                    tabla.Cell().PaddingVertical(1)
+                                        .Text(animal.Faenado.Estado.ToString()).FontSize(7)
                                         .FontColor(colorEstado);
                                     tabla.Cell().PaddingVertical(1)
-                                        .Text(cuy.MotivoNovedad ?? "—").FontSize(7);
+                                        .Text(animal.Faenado.Motivo ?? "—").FontSize(7);
                                 }
                             });
                         });

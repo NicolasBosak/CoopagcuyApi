@@ -41,6 +41,7 @@ public class AuthService(
             NombreCompleto: usuario.NombreCompleto,
             Email: usuario.Email,
             Rol: usuario.Rol.ToString(),
+            CatAsignado: usuario.CatAsignado?.ToString(),
             Expira: DateTime.UtcNow.AddHours(10)
         );
     }

@@ -13,6 +13,11 @@ public class RegistroFaenamiento
     // faenarse en varias sesiones parciales y cada una debe identificarse
     public int NumeroSesion { get; set; } = 1;
 
+    // Lote de producto terminado al que pertenece esta sesión: una sesión
+    // de planta que toma animales de varias jaulas genera UN lote faenado
+    public int? LoteFaenadoId { get; set; }
+    public LoteFaenado? LoteFaenado { get; set; }
+
     public DateTime FechaFaenamiento { get; set; }
     public string OperarioResponsable { get; set; } = string.Empty;
     public int UnidadesFaenadas { get; set; }

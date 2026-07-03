@@ -8,12 +8,15 @@ public class CrearUsuarioDto
     public string Email { get; set; } = string.Empty;
     public string Password { get; set; } = string.Empty;
     public RolUsuario Rol { get; set; }
+    // Obligatorio para OperadorCAT: centro donde puede registrar
+    public CentroAcopio? CatAsignado { get; set; }
 }
 
 public class ActualizarUsuarioDto
 {
     public string NombreCompleto { get; set; } = string.Empty;
     public RolUsuario Rol { get; set; }
+    public CentroAcopio? CatAsignado { get; set; }
     // Opcional: si viene, se restablece la contraseña
     public string? NuevaPassword { get; set; }
 }
@@ -23,6 +26,7 @@ public record UsuarioResponseDto(
     string NombreCompleto,
     string Email,
     string Rol,
+    string? CatAsignado,
     bool Activo,
     DateTime FechaCreacion
 );

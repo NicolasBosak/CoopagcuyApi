@@ -10,5 +10,6 @@ public record LoginResponseDto(
     string NombreCompleto,
     string Email,
     string Rol,
+    string? CatAsignado,
     DateTime Expira
 );

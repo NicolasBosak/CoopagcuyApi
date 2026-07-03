@@ -84,22 +84,51 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
 
         await using var transaccion = await db.Database.BeginTransactionAsync();
 
+        // Toda la sesión de planta —aunque tome animales de varias jaulas
+        // y comunidades— se agrupa bajo un solo lote de producto terminado
+        var loteFaenado = new LoteFaenado
+        {
+            Codigo = await GenerarCodigoFaenadoAsync(dto.FechaFaenamiento),
+            FechaFaenamiento = DateTime.SpecifyKind(
+                dto.FechaFaenamiento, DateTimeKind.Utc),
+            OperarioResponsable = dto.OperarioResponsable,
+            TemperaturaAlmacenamiento = dto.TemperaturaAlmacenamiento,
+            Observaciones = dto.Observaciones
+        };
+        db.LotesFaenados.Add(loteFaenado);
+        await db.SaveChangesAsync();
+
         foreach (var sesionLote in dto.Lotes.Where(l => l.Cuyes.Count > 0))
         {
             var (registro, alertasLote) = await RegistrarSesionLoteAsync(
-                sesionLote, dto);
+                sesionLote, dto, loteFaenado);
             registros.Add(registro);
             alertas.AddRange(alertasLote);
         }
 
         await transaccion.CommitAsync();
 
-        return new FaenamientoBatchResultadoDto(registros, alertas);
+        return new FaenamientoBatchResultadoDto(
+            loteFaenado.Codigo, registros, alertas);
+    }
+
+    // Código del producto terminado: FAE-AAAAMMDD-SEC (mismo formato que
+    // el código de jaula, con prefijo de la planta)
+    private async Task<string> GenerarCodigoFaenadoAsync(DateTime fecha)
+    {
+        var fechaUtc = DateTime.SpecifyKind(fecha, DateTimeKind.Utc);
+        var baseStr = $"FAE-{fechaUtc:yyyyMMdd}-";
+
+        var conteo = await db.LotesFaenados
+            .CountAsync(lf => lf.Codigo.StartsWith(baseStr));
+
+        return $"{baseStr}{(conteo + 1):D3}";
     }
 
     private async Task<(FaenamientoResponseDto, List<AlertaNovedadPreviaDto>)>
         RegistrarSesionLoteAsync(
-            FaenamientoLoteDto sesion, RegistrarFaenamientoBatchDto dto)
+            FaenamientoLoteDto sesion, RegistrarFaenamientoBatchDto dto,
+            LoteFaenado loteFaenado)
     {
         var lote = await db.Lotes
             .Include(l => l.Productora)
@@ -147,6 +176,8 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
         var faenamiento = new RegistroFaenamiento
         {
             LoteId = lote.Id,
+            LoteFaenadoId = loteFaenado.Id,
+            LoteFaenado = loteFaenado,
             // Distintivo secuencial de la sesión dentro del lote (F1, F2…)
             NumeroSesion = lote.Faenamientos.Count + 1,
             FechaFaenamiento = DateTime.SpecifyKind(
@@ -231,6 +262,7 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
     {
         var faenamiento = await db.Faenamientos
             .Include(f => f.Lote).ThenInclude(l => l.Productora)
+            .Include(f => f.LoteFaenado)
             .Include(f => f.Cuyes)
             .FirstOrDefaultAsync(f => f.LoteId == loteId);
 
@@ -243,6 +275,7 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
     {
         var faenamiento = await db.Faenamientos
             .Include(f => f.Lote).ThenInclude(l => l.Productora)
+            .Include(f => f.LoteFaenado)
             .Include(f => f.Cuyes)
             .FirstOrDefaultAsync(f => f.Lote.CodigoLote == codigoLote);
 
@@ -256,6 +289,7 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
     {
         var query = db.Faenamientos
             .Include(f => f.Lote).ThenInclude(l => l.Productora)
+            .Include(f => f.LoteFaenado)
             .Include(f => f.Cuyes)
             .AsQueryable();
 
@@ -459,8 +493,52 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
 
     public async Task<InkJetCodigoDto?> ObtenerDatosInkJetAsync(string codigoLote)
     {
+        // Código de lote faenado (FAE-…): el empaque lleva los datos
+        // agregados de toda la sesión de planta
+        if (codigoLote.StartsWith("FAE-", StringComparison.OrdinalIgnoreCase))
+        {
+            var loteFaenado = await db.LotesFaenados
+                .Include(lf => lf.Sesiones).ThenInclude(f => f.Cuyes)
+                .Include(lf => lf.Sesiones).ThenInclude(f => f.Lote)
+                    .ThenInclude(l => l.Cuyes).ThenInclude(c => c.Productora)
+                .FirstOrDefaultAsync(lf => lf.Codigo == codigoLote);
+
+            if (loteFaenado is null) return null;
+
+            var comunidadesLf = loteFaenado.Sesiones
+                .SelectMany(f => f.Cuyes
+                    .Where(c => c.Estado != EstadoCanal.Rechazado)
+                    .Select(c => f.Lote.Cuyes
+                        .FirstOrDefault(x => x.NumeroEnLote == c.NumeroEnLote)
+                        ?.Productora?.Comunidad))
+                .Where(c => !string.IsNullOrEmpty(c))
+                .Select(c => c!)
+                .Distinct()
+                .ToList();
+
+            var unidades = loteFaenado.Sesiones.Sum(f => f.UnidadesFaenadas);
+            var pesoTotal = loteFaenado.Sesiones.Sum(f => f.PesoTotalCanalGramos);
+
+            return new InkJetCodigoDto(
+                CodigoLote: loteFaenado.Codigo,
+                FechaFaenamiento: loteFaenado.FechaFaenamiento.ToString("dd/MM/yyyy"),
+                FechaVencimiento: loteFaenado.FechaFaenamiento.AddDays(5)
+                                             .ToString("dd/MM/yyyy"),
+                ComunidadOrigen: comunidadesLf.Count > 0
+                    ? string.Join(" y ", comunidadesLf) : "Azuay",
+                NombreProductora: comunidadesLf.Count > 1
+                    ? "Varias productoras" : "Familias productoras COOPAGCUY",
+                UnidadesFaenadas: unidades,
+                PesoPromedioCanalGramos: unidades > 0
+                    ? Math.Round(pesoTotal / unidades, 0) : 0
+            );
+        }
+
         var faenamiento = await db.Faenamientos
             .Include(f => f.Lote).ThenInclude(l => l.Productora)
+            .Include(f => f.Lote).ThenInclude(l => l.Cuyes)
+                .ThenInclude(c => c.Productora)
+            .Include(f => f.Cuyes)
             .FirstOrDefaultAsync(f => f.Lote.CodigoLote == codigoLote);
 
         if (faenamiento is null) return null;
@@ -469,14 +547,34 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
             ? faenamiento.PesoTotalCanalGramos / faenamiento.UnidadesFaenadas
             : 0;
 
+        // Comunidades de origen de los animales faenados en esta sesión
+        var numerosFaenados = faenamiento.Cuyes
+            .Where(c => c.Estado != EstadoCanal.Rechazado)
+            .Select(c => c.NumeroEnLote)
+            .ToHashSet();
+
+        var comunidades = faenamiento.Lote.Cuyes
+            .Where(c => numerosFaenados.Contains(c.NumeroEnLote))
+            .Select(c => c.Productora?.Comunidad)
+            .Where(c => !string.IsNullOrEmpty(c))
+            .Select(c => c!)
+            .Distinct()
+            .ToList();
+
+        var comunidadOrigen = comunidades.Count > 0
+            ? string.Join(" y ", comunidades)
+            : faenamiento.Lote.Productora?.Comunidad ?? "Azuay";
+
         return new InkJetCodigoDto(
             CodigoLote: faenamiento.Lote.CodigoLote,
             FechaFaenamiento: faenamiento.FechaFaenamiento.ToString("dd/MM/yyyy"),
             FechaVencimiento: faenamiento.FechaFaenamiento.AddDays(5)
                                          .ToString("dd/MM/yyyy"),
-            ComunidadOrigen: faenamiento.Lote.Productora?.Comunidad ?? "Azuay",
-            NombreProductora: faenamiento.Lote.Productora?.NombreCompleto
-                ?? "Varias productoras",
+            ComunidadOrigen: comunidadOrigen,
+            NombreProductora: comunidades.Count > 1
+                ? "Varias productoras"
+                : faenamiento.Lote.Productora?.NombreCompleto
+                    ?? "Varias productoras",
             UnidadesFaenadas: faenamiento.UnidadesFaenadas,
             PesoPromedioCanalGramos: Math.Round(promedio, 0)
         );
@@ -493,6 +591,7 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
         return new FaenamientoResponseDto(
             Id: f.Id,
             NumeroSesion: f.NumeroSesion,
+            CodigoLoteFaenado: f.LoteFaenado?.Codigo,
             LoteId: f.LoteId,
             CodigoLote: lote.CodigoLote,
             NombreProductora: lote.Productora?.NombreCompleto ?? string.Empty,
