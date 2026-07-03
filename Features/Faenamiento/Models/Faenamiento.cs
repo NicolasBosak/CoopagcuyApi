@@ -9,6 +9,10 @@ public class RegistroFaenamiento
     public int LoteId { get; set; }
     public Lote Lote { get; set; } = null!;
 
+    // Distintivo de la sesión dentro del lote (F1, F2, …): un lote puede
+    // faenarse en varias sesiones parciales y cada una debe identificarse
+    public int NumeroSesion { get; set; } = 1;
+
     public DateTime FechaFaenamiento { get; set; }
     public string OperarioResponsable { get; set; } = string.Empty;
     public int UnidadesFaenadas { get; set; }

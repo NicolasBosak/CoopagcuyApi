@@ -3,6 +3,7 @@ using System;
 using CoopagcuyApi.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CoopagcuyApi.Infrastructure.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260703062527_AgregaJaulasMultiProductorYSaldoFaenamiento")]
+    partial class AgregaJaulasMultiProductorYSaldoFaenamiento
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -246,9 +249,6 @@ namespace CoopagcuyApi.Infrastructure.Data.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
-                    b.Property<int?>("RegistroFaenamientoId")
-                        .HasColumnType("integer");
-
                     b.Property<string>("Responsable")
                         .IsRequired()
                         .HasMaxLength(150)
@@ -257,8 +257,6 @@ namespace CoopagcuyApi.Infrastructure.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("LoteId");
-
-                    b.HasIndex("RegistroFaenamientoId");
 
                     b.ToTable("Devoluciones");
                 });
@@ -289,9 +287,6 @@ namespace CoopagcuyApi.Infrastructure.Data.Migrations
 
                     b.Property<string>("MotivoDecomiso")
                         .HasColumnType("text");
-
-                    b.Property<int>("NumeroSesion")
-                        .HasColumnType("integer");
 
                     b.Property<string>("Observaciones")
                         .HasColumnType("text");
@@ -791,13 +786,7 @@ namespace CoopagcuyApi.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("CoopagcuyApi.Features.Faenamiento.Models.RegistroFaenamiento", "RegistroFaenamiento")
-                        .WithMany()
-                        .HasForeignKey("RegistroFaenamientoId");
-
                     b.Navigation("Lote");
-
-                    b.Navigation("RegistroFaenamiento");
                 });
 
             modelBuilder.Entity("CoopagcuyApi.Features.Faenamiento.Models.RegistroFaenamiento", b =>

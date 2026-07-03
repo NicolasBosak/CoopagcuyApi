@@ -89,6 +89,7 @@ public record ReporteDevolucionesDto(
 public record DevolucionItemDto(
     int Id,
     string CodigoLote,
+    int? NumeroSesion,
     string NombreProductora,
     string Comunidad,
     string ClienteDevuelve,

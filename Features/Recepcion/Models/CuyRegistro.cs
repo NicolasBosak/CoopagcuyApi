@@ -14,6 +14,11 @@ public class CuyRegistro
     public int LoteId { get; set; }
     public Lote Lote { get; set; } = null!;
 
+    // Productora que entregó este animal específico: el lote (jaula)
+    // puede reunir cuyes de varias productoras
+    public int? ProductoraId { get; set; }
+    public Productora? Productora { get; set; }
+
     // Posición del animal dentro del lote (1..20)
     public int NumeroEnLote { get; set; }
 

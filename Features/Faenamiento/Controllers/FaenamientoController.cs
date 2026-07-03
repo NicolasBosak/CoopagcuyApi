@@ -11,20 +11,31 @@ namespace CoopagcuyApi.Features.Faenamiento.Controllers;
 public class FaenamientoController(IFaenamientoService service) : ControllerBase
 {
     /// <summary>
-    /// Registra el faenamiento de un lote proveniente de un CAT.
-    /// Valida que el lote no esté rechazado y que no tenga faenamiento previo.
+    /// Lotes cerrados con animales pendientes de faenar. Los lotes con
+    /// saldo cero desaparecen de esta vista automáticamente.
     /// </summary>
-    [HttpPost]
+    [HttpGet("lotes-disponibles")]
     [Authorize(Roles = "OperadorFaenamiento,AdminCooperativa,AdminTecnico")]
-    public async Task<IActionResult> Registrar([FromBody] RegistrarFaenamientoDto dto)
+    public async Task<IActionResult> LotesDisponibles()
+    {
+        var resultado = await service.LotesDisponiblesAsync();
+        return Ok(resultado);
+    }
+
+    /// <summary>
+    /// Registra una sesión de faenamiento que puede tomar animales de
+    /// varios lotes (cuota). Devuelve alertas cuando una novedad marcada
+    /// en planta ya venía registrada desde la recepción en el CAT.
+    /// </summary>
+    [HttpPost("batch")]
+    [Authorize(Roles = "OperadorFaenamiento,AdminCooperativa,AdminTecnico")]
+    public async Task<IActionResult> RegistrarBatch(
+        [FromBody] RegistrarFaenamientoBatchDto dto)
     {
         try
         {
-            var resultado = await service.RegistrarFaenamientoAsync(dto);
-            return CreatedAtAction(
-                nameof(ObtenerPorLoteId),
-                new { loteId = resultado.LoteId },
-                resultado);
+            var resultado = await service.RegistrarBatchAsync(dto);
+            return Ok(resultado);
         }
         catch (KeyNotFoundException ex)
         {

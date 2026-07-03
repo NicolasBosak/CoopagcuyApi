@@ -2,30 +2,6 @@
 
 namespace CoopagcuyApi.Features.Faenamiento.DTOs;
 
-public class RegistrarFaenamientoDto
-{
-    public int LoteId { get; set; }
-    public DateTime FechaFaenamiento { get; set; }
-    public string OperarioResponsable { get; set; } = string.Empty;
-    public int UnidadesFaenadas { get; set; }
-    public decimal PesoTotalCanalGramos { get; set; }   // referencia: 907g/canal
-    public decimal? TemperaturaAlmacenamiento { get; set; }
-    public EstadoCanal EstadoCanal { get; set; }
-    public string? Observaciones { get; set; }
-
-    // Decomisos y puntos de control intermedios del proceso
-    public int UnidadesDecomisadas { get; set; } = 0;
-    public string? MotivoDecomiso { get; set; }
-    public int? TiempoLavadoMinutos { get; set; }
-    public string? PresentacionEmpaque { get; set; }
-    public DateTime? FechaIngresoFrio { get; set; }
-    public DateTime? FechaSalidaFrio { get; set; }
-
-    // Registro individual por animal. Si viene con datos, los totales
-    // (unidades faenadas, decomisos, peso canal) se derivan de aquí.
-    public List<CuyFaenamientoDto> Cuyes { get; set; } = [];
-}
-
 public class CuyFaenamientoDto
 {
     public int NumeroEnLote { get; set; }
@@ -43,6 +19,58 @@ public record CuyFaenamientoResponseDto(
     string Estado,
     string? Motivo,
     bool RetornadoAProductora
+);
+
+// ── Faenamiento por cuota: puede tomar animales de varios lotes ──────
+
+public class RegistrarFaenamientoBatchDto
+{
+    public DateTime FechaFaenamiento { get; set; }
+    public string OperarioResponsable { get; set; } = string.Empty;
+    public decimal? TemperaturaAlmacenamiento { get; set; }
+    public string? Observaciones { get; set; }
+    public List<FaenamientoLoteDto> Lotes { get; set; } = [];
+}
+
+public class FaenamientoLoteDto
+{
+    public int LoteId { get; set; }
+    public List<CuyFaenamientoDto> Cuyes { get; set; } = [];
+}
+
+public record FaenamientoBatchResultadoDto(
+    List<FaenamientoResponseDto> Registros,
+    // Novedades marcadas en planta que YA venían registradas desde el CAT,
+    // con la productora que envió ese cuy específico
+    List<AlertaNovedadPreviaDto> AlertasNovedadPrevia
+);
+
+public record AlertaNovedadPreviaDto(
+    string CodigoLote,
+    int NumeroEnLote,
+    string NovedadRecepcion,
+    string? NombreProductora,
+    string? Comunidad
+);
+
+// Lotes con saldo pendiente de faenar y sus animales disponibles
+public record LoteDisponibleDto(
+    int LoteId,
+    string CodigoLote,
+    string CentroAcopio,
+    DateTime FechaRecepcion,
+    int CantidadAnimales,
+    int Disponibles,
+    List<CuyDisponibleDto> CuyesDisponibles
+);
+
+public record CuyDisponibleDto(
+    int NumeroEnLote,
+    decimal PesoGramos,
+    string EstadoRecepcion,
+    string? MotivoNovedad,
+    string? NombreProductora,
+    string? Comunidad
 );
 
 public record RetornoProductoraResponseDto(
@@ -71,6 +99,7 @@ public class RegistrarDespachoDto
 
 public record FaenamientoResponseDto(
     int Id,
+    int NumeroSesion,
     int LoteId,
     string CodigoLote,
     string NombreProductora,
@@ -107,6 +136,8 @@ public record DespachoResponseDto(
 public class RegistrarDevolucionDto
 {
     public int LoteId { get; set; }
+    // Sesión de faenamiento de la que proviene el producto devuelto
+    public int? RegistroFaenamientoId { get; set; }
     public string ClienteDevuelve { get; set; } = string.Empty;
     public DateTime FechaDevolucion { get; set; }
     public int CantidadUnidades { get; set; }
@@ -119,6 +150,7 @@ public record DevolucionResponseDto(
     int Id,
     int LoteId,
     string CodigoLote,
+    int? NumeroSesion,
     string NombreProductora,
     string Comunidad,
     string ClienteDevuelve,

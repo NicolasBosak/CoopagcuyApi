@@ -28,8 +28,20 @@ public class GuiaMovilizacionService(AppDbContext db) : IGuiaMovilizacionService
         var lote = await db.Lotes
             .Include(l => l.Productora)
             .Include(l => l.Novedades)
+            .Include(l => l.Cuyes).ThenInclude(c => c.Productora)
             .FirstOrDefaultAsync(l => l.CodigoLote == codigoLote)
             ?? throw new KeyNotFoundException($"Lote {codigoLote} no encontrado.");
+
+        // Productoras que integran la jaula, con su aporte de animales
+        var contribuyentes = lote.Cuyes
+            .Where(c => c.Productora is not null)
+            .GroupBy(c => c.Productora!)
+            .Select(g => (Productora: g.Key, Cantidad: g.Count()))
+            .OrderByDescending(x => x.Cantidad)
+            .ToList();
+
+        if (contribuyentes.Count == 0 && lote.Productora is not null)
+            contribuyentes.Add((lote.Productora, lote.CantidadAnimales));
 
         // Datos del transporte, si ya se registró la movilización
         var movilizacion = await db.Movilizaciones
@@ -69,13 +81,23 @@ public class GuiaMovilizacionService(AppDbContext db) : IGuiaMovilizacionService
                 {
                     col.Item().Background("#F1F8E9").Padding(10).Column(c =>
                     {
-                        c.Item().Text("ORIGEN").FontSize(8).Bold().FontColor("#2E7D32");
+                        c.Item().Text("ORIGEN — PRODUCTORAS DEL LOTE")
+                            .FontSize(8).Bold().FontColor("#2E7D32");
                         c.Item().PaddingTop(3).Text(
-                            $"Productora: {lote.Productora.NombreCompleto}");
-                        c.Item().Text(
-                            $"Comunidad: {lote.Productora.Comunidad} · Cantón: {lote.Productora.Canton}");
-                        c.Item().Text(
                             $"Centro de acopio: {lote.CentroAcopio}");
+
+                        foreach (var (productora, cantidad) in contribuyentes)
+                        {
+                            c.Item().PaddingTop(2).Row(r =>
+                            {
+                                r.RelativeItem(3).Text(
+                                    $"• {productora.NombreCompleto} " +
+                                    $"({productora.Comunidad}, {productora.Canton})");
+                                r.RelativeItem(1).AlignRight().Text(
+                                    $"{cantidad} {(cantidad == 1 ? "cuy" : "cuyes")}")
+                                    .Bold();
+                            });
+                        }
                     });
 
                     col.Item().PaddingTop(8).Background("#E3F2FD").Padding(10).Column(c =>

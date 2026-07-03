@@ -3,6 +3,7 @@ using CoopagcuyApi.Common;
 using CoopagcuyApi.Features.Reportes.DTOs;
 using CoopagcuyApi.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using QRCoder;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
@@ -25,6 +26,18 @@ public interface IReportesService
 
 public class ReportesService(AppDbContext db) : IReportesService
 {
+    // El filtro llega como fecha sin hora ("2026-07-03"): el límite
+    // superior debe cubrir el día completo, no cortar a medianoche.
+    // Devuelve (desde inclusivo, hasta exclusivo = día siguiente 00:00).
+    private static (DateTime desdeUtc, DateTime hastaExclusivoUtc) RangoUtc(
+        FiltroPeriodoDto filtro)
+    {
+        var desde = DateTime.SpecifyKind(filtro.Desde.Date, DateTimeKind.Utc);
+        var hasta = DateTime.SpecifyKind(
+            filtro.Hasta.Date.AddDays(1), DateTimeKind.Utc);
+        return (desde, hasta);
+    }
+
     // ── Dashboard — RF-508 ────────────────────────────────────────────
 
     public async Task<DashboardDto> ObtenerDashboardAsync(
@@ -34,13 +47,15 @@ public class ReportesService(AppDbContext db) : IReportesService
             ? DateTime.SpecifyKind(desde.Value, DateTimeKind.Utc)
             : DateTime.UtcNow.AddDays(-30);
 
+        // Límite superior exclusivo: si llega una fecha sin hora debe
+        // cubrir el día completo
         var hastaUtc = hasta.HasValue
-            ? DateTime.SpecifyKind(hasta.Value, DateTimeKind.Utc)
-            : DateTime.UtcNow;
+            ? DateTime.SpecifyKind(hasta.Value.Date.AddDays(1), DateTimeKind.Utc)
+            : DateTime.UtcNow.AddDays(1);
 
         var lotes = await db.Lotes
             .Where(l => l.FechaRecepcion >= desdeUtc &&
-                        l.FechaRecepcion <= hastaUtc)
+                        l.FechaRecepcion < hastaUtc)
             .ToListAsync();
 
         var total = lotes.Count;
@@ -65,44 +80,44 @@ public class ReportesService(AppDbContext db) : IReportesService
     }
 
     // ── Reporte por productora — RF-501 ───────────────────────────────
+    // Con jaulas compartidas la producción se atribuye por animal: cada
+    // cuy cuenta para la productora que lo entregó, no para el lote.
 
     public async Task<IEnumerable<ReporteProductoraDto>> ReportePorProductoraAsync(
         FiltroPeriodoDto filtro)
     {
-        var desdeUtc = DateTime.SpecifyKind(filtro.Desde, DateTimeKind.Utc);
-        var hastaUtc = DateTime.SpecifyKind(filtro.Hasta, DateTimeKind.Utc);
+        var (desdeUtc, hastaUtc) = RangoUtc(filtro);
 
-        var query = db.Lotes
-            .Include(l => l.Productora)
-            .Where(l => l.FechaRecepcion >= desdeUtc &&
-                        l.FechaRecepcion <= hastaUtc);
+        var query = db.CuyRegistros
+            .Include(c => c.Productora)
+            .Include(c => c.Lote)
+            .Where(c => c.Lote.FechaRecepcion >= desdeUtc &&
+                        c.Lote.FechaRecepcion < hastaUtc &&
+                        c.ProductoraId != null);
 
         if (!string.IsNullOrEmpty(filtro.CentroAcopio) &&
             Enum.TryParse<CentroAcopio>(filtro.CentroAcopio, out var cat))
-            query = query.Where(l => l.CentroAcopio == cat);
+            query = query.Where(c => c.Lote.CentroAcopio == cat);
 
-        var lotes = await query.ToListAsync();
+        var cuyes = await query.ToListAsync();
 
-        return lotes
-            .GroupBy(l => l.Productora)
+        return cuyes
+            .GroupBy(c => c.Productora!)
             .Select(g => new ReporteProductoraDto(
                 ProductoraId: g.Key.Id,
                 NombreProductora: g.Key.NombreCompleto,
                 Comunidad: g.Key.Comunidad,
                 CentroAcopio: g.Key.CatAsignado.ToString(),
-                TotalLotes: g.Count(),
-                TotalAnimales: g.Sum(l => l.CantidadAnimales),
-                LotesAceptados: g.Count(l => l.Estado == EstadoLote.Aceptado),
-                LotesConNovedad: g.Count(l => l.Estado == EstadoLote.ConNovedad),
-                LotesRechazados: g.Count(l => l.Estado == EstadoLote.Rechazado),
-                PesoTotalGramos: g.Sum(l => l.PesoTotalGramos),
-                PesoPromedioGramos: g.Any()
-                    ? Math.Round(g.Average(l => l.PesoTotalGramos /
-                        (l.CantidadAnimales == 0 ? 1 : l.CantidadAnimales)), 0)
-                    : 0,
-                UltimaEntrega: g.Max(l => (DateTime?)l.FechaRecepcion)
+                TotalLotes: g.Select(c => c.LoteId).Distinct().Count(),
+                TotalAnimales: g.Count(),
+                LotesAceptados: g.Count(c => c.Estado == EstadoLote.Aceptado),
+                LotesConNovedad: g.Count(c => c.Estado == EstadoLote.ConNovedad),
+                LotesRechazados: g.Count(c => c.Estado == EstadoLote.Rechazado),
+                PesoTotalGramos: g.Sum(c => c.PesoGramos),
+                PesoPromedioGramos: Math.Round(g.Average(c => c.PesoGramos), 0),
+                UltimaEntrega: g.Max(c => (DateTime?)c.Lote.FechaRecepcion)
             ))
-            .OrderByDescending(r => r.TotalLotes);
+            .OrderByDescending(r => r.TotalAnimales);
     }
 
     // ── Reporte por CAT — RF-502 ──────────────────────────────────────
@@ -110,12 +125,11 @@ public class ReportesService(AppDbContext db) : IReportesService
     public async Task<IEnumerable<ReporteCATDto>> ReportePorCATAsync(
         FiltroPeriodoDto filtro)
     {
-        var desdeUtc = DateTime.SpecifyKind(filtro.Desde, DateTimeKind.Utc);
-        var hastaUtc = DateTime.SpecifyKind(filtro.Hasta, DateTimeKind.Utc);
+        var (desdeUtc, hastaUtc) = RangoUtc(filtro);
 
         var lotes = await db.Lotes
             .Where(l => l.FechaRecepcion >= desdeUtc &&
-                        l.FechaRecepcion <= hastaUtc)
+                        l.FechaRecepcion < hastaUtc)
             .ToListAsync();
 
         return lotes
@@ -144,13 +158,12 @@ public class ReportesService(AppDbContext db) : IReportesService
     public async Task<IEnumerable<ReporteNovedadDto>> ReporteNovedadesAsync(
         FiltroPeriodoDto filtro)
     {
-        var desdeUtc = DateTime.SpecifyKind(filtro.Desde, DateTimeKind.Utc);
-        var hastaUtc = DateTime.SpecifyKind(filtro.Hasta, DateTimeKind.Utc);
+        var (desdeUtc, hastaUtc) = RangoUtc(filtro);
 
         var query = db.Novedades
             .Include(n => n.Lote).ThenInclude(l => l.Productora)
             .Where(n => n.FechaRegistro >= desdeUtc &&
-                        n.FechaRegistro <= hastaUtc);
+                        n.FechaRegistro < hastaUtc);
 
         if (!string.IsNullOrEmpty(filtro.CentroAcopio) &&
             Enum.TryParse<CentroAcopio>(filtro.CentroAcopio, out var cat))
@@ -161,8 +174,10 @@ public class ReportesService(AppDbContext db) : IReportesService
             .Select(n => new ReporteNovedadDto(
                 n.Id,
                 n.Lote.CodigoLote,
-                n.Lote.Productora.NombreCompleto,
-                n.Lote.Productora.Comunidad,
+                n.Lote.Productora != null
+                    ? n.Lote.Productora.NombreCompleto : "Varias productoras",
+                n.Lote.Productora != null
+                    ? n.Lote.Productora.Comunidad : "-",
                 n.Lote.CentroAcopio.ToString(),
                 n.Tipo.ToString(),
                 n.Descripcion,
@@ -277,13 +292,12 @@ public class ReportesService(AppDbContext db) : IReportesService
     public async Task<IEnumerable<ReporteCuyDto>> ReporteCuyesAsync(
         FiltroPeriodoDto filtro)
     {
-        var desdeUtc = DateTime.SpecifyKind(filtro.Desde, DateTimeKind.Utc);
-        var hastaUtc = DateTime.SpecifyKind(filtro.Hasta, DateTimeKind.Utc);
+        var (desdeUtc, hastaUtc) = RangoUtc(filtro);
 
         var query = db.CuyRegistros
             .Include(c => c.Lote).ThenInclude(l => l.Productora)
             .Where(c => c.Lote.FechaRecepcion >= desdeUtc &&
-                        c.Lote.FechaRecepcion <= hastaUtc);
+                        c.Lote.FechaRecepcion < hastaUtc);
 
         if (!string.IsNullOrEmpty(filtro.CentroAcopio) &&
             Enum.TryParse<CentroAcopio>(filtro.CentroAcopio, out var cat))
@@ -295,8 +309,16 @@ public class ReportesService(AppDbContext db) : IReportesService
             .ThenBy(c => c.NumeroEnLote)
             .Select(c => new ReporteCuyDto(
                 c.Lote.CodigoLote,
-                c.Lote.Productora.NombreCompleto,
-                c.Lote.Productora.Comunidad,
+                // La productora del animal específico; los registros antiguos
+                // caen a la productora principal del lote
+                c.Productora != null
+                    ? c.Productora.NombreCompleto
+                    : c.Lote.Productora != null
+                        ? c.Lote.Productora.NombreCompleto : string.Empty,
+                c.Productora != null
+                    ? c.Productora.Comunidad
+                    : c.Lote.Productora != null
+                        ? c.Lote.Productora.Comunidad : string.Empty,
                 c.Lote.CentroAcopio.ToString(),
                 c.NumeroEnLote,
                 c.PesoGramos,
@@ -368,18 +390,17 @@ public class ReportesService(AppDbContext db) : IReportesService
     public async Task<ReporteDevolucionesDto> ReporteDevolucionesAsync(
         FiltroPeriodoDto filtro)
     {
-        var desdeUtc = DateTime.SpecifyKind(filtro.Desde, DateTimeKind.Utc);
-        var hastaUtc = DateTime.SpecifyKind(filtro.Hasta, DateTimeKind.Utc);
+        var (desdeUtc, hastaUtc) = RangoUtc(filtro);
 
         var devQuery = db.Devoluciones
             .Include(d => d.Lote).ThenInclude(l => l.Productora)
             .Where(d => d.FechaDevolucion >= desdeUtc &&
-                        d.FechaDevolucion <= hastaUtc);
+                        d.FechaDevolucion < hastaUtc);
 
         var retQuery = db.RetornosProductora
             .Include(r => r.Lote).ThenInclude(l => l.Productora)
             .Where(r => r.FechaRetorno >= desdeUtc &&
-                        r.FechaRetorno <= hastaUtc);
+                        r.FechaRetorno < hastaUtc);
 
         if (!string.IsNullOrEmpty(filtro.CentroAcopio) &&
             Enum.TryParse<CentroAcopio>(filtro.CentroAcopio, out var cat))
@@ -392,7 +413,12 @@ public class ReportesService(AppDbContext db) : IReportesService
             .OrderByDescending(d => d.FechaDevolucion)
             .Select(d => new DevolucionItemDto(
                 d.Id, d.Lote.CodigoLote,
-                d.Lote.Productora.NombreCompleto, d.Lote.Productora.Comunidad,
+                d.RegistroFaenamiento != null
+                    ? d.RegistroFaenamiento.NumeroSesion : null,
+                d.Lote.Productora != null
+                    ? d.Lote.Productora.NombreCompleto : "Varias productoras",
+                d.Lote.Productora != null
+                    ? d.Lote.Productora.Comunidad : "-",
                 d.ClienteDevuelve, d.FechaDevolucion,
                 d.CantidadUnidades, d.Motivo))
             .ToListAsync();
@@ -401,7 +427,7 @@ public class ReportesService(AppDbContext db) : IReportesService
             .OrderByDescending(r => r.FechaRetorno)
             .Select(r => new RetornoItemDto(
                 r.Id, r.Lote.CodigoLote,
-                r.Lote.Productora.NombreCompleto, r.Lote.Productora.Comunidad,
+                r.Productora.NombreCompleto, r.Productora.Comunidad,
                 r.NumeroEnLote, r.Motivo, r.FechaRetorno, r.Responsable))
             .ToListAsync();
 
@@ -414,6 +440,21 @@ public class ReportesService(AppDbContext db) : IReportesService
         );
     }
 
+    // Nombre de origen para la ficha: una productora o el conteo de varias
+    private static string NombreOrigenLote(
+        Features.Productoras.Models.Lote lote)
+    {
+        var distintas = lote.Cuyes
+            .Where(c => c.Productora is not null)
+            .Select(c => c.Productora!.Id)
+            .Distinct()
+            .Count();
+
+        return distintas > 1
+            ? $"Varias productoras ({distintas})"
+            : lote.Productora?.NombreCompleto ?? "-";
+    }
+
     // ── Exportar PDF de ficha de lote — RF-505 ────────────────────────
 
     public async Task<byte[]> ExportarPDFLoteAsync(string codigoLote)
@@ -423,15 +464,31 @@ public class ReportesService(AppDbContext db) : IReportesService
         var lote = await db.Lotes
             .Include(l => l.Productora)
             .Include(l => l.Novedades)
-            .Include(l => l.Cuyes)
-            .Include(l => l.Faenamiento)
+            .Include(l => l.Cuyes).ThenInclude(c => c.Productora)
+            .Include(l => l.Faenamientos)
             .Include(l => l.CodigoQR)
             .FirstOrDefaultAsync(l => l.CodigoLote == codigoLote)
             ?? throw new KeyNotFoundException($"Lote {codigoLote} no encontrado.");
 
-        var promedio = lote.Faenamiento?.UnidadesFaenadas > 0
-            ? lote.Faenamiento!.PesoTotalCanalGramos / lote.Faenamiento.UnidadesFaenadas
+        // Agregados sobre las sesiones parciales de faenamiento del lote
+        var unidadesFaenadas = lote.Faenamientos.Sum(f => f.UnidadesFaenadas);
+        var pesoCanalTotal = lote.Faenamientos.Sum(f => f.PesoTotalCanalGramos);
+        var ultimaSesion = lote.Faenamientos
+            .OrderByDescending(f => f.FechaFaenamiento)
+            .FirstOrDefault();
+        var promedio = unidadesFaenadas > 0
+            ? pesoCanalTotal / unidadesFaenadas
             : 0;
+
+        // Imagen del código QR del lote, si ya fue generado
+        byte[]? qrPng = null;
+        if (lote.CodigoQR is not null && lote.CodigoQR.Activo)
+        {
+            using var generador = new QRCodeGenerator();
+            var datos = generador.CreateQrCode(
+                lote.CodigoQR.UrlPublica, QRCodeGenerator.ECCLevel.Q);
+            qrPng = new PngByteQRCode(datos).GetGraphic(10);
+        }
 
         return Document.Create(doc =>
         {
@@ -474,14 +531,14 @@ public class ReportesService(AppDbContext db) : IReportesService
                         c.Item().PaddingTop(4).Row(r =>
                         {
                             r.RelativeItem().Text(
-                                $"Productora: {lote.Productora.NombreCompleto}");
+                                $"Productora: {NombreOrigenLote(lote)}");
                             r.RelativeItem().Text(
-                                $"Comunidad: {lote.Productora.Comunidad}");
+                                $"Comunidad: {lote.Productora?.Comunidad ?? "-"}");
                         });
                         c.Item().Row(r =>
                         {
                             r.RelativeItem().Text(
-                                $"Cantón: {lote.Productora.Canton}");
+                                $"Cantón: {lote.Productora?.Canton ?? "-"}");
                             r.RelativeItem().Text(
                                 $"CAT: {lote.CentroAcopio}");
                         });
@@ -580,36 +637,55 @@ public class ReportesService(AppDbContext db) : IReportesService
                         });
                     }
 
-                    // Faenamiento
-                    if (lote.Faenamiento is not null)
+                    // Faenamiento: una entrada por cada sesión parcial
+                    if (lote.Faenamientos.Count > 0)
                     {
                         col.Item().PaddingTop(8).Background("#FAFAFA").Padding(8).Column(c =>
                         {
                             c.Item().Text("FAENAMIENTO — Sulupali Chico, Santa Isabel")
                                 .FontSize(9).Bold().FontColor("#1565C0");
-                            c.Item().PaddingTop(4).Row(r =>
+                            c.Item().PaddingTop(2).Row(r =>
                             {
                                 r.RelativeItem().Text(
-                                    $"Fecha: {lote.Faenamiento.FechaFaenamiento:dd/MM/yyyy}");
-                                r.RelativeItem().Text(
-                                    $"Unidades: {lote.Faenamiento.UnidadesFaenadas}");
-                            });
-                            c.Item().Row(r =>
-                            {
-                                r.RelativeItem().Text(
-                                    $"Peso canal total: {lote.Faenamiento.PesoTotalCanalGramos:N0}g");
+                                    $"Total faenado: {unidadesFaenadas} unidades");
                                 r.RelativeItem().Text(
                                     $"Peso promedio: {promedio:N0}g");
                             });
-                            c.Item().Row(r =>
+
+                            foreach (var sesion in lote.Faenamientos
+                                .OrderBy(f => f.FechaFaenamiento))
                             {
-                                r.RelativeItem().Text(
-                                    $"Estado canal: {lote.Faenamiento.EstadoCanal}");
-                                r.RelativeItem().Text(
-                                    $"Temperatura: {lote.Faenamiento.TemperaturaAlmacenamiento}°C");
+                                c.Item().PaddingTop(4).Text(
+                                    $"• {sesion.FechaFaenamiento:dd/MM/yyyy}: " +
+                                    $"{sesion.UnidadesFaenadas} faenados" +
+                                    (sesion.UnidadesDecomisadas > 0
+                                        ? $", {sesion.UnidadesDecomisadas} decomisados" : "") +
+                                    $" · {sesion.PesoTotalCanalGramos:N0}g" +
+                                    $" · Estado: {sesion.EstadoCanal}" +
+                                    $" · Operario: {sesion.OperarioResponsable}")
+                                    .FontSize(8);
+                            }
+                        });
+                    }
+
+                    // Código QR de trazabilidad pública
+                    if (qrPng is not null)
+                    {
+                        col.Item().PaddingTop(8).Background("#FAFAFA").Padding(8).Row(r =>
+                        {
+                            r.ConstantItem(90).Image(qrPng);
+                            r.RelativeItem().PaddingLeft(8).Column(c =>
+                            {
+                                c.Item().Text("CÓDIGO QR DEL PRODUCTO")
+                                    .FontSize(9).Bold().FontColor("#2E7D32");
+                                c.Item().PaddingTop(4).Text(
+                                    "Escanea el código para ver la trazabilidad " +
+                                    "pública de este lote.")
+                                    .FontSize(8).FontColor("#555555");
+                                c.Item().PaddingTop(2)
+                                    .Text(lote.CodigoQR!.UrlPublica)
+                                    .FontSize(7).FontColor("#999999");
                             });
-                            c.Item().Text(
-                                $"Operario: {lote.Faenamiento.OperarioResponsable}");
                         });
                     }
 

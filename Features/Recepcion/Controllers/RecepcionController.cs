@@ -14,25 +14,58 @@ public class RecepcionController(
     IGuiaMovilizacionService guiaService,
     IMovilizacionService movilizacionService) : ControllerBase
 {
+    // ── Entregas por productora: armado de jaulas de hasta 20 ─────────
+
     /// <summary>
-    /// Registra un nuevo lote de cuyes en un CAT.
-    /// Aplica automáticamente las reglas de peso, color, edad y ayuno.
+    /// Registra la entrega de una productora. Los cuyes se acumulan en la
+    /// jaula abierta del CAT; al completar 20 la jaula se cierra como lote
+    /// y el remanente abre una jaula nueva.
     /// </summary>
-    [HttpPost("lotes")]
+    [HttpPost("entregas")]
     [Authorize(Roles = "OperadorCAT,AdminCooperativa,AdminTecnico")]
-    public async Task<IActionResult> RegistrarLote([FromBody] RegistrarLoteDto dto)
+    public async Task<IActionResult> RegistrarEntrega([FromBody] RegistrarEntregaDto dto)
     {
         try
         {
-            var resultado = await service.RegistrarLoteAsync(dto);
-            return CreatedAtAction(
-                nameof(ObtenerLotePorId),
-                new { id = resultado.Id },
-                resultado);
+            var resultado = await service.RegistrarEntregaAsync(dto);
+            return Ok(resultado);
         }
         catch (KeyNotFoundException ex)
         {
             return NotFound(new { mensaje = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { mensaje = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Obtiene la jaula abierta (en armado) del CAT, si existe.
+    /// </summary>
+    [HttpGet("lotes/abierto")]
+    public async Task<IActionResult> ObtenerLoteAbierto([FromQuery] CentroAcopio cat)
+    {
+        var resultado = await service.ObtenerLoteAbiertoAsync(cat);
+        return resultado is null ? NoContent() : Ok(resultado);
+    }
+
+    /// <summary>
+    /// Cierra manualmente la jaula abierta aunque no llegue a 20,
+    /// dejándola lista para movilización.
+    /// </summary>
+    [HttpPost("lotes/{codigoLote}/cerrar")]
+    [Authorize(Roles = "OperadorCAT,AdminCooperativa,AdminTecnico")]
+    public async Task<IActionResult> CerrarLote(string codigoLote)
+    {
+        try
+        {
+            var resultado = await service.CerrarLoteAsync(codigoLote);
+            return resultado is null ? NotFound() : Ok(resultado);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { mensaje = ex.Message });
         }
     }
 
@@ -96,11 +129,11 @@ public class RecepcionController(
     /// Recibe un batch de lotes capturados sin internet en el CAT
     /// y los registra en la base de datos central.
     /// </summary>
-    [HttpPost("sync")]
+    [HttpPost("sync-entregas")]
     [Authorize(Roles = "OperadorCAT,AdminCooperativa,AdminTecnico")]
-    public async Task<IActionResult> SincronizarOffline([FromBody] SyncLotesDto dto)
+    public async Task<IActionResult> SincronizarEntregas([FromBody] SyncEntregasDto dto)
     {
-        var resultado = await service.SincronizarOfflineAsync(dto);
+        var resultado = await service.SincronizarEntregasAsync(dto);
         return Ok(resultado);
     }
 

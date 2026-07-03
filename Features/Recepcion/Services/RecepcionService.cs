@@ -9,83 +9,185 @@ namespace CoopagcuyApi.Features.Recepcion.Services;
 
 public interface IRecepcionService
 {
-    Task<LoteResponseDto> RegistrarLoteAsync(RegistrarLoteDto dto);
+    Task<EntregaResultadoDto> RegistrarEntregaAsync(RegistrarEntregaDto dto);
+    Task<LoteResponseDto?> ObtenerLoteAbiertoAsync(CentroAcopio cat);
+    Task<LoteResponseDto?> CerrarLoteAsync(string codigoLote);
     Task<LoteResponseDto?> ObtenerLotePorIdAsync(int id);
     Task<LoteResponseDto?> ObtenerLotePorCodigoAsync(string codigo);
     Task<IEnumerable<LoteResponseDto>> ListarLotesAsync(
         CentroAcopio? cat, EstadoLote? estado, DateTime? desde, DateTime? hasta);
-    Task<SyncResultadoDto> SincronizarOfflineAsync(SyncLotesDto dto);
+    Task<SyncResultadoDto> SincronizarEntregasAsync(SyncEntregasDto dto);
 }
 
 public class RecepcionService(AppDbContext db) : IRecepcionService
 {
-    // ── Registro individual de lote ───────────────────────────────────
+    // Capacidad máxima de la jaula de transporte — SRS RF-104
+    private const int CapacidadJaula = 20;
 
-    public async Task<LoteResponseDto> RegistrarLoteAsync(RegistrarLoteDto dto)
+    // ── Entregas por productora: la jaula se arma acumulando ─────────
+    // Cada productora entrega los cuyes que quiera; se suman a la jaula
+    // abierta del CAT hasta completar 20. Al llenarse, la jaula se cierra
+    // y el remanente de la entrega abre una jaula nueva.
+
+    public async Task<EntregaResultadoDto> RegistrarEntregaAsync(RegistrarEntregaDto dto)
     {
-        // 1. Verificar que la productora existe
         var productora = await db.Productoras.FindAsync(dto.ProductoraId)
             ?? throw new KeyNotFoundException(
                 $"Productora con Id {dto.ProductoraId} no encontrada.");
 
-        // 2. Generar código único de lote — SRS RF-103 / Apéndice 5.2
-        var codigoLote = await GenerarCodigoLoteAsync(dto.CentroAcopio, dto.FechaRecepcion);
+        if (dto.Cuyes.Count == 0)
+            throw new InvalidOperationException(
+                "La entrega debe incluir al menos un cuy.");
 
-        var registroIndividual = dto.Cuyes.Count > 0;
+        var fechaUtc = DateTime.SpecifyKind(dto.FechaEntrega, DateTimeKind.Utc);
+        var pendientes = new Queue<CuyRegistroDto>(dto.Cuyes);
+        var lotesAfectados = new List<Lote>();
+        var seCompletoJaula = false;
 
-        // 3. Aplicar reglas de negocio — SRS Apéndice 5.1.
-        //    Con registro individual la evaluación es cuy por cuy y los
-        //    totales del lote se derivan de los animales; el flujo agregado
-        //    se mantiene para registros offline con el formato anterior.
-        EstadoLote estado;
-        List<Novedad> novedades;
-        List<CuyRegistro> cuyes = [];
-
-        if (registroIndividual)
-            (estado, novedades, cuyes) = EvaluarCuyes(dto);
-        else
-            (estado, novedades) = EvaluarLote(dto);
-
-        // 4. Crear lote
-        var lote = new Lote
+        while (pendientes.Count > 0)
         {
-            CodigoLote = codigoLote,
+            var lote = await ObtenerOCrearJaulaAbiertaAsync(dto, fechaUtc);
+            if (!lotesAfectados.Contains(lote))
+                lotesAfectados.Add(lote);
+
+            var espacio = CapacidadJaula - lote.CantidadAnimales;
+            var aTomar = Math.Min(espacio, pendientes.Count);
+
+            for (var i = 0; i < aTomar; i++)
+            {
+                var cuyDto = pendientes.Dequeue();
+                var numero = lote.CantidadAnimales + 1;
+
+                var (cuy, novedades) = EvaluarCuyIndividual(
+                    cuyDto, numero, dto.ResponsableRecepcion);
+
+                cuy.LoteId = lote.Id;
+                cuy.ProductoraId = dto.ProductoraId;
+                db.CuyRegistros.Add(cuy);
+                lote.Cuyes.Add(cuy);
+
+                foreach (var novedad in novedades)
+                {
+                    novedad.LoteId = lote.Id;
+                    novedad.Descripcion =
+                        $"{novedad.Descripcion} (entregado por {productora.NombreCompleto})";
+                    db.Novedades.Add(novedad);
+                }
+
+                lote.CantidadAnimales = numero;
+                lote.PesoTotalGramos += cuyDto.PesoGramos;
+            }
+
+            // Condición de ayuno: aplica a la entrega de esta productora
+            if (!dto.EnAyunas)
+            {
+                db.Novedades.Add(new Novedad
+                {
+                    LoteId = lote.Id,
+                    Tipo = TipoNovedad.SinAyuno,
+                    Descripcion = $"Entrega de {productora.NombreCompleto} recibida sin ayuno. " +
+                                  "El peso registrado puede no ser el peso real.",
+                    RegistradoPor = dto.ResponsableRecepcion
+                });
+            }
+
+            RecalcularEstadoLote(lote);
+
+            if (lote.CantidadAnimales >= CapacidadJaula)
+            {
+                lote.Cerrado = true;
+                lote.FechaCierre = DateTime.UtcNow;
+                seCompletoJaula = true;
+            }
+
+            await db.SaveChangesAsync();
+        }
+
+        var respuesta = new List<LoteResponseDto>();
+        foreach (var lote in lotesAfectados)
+            respuesta.Add(await MapearLoteAsync(lote.Id));
+
+        return new EntregaResultadoDto(
+            CuyesRegistrados: dto.Cuyes.Count,
+            LotesAfectados: respuesta,
+            SeCompletoJaula: seCompletoJaula
+        );
+    }
+
+    public async Task<LoteResponseDto?> ObtenerLoteAbiertoAsync(CentroAcopio cat)
+    {
+        var lote = await db.Lotes
+            .Where(l => l.CentroAcopio == cat && !l.Cerrado)
+            .OrderBy(l => l.Id)
+            .FirstOrDefaultAsync();
+
+        return lote is null ? null : await MapearLoteAsync(lote.Id);
+    }
+
+    public async Task<LoteResponseDto?> CerrarLoteAsync(string codigoLote)
+    {
+        var lote = await db.Lotes
+            .FirstOrDefaultAsync(l => l.CodigoLote == codigoLote);
+
+        if (lote is null) return null;
+
+        if (lote.Cerrado)
+            throw new InvalidOperationException(
+                $"El lote {codigoLote} ya está cerrado.");
+
+        if (lote.CantidadAnimales == 0)
+            throw new InvalidOperationException(
+                "No se puede cerrar una jaula vacía.");
+
+        lote.Cerrado = true;
+        lote.FechaCierre = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+
+        return await MapearLoteAsync(lote.Id);
+    }
+
+    private async Task<Lote> ObtenerOCrearJaulaAbiertaAsync(
+        RegistrarEntregaDto dto, DateTime fechaUtc)
+    {
+        var abierta = await db.Lotes
+            .Include(l => l.Cuyes)
+            .Where(l => l.CentroAcopio == dto.CentroAcopio && !l.Cerrado)
+            .OrderBy(l => l.Id)
+            .FirstOrDefaultAsync();
+
+        if (abierta is not null) return abierta;
+
+        var nueva = new Lote
+        {
+            CodigoLote = await GenerarCodigoLoteAsync(dto.CentroAcopio, fechaUtc),
+            // La primera productora que entrega queda como referencia histórica
             ProductoraId = dto.ProductoraId,
             CentroAcopio = dto.CentroAcopio,
-            FechaRecepcion = DateTime.SpecifyKind(dto.FechaRecepcion, DateTimeKind.Utc), // ← fix
-            CantidadAnimales = registroIndividual ? cuyes.Count : dto.CantidadAnimales,
-            PesoTotalGramos = registroIndividual
-                ? cuyes.Sum(c => c.PesoGramos) : dto.PesoTotalGramos,
-            Estado = estado,
+            FechaRecepcion = fechaUtc,
+            CantidadAnimales = 0,
+            PesoTotalGramos = 0,
+            Estado = EstadoLote.Aceptado,
+            Cerrado = false,
             ResponsableRecepcion = dto.ResponsableRecepcion,
             Observaciones = dto.Observaciones,
-            SignosClinicos = string.IsNullOrWhiteSpace(dto.SignosClinicos)
-                ? null : dto.SignosClinicos.Trim(),
             SincronizadoOffline = dto.SincronizadoOffline,
             FechaSincronizacion = dto.SincronizadoOffline ? DateTime.UtcNow : null
         };
 
-        db.Lotes.Add(lote);
+        db.Lotes.Add(nueva);
         await db.SaveChangesAsync();
+        return nueva;
+    }
 
-        // 5. Guardar el detalle individual por animal
-        foreach (var cuy in cuyes)
-        {
-            cuy.LoteId = lote.Id;
-            db.CuyRegistros.Add(cuy);
-        }
+    private static void RecalcularEstadoLote(Lote lote)
+    {
+        if (lote.Cuyes.Count == 0) return;
 
-        // 6. Guardar novedades detectadas automáticamente
-        foreach (var novedad in novedades)
-        {
-            novedad.LoteId = lote.Id;
-            db.Novedades.Add(novedad);
-        }
-
-        if (cuyes.Count > 0 || novedades.Count > 0)
-            await db.SaveChangesAsync();
-
-        return await MapearLoteAsync(lote.Id);
+        lote.Estado = lote.Cuyes.All(c => c.Estado == EstadoLote.Rechazado)
+            ? EstadoLote.Rechazado
+            : lote.Cuyes.Any(c => c.Estado != EstadoLote.Aceptado)
+                ? EstadoLote.ConNovedad
+                : EstadoLote.Aceptado;
     }
 
     // ── Consultas ─────────────────────────────────────────────────────
@@ -108,7 +210,8 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
         var query = db.Lotes
             .Include(l => l.Productora)
             .Include(l => l.Novedades)
-            .Include(l => l.Cuyes)
+            .Include(l => l.Cuyes).ThenInclude(c => c.Productora)
+            .Include(l => l.Faenamientos).ThenInclude(f => f.Cuyes)
             .AsQueryable();
 
         if (cat.HasValue)
@@ -131,141 +234,112 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
     }
 
     // ── Sincronización offline — RF-211 ───────────────────────────────
-
-    public async Task<SyncResultadoDto> SincronizarOfflineAsync(SyncLotesDto dto)
+    // Las entregas capturadas sin conexión se aplican en orden con la
+    // misma lógica de acumulación en jaulas que un registro en línea
+    public async Task<SyncResultadoDto> SincronizarEntregasAsync(SyncEntregasDto dto)
     {
         var errores = new List<SyncErrorDto>();
-        var guardados = 0;
+        var guardadas = 0;
 
-        foreach (var loteDto in dto.Lotes)
+        foreach (var entrega in dto.Entregas)
         {
             try
             {
-                // DESPUÉS (con clase):
-                loteDto.SincronizadoOffline = true;
-                loteDto.DispositivoId = dto.DispositivoId;
-                var loteConSync = loteDto;
-
-                await RegistrarLoteAsync(loteConSync);
-                guardados++;
+                entrega.SincronizadoOffline = true;
+                entrega.DispositivoId = dto.DispositivoId;
+                await RegistrarEntregaAsync(entrega);
+                guardadas++;
             }
             catch (Exception ex)
             {
                 errores.Add(new SyncErrorDto(
                     DispositivoId: dto.DispositivoId,
-                    CodigoLoteTemp: $"{loteDto.CentroAcopio}-{loteDto.FechaRecepcion:yyyyMMdd}-TEMP",
+                    CodigoLoteTemp: $"{entrega.CentroAcopio}-{entrega.FechaEntrega:yyyyMMdd}-ENTREGA",
                     Motivo: ex.Message
                 ));
             }
         }
 
         return new SyncResultadoDto(
-            TotalRecibidos: dto.Lotes.Count,
-            TotalGuardados: guardados,
+            TotalRecibidos: dto.Entregas.Count,
+            TotalGuardados: guardadas,
             TotalConError: errores.Count,
             Errores: errores
         );
     }
 
     // ── Evaluación individual por cuy — SRS Apéndice 5.1 ─────────────
-    // Cada animal se evalúa por separado; el estado del lote se deriva:
-    // todos rechazados → Rechazado; alguna observación → ConNovedad.
 
-    private static (EstadoLote estado, List<Novedad> novedades, List<CuyRegistro> cuyes)
-        EvaluarCuyes(RegistrarLoteDto dto)
+    private static (CuyRegistro cuy, List<Novedad> novedades) EvaluarCuyIndividual(
+        CuyRegistroDto c, int numero, string responsable)
     {
         var novedades = new List<Novedad>();
-        var cuyes = new List<CuyRegistro>();
-        var numero = 0;
+        var motivos = new List<string>();
+        var rechazado = false;
 
-        foreach (var c in dto.Cuyes)
+        if (c.PesoGramos < 850)
         {
-            numero++;
-            var motivos = new List<string>();
-            var rechazado = false;
-
-            if (c.PesoGramos < 850)
-            {
-                rechazado = true;
-                motivos.Add($"peso {c.PesoGramos:F0}g bajo el mínimo (850g)");
-                novedades.Add(NovedadDeCuy(numero, TipoNovedad.BajoPeso,
-                    $"Peso {c.PesoGramos:F0}g por debajo del mínimo (850g). Animal rechazado.",
-                    dto.ResponsableRecepcion, c.PesoGramos));
-            }
-            else if (c.PesoGramos < 875)
-            {
-                motivos.Add($"peso justo ({c.PesoGramos:F0}g)");
-                novedades.Add(NovedadDeCuy(numero, TipoNovedad.BajoPeso,
-                    $"Peso {c.PesoGramos:F0}g entre 850g–874g. Pasa con observación.",
-                    dto.ResponsableRecepcion, c.PesoGramos));
-            }
-            else if (c.PesoGramos > 1300)
-            {
-                motivos.Add($"sobre el rango operativo ({c.PesoGramos:F0}g)");
-                novedades.Add(NovedadDeCuy(numero, TipoNovedad.SobrePeso,
-                    $"Peso {c.PesoGramos:F0}g sobre el rango operativo (máx. 1300g).",
-                    dto.ResponsableRecepcion, c.PesoGramos));
-            }
-
-            if (c.ColorPelaje.Equals("Negro", StringComparison.OrdinalIgnoreCase))
-            {
-                motivos.Add("piel negra");
-                novedades.Add(NovedadDeCuy(numero, TipoNovedad.ColorNoConforme,
-                    "Piel completamente negra. No conforme para mercado formal.",
-                    dto.ResponsableRecepcion, null));
-            }
-
-            if (c.EstadoOreja.Equals("Dura", StringComparison.OrdinalIgnoreCase))
-            {
-                motivos.Add("oreja dura");
-                novedades.Add(NovedadDeCuy(numero, TipoNovedad.OrejaDura,
-                    "Oreja dura: animal de edad avanzada.",
-                    dto.ResponsableRecepcion, null));
-            }
-
-            if (!string.IsNullOrWhiteSpace(c.SignosClinicos))
-            {
-                motivos.Add($"signos clínicos: {c.SignosClinicos.Trim()}");
-                novedades.Add(NovedadDeCuy(numero, TipoNovedad.SignosClinicos,
-                    $"Condición sanitaria con observación: {c.SignosClinicos.Trim()}",
-                    dto.ResponsableRecepcion, null));
-            }
-
-            cuyes.Add(new CuyRegistro
-            {
-                NumeroEnLote = numero,
-                PesoGramos = c.PesoGramos,
-                ColorPelaje = c.ColorPelaje,
-                EstadoOreja = c.EstadoOreja,
-                TamanoAnimal = c.TamanoAnimal,
-                SignosClinicos = string.IsNullOrWhiteSpace(c.SignosClinicos)
-                    ? null : c.SignosClinicos.Trim(),
-                Estado = rechazado ? EstadoLote.Rechazado
-                    : motivos.Count > 0 ? EstadoLote.ConNovedad
-                    : EstadoLote.Aceptado,
-                MotivoNovedad = motivos.Count > 0
-                    ? string.Join("; ", motivos) : null
-            });
+            rechazado = true;
+            motivos.Add($"peso {c.PesoGramos:F0}g bajo el mínimo (850g)");
+            novedades.Add(NovedadDeCuy(numero, TipoNovedad.BajoPeso,
+                $"Peso {c.PesoGramos:F0}g por debajo del mínimo (850g). Animal rechazado.",
+                responsable, c.PesoGramos));
+        }
+        else if (c.PesoGramos < 875)
+        {
+            motivos.Add($"peso justo ({c.PesoGramos:F0}g)");
+            novedades.Add(NovedadDeCuy(numero, TipoNovedad.BajoPeso,
+                $"Peso {c.PesoGramos:F0}g entre 850g–874g. Pasa con observación.",
+                responsable, c.PesoGramos));
+        }
+        else if (c.PesoGramos > 1300)
+        {
+            motivos.Add($"sobre el rango operativo ({c.PesoGramos:F0}g)");
+            novedades.Add(NovedadDeCuy(numero, TipoNovedad.SobrePeso,
+                $"Peso {c.PesoGramos:F0}g sobre el rango operativo (máx. 1300g).",
+                responsable, c.PesoGramos));
         }
 
-        // Condición de ayuno: aplica al lote completo (condición de entrega)
-        if (!dto.EnAyunas)
+        if (c.ColorPelaje.Equals("Negro", StringComparison.OrdinalIgnoreCase))
         {
-            novedades.Add(new Novedad
-            {
-                Tipo = TipoNovedad.SinAyuno,
-                Descripcion = "Lote recibido sin ayuno. El peso registrado puede no ser el peso real.",
-                RegistradoPor = dto.ResponsableRecepcion
-            });
+            motivos.Add("piel negra");
+            novedades.Add(NovedadDeCuy(numero, TipoNovedad.ColorNoConforme,
+                "Piel completamente negra. No conforme para mercado formal.",
+                responsable, null));
         }
 
-        var estadoLote = cuyes.Count > 0 && cuyes.All(c => c.Estado == EstadoLote.Rechazado)
-            ? EstadoLote.Rechazado
-            : novedades.Count > 0 || cuyes.Any(c => c.Estado != EstadoLote.Aceptado)
-                ? EstadoLote.ConNovedad
-                : EstadoLote.Aceptado;
+        if (c.EstadoOreja.Equals("Dura", StringComparison.OrdinalIgnoreCase))
+        {
+            motivos.Add("oreja dura");
+            novedades.Add(NovedadDeCuy(numero, TipoNovedad.OrejaDura,
+                "Oreja dura: animal de edad avanzada.",
+                responsable, null));
+        }
 
-        return (estadoLote, novedades, cuyes);
+        if (!string.IsNullOrWhiteSpace(c.SignosClinicos))
+        {
+            motivos.Add($"signos clínicos: {c.SignosClinicos.Trim()}");
+            novedades.Add(NovedadDeCuy(numero, TipoNovedad.SignosClinicos,
+                $"Condición sanitaria con observación: {c.SignosClinicos.Trim()}",
+                responsable, null));
+        }
+
+        var cuy = new CuyRegistro
+        {
+            NumeroEnLote = numero,
+            PesoGramos = c.PesoGramos,
+            ColorPelaje = c.ColorPelaje,
+            EstadoOreja = c.EstadoOreja,
+            TamanoAnimal = c.TamanoAnimal,
+            SignosClinicos = string.IsNullOrWhiteSpace(c.SignosClinicos)
+                ? null : c.SignosClinicos.Trim(),
+            Estado = rechazado ? EstadoLote.Rechazado
+                : motivos.Count > 0 ? EstadoLote.ConNovedad
+                : EstadoLote.Aceptado,
+            MotivoNovedad = motivos.Count > 0 ? string.Join("; ", motivos) : null
+        };
+
+        return (cuy, novedades);
     }
 
     private static Novedad NovedadDeCuy(
@@ -278,103 +352,6 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
             PesoRegistradoGramos = peso
         };
 
-    // ── Lógica de negocio: evaluación del lote — SRS Apéndice 5.1 ────
-
-    private static (EstadoLote estado, List<Novedad> novedades) EvaluarLote(
-        RegistrarLoteDto dto)
-    {
-        var novedades = new List<Novedad>();
-        var pesoPromedio = dto.CantidadAnimales > 0
-            ? dto.PesoTotalGramos / dto.CantidadAnimales
-            : 0;
-
-        // Regla 1: Peso — RF-202
-        if (pesoPromedio < 850)
-        {
-            novedades.Add(new Novedad
-            {
-                Tipo = TipoNovedad.BajoPeso,
-                Descripcion = $"Peso promedio {pesoPromedio:F0}g por debajo del mínimo (850g). Lote rechazado.",
-                RegistradoPor = dto.ResponsableRecepcion,
-                PesoRegistradoGramos = pesoPromedio
-            });
-            return (EstadoLote.Rechazado, novedades);
-        }
-
-        if (pesoPromedio is >= 850 and < 875)
-        {
-            novedades.Add(new Novedad
-            {
-                Tipo = TipoNovedad.BajoPeso,
-                Descripcion = $"Peso promedio {pesoPromedio:F0}g entre 850g–874g. Aceptado con novedad de bajo peso.",
-                RegistradoPor = dto.ResponsableRecepcion,
-                PesoRegistradoGramos = pesoPromedio
-            });
-        }
-
-        // Regla 1b: tope del rango operativo (875g–1300g en pie)
-        if (pesoPromedio > 1300)
-        {
-            novedades.Add(new Novedad
-            {
-                Tipo = TipoNovedad.SobrePeso,
-                Descripcion = $"Peso promedio {pesoPromedio:F0}g sobre el rango operativo (máx. 1300g). Posible animal de edad avanzada.",
-                RegistradoPor = dto.ResponsableRecepcion,
-                PesoRegistradoGramos = pesoPromedio
-            });
-        }
-
-        // Regla 2: Color — RF-203
-        if (dto.ColorPelaje.Equals("Negro", StringComparison.OrdinalIgnoreCase))
-        {
-            novedades.Add(new Novedad
-            {
-                Tipo = TipoNovedad.ColorNoConforme,
-                Descripcion = "Piel completamente negra. No conforme para mercado formal. Redirigir a venta local.",
-                RegistradoPor = dto.ResponsableRecepcion
-            });
-        }
-
-        // Regla 3: Edad (oreja) — RF-204
-        if (dto.EstadoOreja.Equals("Dura", StringComparison.OrdinalIgnoreCase))
-        {
-            novedades.Add(new Novedad
-            {
-                Tipo = TipoNovedad.OrejaDura,
-                Descripcion = "Oreja dura: animal de edad avanzada. Alta probabilidad de devolución por cliente.",
-                RegistradoPor = dto.ResponsableRecepcion
-            });
-        }
-
-        // Regla 4: Ayuno — RF-206
-        if (!dto.EnAyunas)
-        {
-            novedades.Add(new Novedad
-            {
-                Tipo = TipoNovedad.SinAyuno,
-                Descripcion = "Animal recibido sin estar en ayunas. El peso registrado puede no ser el peso real.",
-                RegistradoPor = dto.ResponsableRecepcion
-            });
-        }
-
-        // Regla 5: condición sanitaria visual (signos clínicos observados)
-        if (!string.IsNullOrWhiteSpace(dto.SignosClinicos))
-        {
-            novedades.Add(new Novedad
-            {
-                Tipo = TipoNovedad.SignosClinicos,
-                Descripcion = $"Condición sanitaria con observación: {dto.SignosClinicos.Trim()}",
-                RegistradoPor = dto.ResponsableRecepcion
-            });
-        }
-
-        var estado = novedades.Count > 0
-            ? EstadoLote.ConNovedad
-            : EstadoLote.Aceptado;
-
-        return (estado, novedades);
-    }
-
     // ── Generación de código de lote — SRS RF-103 / Apéndice 5.2 ─────
     // Formato: CAT-AAAAMMDD-SEC  ej: PAT-20260615-001
 
@@ -382,7 +359,7 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
     CentroAcopio cat, DateTime fecha)
     {
         var prefijo = cat.ToString();
-        var fechaUtc = DateTime.SpecifyKind(fecha, DateTimeKind.Utc); // ← fix
+        var fechaUtc = DateTime.SpecifyKind(fecha, DateTimeKind.Utc);
         var fechaStr = fechaUtc.ToString("yyyyMMdd");
         var baseStr = $"{prefijo}-{fechaStr}-";
 
@@ -402,36 +379,77 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
         var lote = await db.Lotes
             .Include(l => l.Productora)
             .Include(l => l.Novedades)
-            .Include(l => l.Cuyes)
+            .Include(l => l.Cuyes).ThenInclude(c => c.Productora)
+            .Include(l => l.Faenamientos).ThenInclude(f => f.Cuyes)
             .FirstAsync(l => l.Id == loteId);
 
         return MapearLote(lote);
     }
 
-    private static LoteResponseDto MapearLote(Lote lote) => new(
-        Id: lote.Id,
-        CodigoLote: lote.CodigoLote,
-        ProductoraId: lote.ProductoraId,
-        NombreProductora: lote.Productora?.NombreCompleto ?? string.Empty,
-        CentroAcopio: lote.CentroAcopio.ToString(),
-        FechaRecepcion: lote.FechaRecepcion,
-        CantidadAnimales: lote.CantidadAnimales,
-        PesoTotalGramos: lote.PesoTotalGramos,
-        Estado: lote.Estado.ToString(),
-        ResponsableRecepcion: lote.ResponsableRecepcion,
-        Observaciones: lote.Observaciones,
-        SincronizadoOffline: lote.SincronizadoOffline,
-        Novedades: lote.Novedades
-            .Select(n => new NovedadResponseDto(
-                n.Id, n.Tipo.ToString(), n.Descripcion,
-                n.PesoRegistradoGramos, n.FechaRegistro, n.RegistradoPor))
-            .ToList(),
-        Cuyes: lote.Cuyes
-            .OrderBy(c => c.NumeroEnLote)
-            .Select(c => new CuyRegistroResponseDto(
-                c.Id, c.NumeroEnLote, c.PesoGramos, c.ColorPelaje,
-                c.EstadoOreja, c.TamanoAnimal, c.SignosClinicos,
-                c.Estado.ToString(), c.MotivoNovedad))
-            .ToList()
-    );
+    // Animales del lote aún no procesados en la planta
+    internal static int CalcularDisponibles(Lote lote)
+    {
+        var usados = lote.Faenamientos.Sum(f =>
+            f.Cuyes.Count > 0
+                ? f.Cuyes.Count
+                : f.UnidadesFaenadas + f.UnidadesDecomisadas);
+        return Math.Max(0, lote.CantidadAnimales - usados);
+    }
+
+    private static LoteResponseDto MapearLote(Lote lote)
+    {
+        // Resumen de productoras que integran la jaula
+        var productoras = lote.Cuyes
+            .Where(c => c.Productora is not null)
+            .GroupBy(c => c.Productora!)
+            .Select(g => new ProductoraEnLoteDto(
+                g.Key.Id, g.Key.NombreCompleto, g.Key.Comunidad, g.Count()))
+            .OrderByDescending(p => p.Cantidad)
+            .ToList();
+
+        if (productoras.Count == 0 && lote.Productora is not null)
+        {
+            productoras.Add(new ProductoraEnLoteDto(
+                lote.Productora.Id, lote.Productora.NombreCompleto,
+                lote.Productora.Comunidad, lote.CantidadAnimales));
+        }
+
+        var nombreProductora = productoras.Count switch
+        {
+            0 => string.Empty,
+            1 => productoras[0].Nombre,
+            _ => $"Varias productoras ({productoras.Count})"
+        };
+
+        return new LoteResponseDto(
+            Id: lote.Id,
+            CodigoLote: lote.CodigoLote,
+            ProductoraId: lote.ProductoraId,
+            NombreProductora: nombreProductora,
+            CentroAcopio: lote.CentroAcopio.ToString(),
+            FechaRecepcion: lote.FechaRecepcion,
+            CantidadAnimales: lote.CantidadAnimales,
+            PesoTotalGramos: lote.PesoTotalGramos,
+            Estado: lote.Estado.ToString(),
+            ResponsableRecepcion: lote.ResponsableRecepcion,
+            Observaciones: lote.Observaciones,
+            SincronizadoOffline: lote.SincronizadoOffline,
+            Cerrado: lote.Cerrado,
+            Disponibles: CalcularDisponibles(lote),
+            Productoras: productoras,
+            Novedades: lote.Novedades
+                .Select(n => new NovedadResponseDto(
+                    n.Id, n.Tipo.ToString(), n.Descripcion,
+                    n.PesoRegistradoGramos, n.FechaRegistro, n.RegistradoPor))
+                .ToList(),
+            Cuyes: lote.Cuyes
+                .OrderBy(c => c.NumeroEnLote)
+                .Select(c => new CuyRegistroResponseDto(
+                    c.Id, c.NumeroEnLote, c.PesoGramos, c.ColorPelaje,
+                    c.EstadoOreja, c.TamanoAnimal, c.SignosClinicos,
+                    c.Estado.ToString(), c.MotivoNovedad,
+                    c.Productora?.NombreCompleto))
+                .ToList()
+        );
+    }
 }

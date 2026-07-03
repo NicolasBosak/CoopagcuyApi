@@ -43,11 +43,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(p => p.CatAsignado).HasConversion<string>();
         });
 
-        // Lote
+        // Lote (jaula multi-productora)
         modelBuilder.Entity<Lote>(e =>
         {
             e.HasKey(l => l.Id);
             e.HasIndex(l => l.CodigoLote).IsUnique();
+            // Consulta frecuente: la jaula abierta de cada CAT
+            e.HasIndex(l => new { l.CentroAcopio, l.Cerrado });
             e.Property(l => l.CodigoLote).HasMaxLength(20).IsRequired();
             e.Property(l => l.PesoTotalGramos).HasPrecision(10, 2);
             e.Property(l => l.Estado).HasConversion<string>();
@@ -69,7 +71,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
              .HasForeignKey(n => n.LoteId);
         });
 
-        // Faenamiento
+        // Faenamiento: un lote puede faenarse en varias sesiones parciales
         modelBuilder.Entity<RegistroFaenamiento>(e =>
         {
             e.HasKey(f => f.Id);
@@ -77,8 +79,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(f => f.TemperaturaAlmacenamiento).HasPrecision(5, 2);
             e.Property(f => f.EstadoCanal).HasConversion<string>();
             e.HasOne(f => f.Lote)
-             .WithOne(l => l.Faenamiento)
-             .HasForeignKey<RegistroFaenamiento>(f => f.LoteId);
+             .WithMany(l => l.Faenamientos)
+             .HasForeignKey(f => f.LoteId);
         });
 
         // Despacho
@@ -121,6 +123,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasOne(d => d.Lote)
              .WithMany()
              .HasForeignKey(d => d.LoteId);
+            e.HasOne(d => d.RegistroFaenamiento)
+             .WithMany()
+             .HasForeignKey(d => d.RegistroFaenamientoId);
         });
 
         // Historial de cambios de productora — RF-105
@@ -151,6 +156,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasOne(c => c.Lote)
              .WithMany(l => l.Cuyes)
              .HasForeignKey(c => c.LoteId);
+            e.HasOne(c => c.Productora)
+             .WithMany()
+             .HasForeignKey(c => c.ProductoraId);
         });
 
         // Estado individual por cuy en faenamiento
@@ -175,6 +183,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasOne(r => r.Lote)
              .WithMany()
              .HasForeignKey(r => r.LoteId);
+            e.HasOne(r => r.Productora)
+             .WithMany()
+             .HasForeignKey(r => r.ProductoraId)
+             .OnDelete(DeleteBehavior.Restrict);
         });
 
         // Movilización CAT → planta (eslabón transporte)

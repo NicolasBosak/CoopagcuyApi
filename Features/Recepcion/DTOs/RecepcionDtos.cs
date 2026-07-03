@@ -2,32 +2,6 @@
 
 namespace CoopagcuyApi.Features.Recepcion.DTOs;
 
-public class RegistrarLoteDto
-{
-    public int ProductoraId { get; set; }
-    public CentroAcopio CentroAcopio { get; set; }
-    public DateTime FechaRecepcion { get; set; }
-    public int CantidadAnimales { get; set; }
-    public decimal PesoTotalGramos { get; set; }
-    public string ColorPelaje { get; set; } = string.Empty;
-    public string EstadoOreja { get; set; } = string.Empty;
-    public string TamanoAnimal { get; set; } = string.Empty;
-    public bool EnAyunas { get; set; }
-    public string ResponsableRecepcion { get; set; } = string.Empty;
-    public string? Observaciones { get; set; }
-
-    // Condición sanitaria visual: null/vacío = sin signos clínicos
-    public string? SignosClinicos { get; set; }
-
-    // Registro individual por animal. Si viene con datos, la evaluación
-    // se hace cuy por cuy y los totales del lote se derivan de aquí.
-    // Si viene vacío se usa el flujo agregado (registros offline antiguos).
-    public List<CuyRegistroDto> Cuyes { get; set; } = [];
-
-    public bool SincronizadoOffline { get; set; } = false;
-    public string? DispositivoId { get; set; }
-}
-
 public class CuyRegistroDto
 {
     public decimal PesoGramos { get; set; }
@@ -46,28 +20,51 @@ public record CuyRegistroResponseDto(
     string TamanoAnimal,
     string? SignosClinicos,
     string Estado,
-    string? MotivoNovedad
+    string? MotivoNovedad,
+    string? NombreProductora
 );
 
-public class AgregarNovedadDto
+// ── Entregas por productora: la jaula (lote) se arma acumulando ───────
+
+public class RegistrarEntregaDto
 {
-    public int LoteId { get; set; }
-    public TipoNovedad Tipo { get; set; }
-    public string Descripcion { get; set; } = string.Empty;
-    public decimal? PesoRegistradoGramos { get; set; }
+    public CentroAcopio CentroAcopio { get; set; }
+    public int ProductoraId { get; set; }
+    public DateTime FechaEntrega { get; set; }
+    public List<CuyRegistroDto> Cuyes { get; set; } = [];
+    public bool EnAyunas { get; set; } = true;
+    public string ResponsableRecepcion { get; set; } = string.Empty;
+    public string? Observaciones { get; set; }
+    public bool SincronizadoOffline { get; set; } = false;
+    public string? DispositivoId { get; set; }
 }
 
-public class SyncLotesDto
+public record EntregaResultadoDto(
+    int CuyesRegistrados,
+    // Lotes que recibieron cuyes de esta entrega (puede dividirse en dos
+    // si la jaula actual se completó a mitad de la entrega)
+    List<LoteResponseDto> LotesAfectados,
+    bool SeCompletoJaula
+);
+
+public record ProductoraEnLoteDto(
+    int ProductoraId,
+    string Nombre,
+    string Comunidad,
+    int Cantidad
+);
+
+public class SyncEntregasDto
 {
     public string DispositivoId { get; set; } = string.Empty;
-    public List<RegistrarLoteDto> Lotes { get; set; } = [];
+    public List<RegistrarEntregaDto> Entregas { get; set; } = [];
 }
 
 // Los Response DTOs se quedan como records (solo salida)
 public record LoteResponseDto(
     int Id,
     string CodigoLote,
-    int ProductoraId,
+    int? ProductoraId,
     string NombreProductora,
     string CentroAcopio,
     DateTime FechaRecepcion,
@@ -77,6 +74,9 @@ public record LoteResponseDto(
     string? ResponsableRecepcion,
     string? Observaciones,
     bool SincronizadoOffline,
+    bool Cerrado,
+    int Disponibles,
+    List<ProductoraEnLoteDto> Productoras,
     List<NovedadResponseDto> Novedades,
     List<CuyRegistroResponseDto> Cuyes
 );

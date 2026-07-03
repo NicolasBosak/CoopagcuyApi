@@ -13,6 +13,12 @@ public class Devolucion
     public int LoteId { get; set; }
     public Lote Lote { get; set; } = null!;
 
+    // Sesión de faenamiento específica de la que proviene el producto
+    // devuelto: permite saber, por ejemplo, que la devolución corresponde
+    // a la segunda tanda faenada del lote (la que traía cuyes con novedad)
+    public int? RegistroFaenamientoId { get; set; }
+    public RegistroFaenamiento? RegistroFaenamiento { get; set; }
+
     public string ClienteDevuelve { get; set; } = string.Empty;
     public DateTime FechaDevolucion { get; set; }
     public int CantidadUnidades { get; set; }

@@ -27,13 +27,13 @@ public class QRService(
         // 1. Verificar que el lote existe y tiene faenamiento
         var lote = await db.Lotes
             .Include(l => l.Productora)
-            .Include(l => l.Faenamiento)
+            .Include(l => l.Faenamientos)
             .Include(l => l.CodigoQR)
             .FirstOrDefaultAsync(l => l.CodigoLote == codigoLote)
             ?? throw new KeyNotFoundException(
                 $"Lote {codigoLote} no encontrado.");
 
-        if (lote.Faenamiento is null)
+        if (lote.Faenamientos.Count == 0)
             throw new InvalidOperationException(
                 $"El lote {codigoLote} no tiene faenamiento registrado. " +
                 "Complete el faenamiento antes de generar el QR.");
@@ -107,21 +107,27 @@ public class QRService(
         var lote = await db.Lotes
             .Include(l => l.Productora)
             .Include(l => l.Novedades)
-            .Include(l => l.Faenamiento)
+            .Include(l => l.Faenamientos)
             .Include(l => l.CodigoQR)
             .FirstOrDefaultAsync(l => l.CodigoLote == codigoLote);
 
         if (lote is null || lote.CodigoQR is null || !lote.CodigoQR.Activo)
             return null;
 
+        // Con faenamiento en sesiones parciales, los datos del producto
+        // se agregan sobre todas las sesiones del lote
+        var unidadesTotales = lote.Faenamientos.Sum(f => f.UnidadesFaenadas);
+        var pesoCanalTotal = lote.Faenamientos.Sum(f => f.PesoTotalCanalGramos);
+        var ultimaSesion = lote.Faenamientos
+            .OrderByDescending(f => f.FechaFaenamiento)
+            .FirstOrDefault();
+
         // Construir lista de parámetros aprobados para mostrar al consumidor
         var parametros = new List<string>();
 
-        if (lote.Faenamiento is not null)
+        if (unidadesTotales > 0)
         {
-            var promedio = lote.Faenamiento.UnidadesFaenadas > 0
-                ? lote.Faenamiento.PesoTotalCanalGramos / lote.Faenamiento.UnidadesFaenadas
-                : 0;
+            var promedio = pesoCanalTotal / unidadesTotales;
 
             if (promedio >= 907)
                 parametros.Add($"✓ Peso canal óptimo ({promedio:F0}g)");
@@ -144,8 +150,8 @@ public class QRService(
         parametros.Add("✓ Alimentación a base de forraje vegetal");
         parametros.Add("✓ Crianza familiar — Azuay, Ecuador");
 
-        var promediCanal = lote.Faenamiento?.UnidadesFaenadas > 0
-            ? lote.Faenamiento!.PesoTotalCanalGramos / lote.Faenamiento.UnidadesFaenadas
+        var promediCanal = unidadesTotales > 0
+            ? pesoCanalTotal / unidadesTotales
             : 0;
 
         // Trazabilidad hacia adelante: último despacho del lote
@@ -156,17 +162,19 @@ public class QRService(
 
         return new PaginaPublicaDto(
             CodigoLote: codigoLote,
-            ComunidadOrigen: lote.Productora.Comunidad,
-            Canton: lote.Productora.Canton,
-            NombreProductora: $"Familia productora de {lote.Productora.Comunidad}",
+            ComunidadOrigen: lote.Productora?.Comunidad ?? "Azuay",
+            Canton: lote.Productora?.Canton ?? "Azuay",
+            NombreProductora: lote.Productora is not null
+                ? $"Familia productora de {lote.Productora.Comunidad}"
+                : "Familias productoras de COOPAGCUY",
             CentroAcopio: lote.CentroAcopio.ToString(),
             FechaRecepcion: lote.FechaRecepcion,
             CantidadAnimales: lote.CantidadAnimales,
             EstadoCalidad: lote.Estado.ToString(),
             ParametrosAprobados: parametros,
-            FechaFaenamiento: lote.Faenamiento?.FechaFaenamiento ?? DateTime.UtcNow,
+            FechaFaenamiento: ultimaSesion?.FechaFaenamiento ?? DateTime.UtcNow,
             PesoPromedioCanalGramos: Math.Round(promediCanal, 0),
-            EstadoCanal: lote.Faenamiento?.EstadoCanal.ToString() ?? string.Empty,
+            EstadoCanal: ultimaSesion?.EstadoCanal.ToString() ?? string.Empty,
             Marca: "Cuy Azuayito — COOPAGCUY",
             FechaComercializacion: ultimoDespacho?.FechaDespacho,
             DestinoComercial: ultimoDespacho?.ClienteDestino

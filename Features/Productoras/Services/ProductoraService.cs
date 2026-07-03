@@ -51,7 +51,7 @@ public class ProductoraService(AppDbContext db) : IProductoraService
                 p.Id, p.NombreCompleto, p.Cedula, p.Comunidad,
                 p.Canton, p.CatAsignado.ToString(), p.Telefono,
                 p.Activa, p.FechaRegistro,
-                db.RetornosProductora.Count(r => r.Lote.ProductoraId == p.Id)))
+                db.RetornosProductora.Count(r => r.ProductoraId == p.Id)))
             .ToListAsync();
     }
 

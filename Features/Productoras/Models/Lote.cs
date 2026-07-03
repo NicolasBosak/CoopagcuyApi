@@ -5,6 +5,13 @@ using CoopagcuyApi.Features.Faenamiento.Models;
 
 namespace CoopagcuyApi.Features.Productoras.Models;
 
+/// <summary>
+/// El lote representa una jaula de transporte de hasta 20 cuyes.
+/// Puede contener animales de varias productoras: cada CuyRegistro
+/// lleva su propia productora de origen. Mientras está abierto acepta
+/// entregas; al completar 20 (o cerrarse manualmente) queda listo
+/// para movilización a la planta.
+/// </summary>
 public class Lote
 {
     public int Id { get; set; }
@@ -12,14 +19,20 @@ public class Lote
     // Código único: PAT-20260615-001
     public string CodigoLote { get; set; } = string.Empty;
 
-    public int ProductoraId { get; set; }
-    public Productora Productora { get; set; } = null!;
+    // Productora "principal" (histórico). En lotes multi-productora es la
+    // primera que entregó; el origen real de cada animal está en CuyRegistro.
+    public int? ProductoraId { get; set; }
+    public Productora? Productora { get; set; }
 
     public CentroAcopio CentroAcopio { get; set; }
     public DateTime FechaRecepcion { get; set; }
     public int CantidadAnimales { get; set; }          // máx 20 por SRS RF-104
     public decimal PesoTotalGramos { get; set; }
     public EstadoLote Estado { get; set; }
+
+    // Ciclo de vida de la jaula
+    public bool Cerrado { get; set; } = true;          // históricos: cerrados
+    public DateTime? FechaCierre { get; set; }
 
     public string? ResponsableRecepcion { get; set; }
     public string? Observaciones { get; set; }
@@ -33,6 +46,6 @@ public class Lote
     // Navegación
     public ICollection<Novedad> Novedades { get; set; } = [];
     public ICollection<CuyRegistro> Cuyes { get; set; } = [];
-    public RegistroFaenamiento? Faenamiento { get; set; }
+    public ICollection<RegistroFaenamiento> Faenamientos { get; set; } = [];
     public CodigoQR? CodigoQR { get; set; }
 }

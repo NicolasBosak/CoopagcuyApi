@@ -14,6 +14,11 @@ public class RetornoProductora
     public int LoteId { get; set; }
     public Lote Lote { get; set; } = null!;
 
+    // Productora dueña del cuy retornado (con jaulas multi-productora
+    // se toma del registro individual del animal)
+    public int ProductoraId { get; set; }
+    public Productora Productora { get; set; } = null!;
+
     // Número del cuy dentro del lote que se retorna
     public int NumeroEnLote { get; set; }
 
