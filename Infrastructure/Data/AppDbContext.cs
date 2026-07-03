@@ -21,6 +21,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Devolucion> Devoluciones => Set<Devolucion>();
     public DbSet<ProductoraCambio> ProductoraCambios => Set<ProductoraCambio>();
     public DbSet<Comunidad> Comunidades => Set<Comunidad>();
+    public DbSet<Movilizacion> Movilizaciones => Set<Movilizacion>();
+    public DbSet<Pago> Pagos => Set<Pago>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -129,6 +131,39 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasOne(c => c.Productora)
              .WithMany()
              .HasForeignKey(c => c.ProductoraId);
+        });
+
+        // Movilización CAT → planta (eslabón transporte)
+        modelBuilder.Entity<Movilizacion>(e =>
+        {
+            e.HasKey(m => m.Id);
+            e.HasIndex(m => m.LoteId).IsUnique(); // un lote viaja una sola vez
+            e.Property(m => m.Conductor).HasMaxLength(150).IsRequired();
+            e.Property(m => m.ResponsableDespacho).HasMaxLength(150).IsRequired();
+            e.Property(m => m.CondicionesTransporte).HasMaxLength(300);
+            e.Property(m => m.TipoForraje).HasMaxLength(200);
+            e.Property(m => m.Observaciones).HasMaxLength(500);
+            e.Property(m => m.RecibidoPor).HasMaxLength(150);
+            e.Property(m => m.CondicionLlegada).HasMaxLength(300);
+            e.HasOne(m => m.Lote)
+             .WithOne()
+             .HasForeignKey<Movilizacion>(m => m.LoteId);
+        });
+
+        // Pago a productora (antes cuaderno manual)
+        modelBuilder.Entity<Pago>(e =>
+        {
+            e.HasKey(p => p.Id);
+            e.Property(p => p.MontoUsd).HasPrecision(10, 2);
+            e.Property(p => p.MetodoPago).HasMaxLength(50).IsRequired();
+            e.Property(p => p.Responsable).HasMaxLength(150).IsRequired();
+            e.Property(p => p.Observaciones).HasMaxLength(500);
+            e.HasOne(p => p.Productora)
+             .WithMany()
+             .HasForeignKey(p => p.ProductoraId);
+            e.HasOne(p => p.Lote)
+             .WithMany()
+             .HasForeignKey(p => p.LoteId);
         });
 
         // Comunidad — catálogo gestionable RF-102 / RF-506

@@ -23,6 +23,10 @@ public class Lote
 
     public string? ResponsableRecepcion { get; set; }
     public string? Observaciones { get; set; }
+
+    // Condición sanitaria visual: null/vacío = sin signos clínicos visibles
+    public string? SignosClinicos { get; set; }
+
     public bool SincronizadoOffline { get; set; } = false;
     public DateTime? FechaSincronizacion { get; set; }
 

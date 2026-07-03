@@ -11,7 +11,8 @@ namespace CoopagcuyApi.Features.Recepcion.Controllers;
 [Authorize]
 public class RecepcionController(
     IRecepcionService service,
-    IGuiaMovilizacionService guiaService) : ControllerBase
+    IGuiaMovilizacionService guiaService,
+    IMovilizacionService movilizacionService) : ControllerBase
 {
     /// <summary>
     /// Registra un nuevo lote de cuyes en un CAT.
@@ -101,5 +102,76 @@ public class RecepcionController(
     {
         var resultado = await service.SincronizarOfflineAsync(dto);
         return Ok(resultado);
+    }
+
+    // ── Movilización CAT → planta (eslabón transporte) ────────────────
+
+    /// <summary>
+    /// Registra la movilización del lote hacia la planta de faenamiento:
+    /// conductor, condiciones de transporte y declaración de tratamientos.
+    /// </summary>
+    [HttpPost("lotes/{codigoLote}/movilizacion")]
+    [Authorize(Roles = "OperadorCAT,AdminCooperativa,AdminTecnico")]
+    public async Task<IActionResult> RegistrarMovilizacion(
+        string codigoLote, [FromBody] RegistrarMovilizacionDto dto)
+    {
+        try
+        {
+            var resultado = await movilizacionService.RegistrarAsync(codigoLote, dto);
+            return CreatedAtAction(
+                nameof(ObtenerMovilizacionPorLote),
+                new { codigoLote },
+                resultado);
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { mensaje = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { mensaje = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Confirma la llegada del lote a la planta de faenamiento.
+    /// Cierra el eslabón documental CAT → transportista → planta.
+    /// </summary>
+    [HttpPatch("movilizaciones/{id:int}/recepcion")]
+    [Authorize(Roles = "OperadorFaenamiento,AdminCooperativa,AdminTecnico")]
+    public async Task<IActionResult> ConfirmarRecepcionPlanta(
+        int id, [FromBody] ConfirmarRecepcionPlantaDto dto)
+    {
+        try
+        {
+            var resultado = await movilizacionService.ConfirmarRecepcionAsync(id, dto);
+            return resultado is null ? NotFound() : Ok(resultado);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { mensaje = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Lista movilizaciones; con pendientes=true solo las que
+    /// aún no confirman recepción en planta.
+    /// </summary>
+    [HttpGet("movilizaciones")]
+    public async Task<IActionResult> ListarMovilizaciones(
+        [FromQuery] bool? pendientes)
+    {
+        var resultado = await movilizacionService.ListarAsync(pendientes);
+        return Ok(resultado);
+    }
+
+    /// <summary>
+    /// Obtiene la movilización de un lote por su código.
+    /// </summary>
+    [HttpGet("lotes/{codigoLote}/movilizacion")]
+    public async Task<IActionResult> ObtenerMovilizacionPorLote(string codigoLote)
+    {
+        var resultado = await movilizacionService.ObtenerPorCodigoLoteAsync(codigoLote);
+        return resultado is null ? NotFound() : Ok(resultado);
     }
 }

@@ -46,6 +46,8 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
             Estado = estado,
             ResponsableRecepcion = dto.ResponsableRecepcion,
             Observaciones = dto.Observaciones,
+            SignosClinicos = string.IsNullOrWhiteSpace(dto.SignosClinicos)
+                ? null : dto.SignosClinicos.Trim(),
             SincronizadoOffline = dto.SincronizadoOffline,
             FechaSincronizacion = dto.SincronizadoOffline ? DateTime.UtcNow : null
         };
@@ -179,6 +181,18 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
             });
         }
 
+        // Regla 1b: tope del rango operativo (875g–1300g en pie)
+        if (pesoPromedio > 1300)
+        {
+            novedades.Add(new Novedad
+            {
+                Tipo = TipoNovedad.SobrePeso,
+                Descripcion = $"Peso promedio {pesoPromedio:F0}g sobre el rango operativo (máx. 1300g). Posible animal de edad avanzada.",
+                RegistradoPor = dto.ResponsableRecepcion,
+                PesoRegistradoGramos = pesoPromedio
+            });
+        }
+
         // Regla 2: Color — RF-203
         if (dto.ColorPelaje.Equals("Negro", StringComparison.OrdinalIgnoreCase))
         {
@@ -208,6 +222,17 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
             {
                 Tipo = TipoNovedad.SinAyuno,
                 Descripcion = "Animal recibido sin estar en ayunas. El peso registrado puede no ser el peso real.",
+                RegistradoPor = dto.ResponsableRecepcion
+            });
+        }
+
+        // Regla 5: condición sanitaria visual (signos clínicos observados)
+        if (!string.IsNullOrWhiteSpace(dto.SignosClinicos))
+        {
+            novedades.Add(new Novedad
+            {
+                Tipo = TipoNovedad.SignosClinicos,
+                Descripcion = $"Condición sanitaria con observación: {dto.SignosClinicos.Trim()}",
                 RegistradoPor = dto.ResponsableRecepcion
             });
         }

@@ -62,6 +62,8 @@ builder.Services.AddValidatorsFromAssemblyContaining<CrearProductoraValidator>()
 builder.Services.AddScoped<IProductoraService, ProductoraService>();
 builder.Services.AddScoped<IRecepcionService, RecepcionService>();
 builder.Services.AddScoped<IGuiaMovilizacionService, GuiaMovilizacionService>();
+builder.Services.AddScoped<IMovilizacionService, MovilizacionService>();
+builder.Services.AddScoped<IPagoService, PagoService>();
 builder.Services.AddScoped<IFaenamientoService, FaenamientoService>();
 builder.Services.AddScoped<IQRService, QRService>();
 builder.Services.AddScoped<IBlobStorageService, BlobStorageService>();

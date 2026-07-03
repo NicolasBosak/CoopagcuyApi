@@ -44,7 +44,18 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
             throw new InvalidOperationException(
                 $"El lote {lote.CodigoLote} ya tiene un registro de faenamiento.");
 
-        // 2. Crear registro de faenamiento
+        // 2. Validar decomisos: faenados + decomisados no superan el lote
+        if (dto.UnidadesDecomisadas < 0)
+            throw new InvalidOperationException(
+                "Las unidades decomisadas no pueden ser negativas.");
+
+        if (dto.UnidadesFaenadas + dto.UnidadesDecomisadas > lote.CantidadAnimales)
+            throw new InvalidOperationException(
+                $"Faenados ({dto.UnidadesFaenadas}) más decomisados " +
+                $"({dto.UnidadesDecomisadas}) superan los animales del lote " +
+                $"({lote.CantidadAnimales}).");
+
+        // 3. Crear registro de faenamiento
         var faenamiento = new RegistroFaenamiento
         {
             LoteId = dto.LoteId,
@@ -55,7 +66,15 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
             PesoTotalCanalGramos = dto.PesoTotalCanalGramos,
             TemperaturaAlmacenamiento = dto.TemperaturaAlmacenamiento,
             EstadoCanal = dto.EstadoCanal,
-            Observaciones = dto.Observaciones
+            Observaciones = dto.Observaciones,
+            UnidadesDecomisadas = dto.UnidadesDecomisadas,
+            MotivoDecomiso = dto.MotivoDecomiso,
+            TiempoLavadoMinutos = dto.TiempoLavadoMinutos,
+            PresentacionEmpaque = dto.PresentacionEmpaque,
+            FechaIngresoFrio = dto.FechaIngresoFrio is DateTime fi
+                ? DateTime.SpecifyKind(fi, DateTimeKind.Utc) : null,
+            FechaSalidaFrio = dto.FechaSalidaFrio is DateTime fs
+                ? DateTime.SpecifyKind(fs, DateTimeKind.Utc) : null
         };
 
         db.Faenamientos.Add(faenamiento);
@@ -292,7 +311,13 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
             PesoPromedioCanalGramos: Math.Round(promedio, 2),
             TemperaturaAlmacenamiento: f.TemperaturaAlmacenamiento,
             EstadoCanal: f.EstadoCanal.ToString(),
-            Observaciones: f.Observaciones
+            Observaciones: f.Observaciones,
+            UnidadesDecomisadas: f.UnidadesDecomisadas,
+            MotivoDecomiso: f.MotivoDecomiso,
+            TiempoLavadoMinutos: f.TiempoLavadoMinutos,
+            PresentacionEmpaque: f.PresentacionEmpaque,
+            FechaIngresoFrio: f.FechaIngresoFrio,
+            FechaSalidaFrio: f.FechaSalidaFrio
         );
     }
 }

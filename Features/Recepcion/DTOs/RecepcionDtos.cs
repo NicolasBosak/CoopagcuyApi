@@ -15,6 +15,10 @@ public class RegistrarLoteDto
     public bool EnAyunas { get; set; }
     public string ResponsableRecepcion { get; set; } = string.Empty;
     public string? Observaciones { get; set; }
+
+    // Condición sanitaria visual: null/vacío = sin signos clínicos
+    public string? SignosClinicos { get; set; }
+
     public bool SincronizadoOffline { get; set; } = false;
     public string? DispositivoId { get; set; }
 }
@@ -70,4 +74,44 @@ public record SyncErrorDto(
     string DispositivoId,
     string CodigoLoteTemp,
     string Motivo
+);
+
+// ── Movilización CAT → planta (eslabón transporte) ────────────────────
+
+public class RegistrarMovilizacionDto
+{
+    public DateTime FechaDespacho { get; set; }
+    public string Conductor { get; set; } = string.Empty;
+    public int CantidadMovilizada { get; set; }
+    public string? CondicionesTransporte { get; set; }
+    public string? TipoForraje { get; set; }
+    public int? DiasRetiroMedicamentos { get; set; }
+    public string ResponsableDespacho { get; set; } = string.Empty;
+    public string? Observaciones { get; set; }
+}
+
+public class ConfirmarRecepcionPlantaDto
+{
+    public DateTime FechaRecepcionPlanta { get; set; }
+    public string RecibidoPor { get; set; } = string.Empty;
+    public string? CondicionLlegada { get; set; }
+}
+
+public record MovilizacionResponseDto(
+    int Id,
+    int LoteId,
+    string CodigoLote,
+    string CentroAcopio,
+    string NombreProductora,
+    DateTime FechaDespacho,
+    string Conductor,
+    int CantidadMovilizada,
+    string? CondicionesTransporte,
+    string? TipoForraje,
+    int? DiasRetiroMedicamentos,
+    string ResponsableDespacho,
+    string? Observaciones,
+    DateTime? FechaRecepcionPlanta,
+    string? RecibidoPor,
+    string? CondicionLlegada
 );

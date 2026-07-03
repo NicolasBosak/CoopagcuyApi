@@ -27,5 +27,8 @@ public record PaginaPublicaDto(
     DateTime FechaFaenamiento,
     decimal PesoPromedioCanalGramos,
     string EstadoCanal,
-    string Marca
+    string Marca,
+    // Trazabilidad hacia adelante: comercialización (último despacho)
+    DateTime? FechaComercializacion,
+    string? DestinoComercial
 );

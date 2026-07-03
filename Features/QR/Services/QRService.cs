@@ -148,6 +148,12 @@ public class QRService(
             ? lote.Faenamiento!.PesoTotalCanalGramos / lote.Faenamiento.UnidadesFaenadas
             : 0;
 
+        // Trazabilidad hacia adelante: último despacho del lote
+        var ultimoDespacho = await db.Despachos
+            .Where(d => d.LoteId == lote.Id)
+            .OrderByDescending(d => d.FechaDespacho)
+            .FirstOrDefaultAsync();
+
         return new PaginaPublicaDto(
             CodigoLote: codigoLote,
             ComunidadOrigen: lote.Productora.Comunidad,
@@ -161,7 +167,9 @@ public class QRService(
             FechaFaenamiento: lote.Faenamiento?.FechaFaenamiento ?? DateTime.UtcNow,
             PesoPromedioCanalGramos: Math.Round(promediCanal, 0),
             EstadoCanal: lote.Faenamiento?.EstadoCanal.ToString() ?? string.Empty,
-            Marca: "Cuy Azuayito — COOPAGCUY"
+            Marca: "Cuy Azuayito — COOPAGCUY",
+            FechaComercializacion: ultimoDespacho?.FechaDespacho,
+            DestinoComercial: ultimoDespacho?.ClienteDestino
         );
     }
 

@@ -12,6 +12,14 @@ public class RegistrarFaenamientoDto
     public decimal? TemperaturaAlmacenamiento { get; set; }
     public EstadoCanal EstadoCanal { get; set; }
     public string? Observaciones { get; set; }
+
+    // Decomisos y puntos de control intermedios del proceso
+    public int UnidadesDecomisadas { get; set; } = 0;
+    public string? MotivoDecomiso { get; set; }
+    public int? TiempoLavadoMinutos { get; set; }
+    public string? PresentacionEmpaque { get; set; }
+    public DateTime? FechaIngresoFrio { get; set; }
+    public DateTime? FechaSalidaFrio { get; set; }
 }
 
 public class RegistrarDespachoDto
@@ -38,7 +46,13 @@ public record FaenamientoResponseDto(
     decimal PesoPromedioCanalGramos,
     decimal? TemperaturaAlmacenamiento,
     string EstadoCanal,
-    string? Observaciones
+    string? Observaciones,
+    int UnidadesDecomisadas,
+    string? MotivoDecomiso,
+    int? TiempoLavadoMinutos,
+    string? PresentacionEmpaque,
+    DateTime? FechaIngresoFrio,
+    DateTime? FechaSalidaFrio
 );
 
 public record DespachoResponseDto(

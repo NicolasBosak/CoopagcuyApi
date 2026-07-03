@@ -16,4 +16,14 @@ public class RegistroFaenamiento
     public decimal? TemperaturaAlmacenamiento { get; set; }
     public EstadoCanal EstadoCanal { get; set; }
     public string? Observaciones { get; set; }
+
+    // Decomisos: animales descartados durante el proceso (punto de control)
+    public int UnidadesDecomisadas { get; set; } = 0;
+    public string? MotivoDecomiso { get; set; }
+
+    // Puntos de control intermedios: lavado, empaque y cadena de frío
+    public int? TiempoLavadoMinutos { get; set; }
+    public string? PresentacionEmpaque { get; set; }
+    public DateTime? FechaIngresoFrio { get; set; }
+    public DateTime? FechaSalidaFrio { get; set; }
 }

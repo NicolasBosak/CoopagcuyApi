@@ -31,6 +31,10 @@ public class GuiaMovilizacionService(AppDbContext db) : IGuiaMovilizacionService
             .FirstOrDefaultAsync(l => l.CodigoLote == codigoLote)
             ?? throw new KeyNotFoundException($"Lote {codigoLote} no encontrado.");
 
+        // Datos del transporte, si ya se registró la movilización
+        var movilizacion = await db.Movilizaciones
+            .FirstOrDefaultAsync(m => m.LoteId == lote.Id);
+
         return Document.Create(doc =>
         {
             doc.Page(page =>
@@ -108,6 +112,44 @@ public class GuiaMovilizacionService(AppDbContext db) : IGuiaMovilizacionService
                                 c.Item().Text($"• {n.Tipo}: {n.Descripcion}").FontSize(8);
                         }
                     });
+
+                    // Datos del transporte y declaración de tratamientos
+                    if (movilizacion is not null)
+                    {
+                        col.Item().PaddingTop(8).Background("#FFF3E0").Padding(10).Column(c =>
+                        {
+                            c.Item().Text("TRANSPORTE").FontSize(8).Bold().FontColor("#E65100");
+                            c.Item().PaddingTop(3).Row(r =>
+                            {
+                                r.RelativeItem().Text(
+                                    $"Conductor: {movilizacion.Conductor}");
+                                r.RelativeItem().Text(
+                                    $"Despacho: {movilizacion.FechaDespacho:dd/MM/yyyy HH:mm}");
+                            });
+                            c.Item().Row(r =>
+                            {
+                                r.RelativeItem().Text(
+                                    $"Cantidad movilizada: {movilizacion.CantidadMovilizada}");
+                                r.RelativeItem().Text(
+                                    $"Condiciones: {movilizacion.CondicionesTransporte ?? "-"}");
+                            });
+                            c.Item().Row(r =>
+                            {
+                                r.RelativeItem().Text(
+                                    $"Forraje: {movilizacion.TipoForraje ?? "-"}");
+                                r.RelativeItem().Text(
+                                    "Retiro de medicamentos: " +
+                                    (movilizacion.DiasRetiroMedicamentos is int dias
+                                        ? $"{dias} días" : "sin declaración"));
+                            });
+                            if (movilizacion.FechaRecepcionPlanta is not null)
+                            {
+                                c.Item().Text(
+                                    $"Recibido en planta: {movilizacion.FechaRecepcionPlanta:dd/MM/yyyy HH:mm} " +
+                                    $"por {movilizacion.RecibidoPor}");
+                            }
+                        });
+                    }
 
                     // Firmas de entrega y recepción
                     col.Item().PaddingTop(28).Row(r =>

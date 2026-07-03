@@ -33,3 +33,29 @@ public record ProductoraCambioDto(
     string ModificadoPor,
     DateTime FechaCambio
 );
+
+// ── Pagos a productoras (registro digital, antes cuaderno manual) ─────
+
+public class RegistrarPagoDto
+{
+    public int ProductoraId { get; set; }
+    public int? LoteId { get; set; }
+    public decimal MontoUsd { get; set; }
+    public DateTime FechaPago { get; set; }
+    public string MetodoPago { get; set; } = string.Empty; // Efectivo | Transferencia
+    public string Responsable { get; set; } = string.Empty;
+    public string? Observaciones { get; set; }
+}
+
+public record PagoResponseDto(
+    int Id,
+    int ProductoraId,
+    string NombreProductora,
+    int? LoteId,
+    string? CodigoLote,
+    decimal MontoUsd,
+    DateTime FechaPago,
+    string MetodoPago,
+    string Responsable,
+    string? Observaciones
+);
