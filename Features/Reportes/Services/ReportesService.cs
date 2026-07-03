@@ -18,6 +18,9 @@ public interface IReportesService
     Task<byte[]> ExportarExcelProductorasAsync(FiltroPeriodoDto filtro);
     Task<byte[]> ExportarExcelNovedadesAsync(FiltroPeriodoDto filtro);
     Task<byte[]> ExportarPDFLoteAsync(string codigoLote);
+    Task<IEnumerable<ReporteCuyDto>> ReporteCuyesAsync(FiltroPeriodoDto filtro);
+    Task<byte[]> ExportarExcelCuyesAsync(FiltroPeriodoDto filtro);
+    Task<ReporteDevolucionesDto> ReporteDevolucionesAsync(FiltroPeriodoDto filtro);
 }
 
 public class ReportesService(AppDbContext db) : IReportesService
@@ -269,6 +272,148 @@ public class ReportesService(AppDbContext db) : IReportesService
         return stream.ToArray();
     }
 
+    // ── Reporte individual por cuy ────────────────────────────────────
+
+    public async Task<IEnumerable<ReporteCuyDto>> ReporteCuyesAsync(
+        FiltroPeriodoDto filtro)
+    {
+        var desdeUtc = DateTime.SpecifyKind(filtro.Desde, DateTimeKind.Utc);
+        var hastaUtc = DateTime.SpecifyKind(filtro.Hasta, DateTimeKind.Utc);
+
+        var query = db.CuyRegistros
+            .Include(c => c.Lote).ThenInclude(l => l.Productora)
+            .Where(c => c.Lote.FechaRecepcion >= desdeUtc &&
+                        c.Lote.FechaRecepcion <= hastaUtc);
+
+        if (!string.IsNullOrEmpty(filtro.CentroAcopio) &&
+            Enum.TryParse<CentroAcopio>(filtro.CentroAcopio, out var cat))
+            query = query.Where(c => c.Lote.CentroAcopio == cat);
+
+        return await query
+            .OrderByDescending(c => c.Lote.FechaRecepcion)
+            .ThenBy(c => c.Lote.CodigoLote)
+            .ThenBy(c => c.NumeroEnLote)
+            .Select(c => new ReporteCuyDto(
+                c.Lote.CodigoLote,
+                c.Lote.Productora.NombreCompleto,
+                c.Lote.Productora.Comunidad,
+                c.Lote.CentroAcopio.ToString(),
+                c.NumeroEnLote,
+                c.PesoGramos,
+                c.ColorPelaje,
+                c.EstadoOreja,
+                c.TamanoAnimal,
+                c.Estado.ToString(),
+                c.MotivoNovedad,
+                c.Lote.FechaRecepcion))
+            .ToListAsync();
+    }
+
+    public async Task<byte[]> ExportarExcelCuyesAsync(FiltroPeriodoDto filtro)
+    {
+        var datos = await ReporteCuyesAsync(filtro);
+
+        using var libro = new XLWorkbook();
+        var hoja = libro.Worksheets.Add("Detalle por cuy");
+
+        var encabezados = new[]
+        {
+            "Código Lote", "Productora", "Comunidad", "CAT", "Cuy N°",
+            "Peso (g)", "Color", "Oreja", "Tamaño", "Estado",
+            "Motivo de novedad", "Fecha recepción"
+        };
+
+        for (int i = 0; i < encabezados.Length; i++)
+        {
+            var celda = hoja.Cell(1, i + 1);
+            celda.Value = encabezados[i];
+            celda.Style.Font.Bold = true;
+            celda.Style.Fill.BackgroundColor = XLColor.FromHtml("#2E7D32");
+            celda.Style.Font.FontColor = XLColor.White;
+        }
+
+        int fila = 2;
+        foreach (var r in datos)
+        {
+            hoja.Cell(fila, 1).Value = r.CodigoLote;
+            hoja.Cell(fila, 2).Value = r.NombreProductora;
+            hoja.Cell(fila, 3).Value = r.Comunidad;
+            hoja.Cell(fila, 4).Value = r.CentroAcopio;
+            hoja.Cell(fila, 5).Value = r.NumeroEnLote;
+            hoja.Cell(fila, 6).Value = r.PesoGramos;
+            hoja.Cell(fila, 7).Value = r.ColorPelaje;
+            hoja.Cell(fila, 8).Value = r.EstadoOreja;
+            hoja.Cell(fila, 9).Value = r.TamanoAnimal;
+            hoja.Cell(fila, 10).Value = r.Estado;
+            hoja.Cell(fila, 11).Value = r.MotivoNovedad ?? "-";
+            hoja.Cell(fila, 12).Value = r.FechaRecepcion.ToString("dd/MM/yyyy");
+
+            if (r.Estado == "Rechazado")
+                hoja.Cell(fila, 10).Style.Font.FontColor = XLColor.FromHtml("#B71C1C");
+            else if (r.Estado == "ConNovedad")
+                hoja.Cell(fila, 10).Style.Font.FontColor = XLColor.FromHtml("#E65100");
+
+            fila++;
+        }
+
+        hoja.Columns().AdjustToContents();
+
+        using var stream = new MemoryStream();
+        libro.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    // ── Reporte de devoluciones y retornos a productora ───────────────
+
+    public async Task<ReporteDevolucionesDto> ReporteDevolucionesAsync(
+        FiltroPeriodoDto filtro)
+    {
+        var desdeUtc = DateTime.SpecifyKind(filtro.Desde, DateTimeKind.Utc);
+        var hastaUtc = DateTime.SpecifyKind(filtro.Hasta, DateTimeKind.Utc);
+
+        var devQuery = db.Devoluciones
+            .Include(d => d.Lote).ThenInclude(l => l.Productora)
+            .Where(d => d.FechaDevolucion >= desdeUtc &&
+                        d.FechaDevolucion <= hastaUtc);
+
+        var retQuery = db.RetornosProductora
+            .Include(r => r.Lote).ThenInclude(l => l.Productora)
+            .Where(r => r.FechaRetorno >= desdeUtc &&
+                        r.FechaRetorno <= hastaUtc);
+
+        if (!string.IsNullOrEmpty(filtro.CentroAcopio) &&
+            Enum.TryParse<CentroAcopio>(filtro.CentroAcopio, out var cat))
+        {
+            devQuery = devQuery.Where(d => d.Lote.CentroAcopio == cat);
+            retQuery = retQuery.Where(r => r.Lote.CentroAcopio == cat);
+        }
+
+        var devoluciones = await devQuery
+            .OrderByDescending(d => d.FechaDevolucion)
+            .Select(d => new DevolucionItemDto(
+                d.Id, d.Lote.CodigoLote,
+                d.Lote.Productora.NombreCompleto, d.Lote.Productora.Comunidad,
+                d.ClienteDevuelve, d.FechaDevolucion,
+                d.CantidadUnidades, d.Motivo))
+            .ToListAsync();
+
+        var retornos = await retQuery
+            .OrderByDescending(r => r.FechaRetorno)
+            .Select(r => new RetornoItemDto(
+                r.Id, r.Lote.CodigoLote,
+                r.Lote.Productora.NombreCompleto, r.Lote.Productora.Comunidad,
+                r.NumeroEnLote, r.Motivo, r.FechaRetorno, r.Responsable))
+            .ToListAsync();
+
+        return new ReporteDevolucionesDto(
+            TotalDevolucionesClientes: devoluciones.Count,
+            TotalUnidadesDevueltas: devoluciones.Sum(d => d.CantidadUnidades),
+            TotalRetornosProductora: retornos.Count,
+            DevolucionesClientes: devoluciones,
+            RetornosProductora: retornos
+        );
+    }
+
     // ── Exportar PDF de ficha de lote — RF-505 ────────────────────────
 
     public async Task<byte[]> ExportarPDFLoteAsync(string codigoLote)
@@ -278,6 +423,7 @@ public class ReportesService(AppDbContext db) : IReportesService
         var lote = await db.Lotes
             .Include(l => l.Productora)
             .Include(l => l.Novedades)
+            .Include(l => l.Cuyes)
             .Include(l => l.Faenamiento)
             .Include(l => l.CodigoQR)
             .FirstOrDefaultAsync(l => l.CodigoLote == codigoLote)
@@ -362,6 +508,62 @@ public class ReportesService(AppDbContext db) : IReportesService
                         c.Item().Text(
                             $"Responsable: {lote.ResponsableRecepcion ?? "-"}");
                     });
+
+                    // Detalle individual por cuy
+                    if (lote.Cuyes.Count > 0)
+                    {
+                        col.Item().PaddingTop(8).Background("#FAFAFA").Padding(8).Column(c =>
+                        {
+                            c.Item().Text("DETALLE POR ANIMAL")
+                                .FontSize(9).Bold().FontColor("#2E7D32");
+
+                            c.Item().PaddingTop(4).Table(tabla =>
+                            {
+                                tabla.ColumnsDefinition(cols =>
+                                {
+                                    cols.ConstantColumn(30);   // N°
+                                    cols.ConstantColumn(60);   // Peso
+                                    cols.RelativeColumn(2);    // Color/Oreja/Tamaño
+                                    cols.ConstantColumn(70);   // Estado
+                                    cols.RelativeColumn(3);    // Motivo
+                                });
+
+                                tabla.Header(h =>
+                                {
+                                    foreach (var titulo in new[]
+                                        { "N°", "Peso", "Características", "Estado", "Observación" })
+                                    {
+                                        h.Cell().BorderBottom(1).BorderColor("#CCCCCC")
+                                            .PaddingBottom(2)
+                                            .Text(titulo).FontSize(7).Bold();
+                                    }
+                                });
+
+                                foreach (var cuy in lote.Cuyes.OrderBy(x => x.NumeroEnLote))
+                                {
+                                    var colorEstado = cuy.Estado switch
+                                    {
+                                        EstadoLote.Rechazado => "#B71C1C",
+                                        EstadoLote.ConNovedad => "#E65100",
+                                        _ => "#2E7D32"
+                                    };
+
+                                    tabla.Cell().PaddingVertical(1)
+                                        .Text($"{cuy.NumeroEnLote}").FontSize(7);
+                                    tabla.Cell().PaddingVertical(1)
+                                        .Text($"{cuy.PesoGramos:F0}g").FontSize(7);
+                                    tabla.Cell().PaddingVertical(1)
+                                        .Text($"{cuy.ColorPelaje} · {cuy.EstadoOreja} · {cuy.TamanoAnimal}")
+                                        .FontSize(7);
+                                    tabla.Cell().PaddingVertical(1)
+                                        .Text(cuy.Estado.ToString()).FontSize(7)
+                                        .FontColor(colorEstado);
+                                    tabla.Cell().PaddingVertical(1)
+                                        .Text(cuy.MotivoNovedad ?? "—").FontSize(7);
+                                }
+                            });
+                        });
+                    }
 
                     // Novedades
                     if (lote.Novedades.Count > 0)

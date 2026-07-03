@@ -32,6 +32,7 @@ public class Lote
 
     // Navegación
     public ICollection<Novedad> Novedades { get; set; } = [];
+    public ICollection<CuyRegistro> Cuyes { get; set; } = [];
     public RegistroFaenamiento? Faenamiento { get; set; }
     public CodigoQR? CodigoQR { get; set; }
 }

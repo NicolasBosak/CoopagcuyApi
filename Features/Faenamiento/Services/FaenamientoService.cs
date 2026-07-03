@@ -18,6 +18,8 @@ public interface IFaenamientoService
     Task<DevolucionResponseDto> RegistrarDevolucionAsync(RegistrarDevolucionDto dto);
     Task<IEnumerable<DevolucionResponseDto>> ListarDevolucionesAsync(
         DateTime? desde, DateTime? hasta, int? productoraId);
+    Task<IEnumerable<RetornoProductoraResponseDto>> ListarRetornosAsync(
+        DateTime? desde, DateTime? hasta, int? productoraId);
     Task<InkJetCodigoDto?> ObtenerDatosInkJetAsync(string codigoLote);
 }
 
@@ -44,16 +46,52 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
             throw new InvalidOperationException(
                 $"El lote {lote.CodigoLote} ya tiene un registro de faenamiento.");
 
-        // 2. Validar decomisos: faenados + decomisados no superan el lote
-        if (dto.UnidadesDecomisadas < 0)
-            throw new InvalidOperationException(
-                "Las unidades decomisadas no pueden ser negativas.");
+        var registroIndividual = dto.Cuyes.Count > 0;
 
-        if (dto.UnidadesFaenadas + dto.UnidadesDecomisadas > lote.CantidadAnimales)
-            throw new InvalidOperationException(
-                $"Faenados ({dto.UnidadesFaenadas}) más decomisados " +
-                $"({dto.UnidadesDecomisadas}) superan los animales del lote " +
-                $"({lote.CantidadAnimales}).");
+        // 2. Con registro individual los totales se derivan de los animales:
+        //    faenados = aptos y con novedad; decomisados = rechazados que no
+        //    retornan; los rechazados marcados retornan a su productora.
+        int unidadesFaenadas, unidadesDecomisadas;
+        decimal pesoTotalCanal;
+        string? motivoDecomiso;
+
+        if (registroIndividual)
+        {
+            if (dto.Cuyes.Count > lote.CantidadAnimales)
+                throw new InvalidOperationException(
+                    $"Se registraron {dto.Cuyes.Count} cuyes pero el lote " +
+                    $"tiene {lote.CantidadAnimales} animales.");
+
+            var rechazados = dto.Cuyes.Where(c => c.Estado == EstadoCanal.Rechazado).ToList();
+            unidadesFaenadas = dto.Cuyes.Count - rechazados.Count;
+            unidadesDecomisadas = rechazados.Count(c => !c.RetornarAProductora);
+            pesoTotalCanal = dto.Cuyes
+                .Where(c => c.Estado != EstadoCanal.Rechazado)
+                .Sum(c => c.PesoCanalGramos ?? 0);
+            motivoDecomiso = rechazados.Count > 0
+                ? string.Join("; ", rechazados
+                    .Where(c => !string.IsNullOrWhiteSpace(c.Motivo))
+                    .Select(c => $"Cuy #{c.NumeroEnLote}: {c.Motivo!.Trim()}"))
+                : null;
+            if (string.IsNullOrEmpty(motivoDecomiso)) motivoDecomiso = dto.MotivoDecomiso;
+        }
+        else
+        {
+            if (dto.UnidadesDecomisadas < 0)
+                throw new InvalidOperationException(
+                    "Las unidades decomisadas no pueden ser negativas.");
+
+            if (dto.UnidadesFaenadas + dto.UnidadesDecomisadas > lote.CantidadAnimales)
+                throw new InvalidOperationException(
+                    $"Faenados ({dto.UnidadesFaenadas}) más decomisados " +
+                    $"({dto.UnidadesDecomisadas}) superan los animales del lote " +
+                    $"({lote.CantidadAnimales}).");
+
+            unidadesFaenadas = dto.UnidadesFaenadas;
+            unidadesDecomisadas = dto.UnidadesDecomisadas;
+            pesoTotalCanal = dto.PesoTotalCanalGramos;
+            motivoDecomiso = dto.MotivoDecomiso;
+        }
 
         // 3. Crear registro de faenamiento
         var faenamiento = new RegistroFaenamiento
@@ -62,13 +100,13 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
             FechaFaenamiento = DateTime.SpecifyKind(
                                     dto.FechaFaenamiento, DateTimeKind.Utc),
             OperarioResponsable = dto.OperarioResponsable,
-            UnidadesFaenadas = dto.UnidadesFaenadas,
-            PesoTotalCanalGramos = dto.PesoTotalCanalGramos,
+            UnidadesFaenadas = unidadesFaenadas,
+            PesoTotalCanalGramos = pesoTotalCanal,
             TemperaturaAlmacenamiento = dto.TemperaturaAlmacenamiento,
             EstadoCanal = dto.EstadoCanal,
             Observaciones = dto.Observaciones,
-            UnidadesDecomisadas = dto.UnidadesDecomisadas,
-            MotivoDecomiso = dto.MotivoDecomiso,
+            UnidadesDecomisadas = unidadesDecomisadas,
+            MotivoDecomiso = motivoDecomiso,
             TiempoLavadoMinutos = dto.TiempoLavadoMinutos,
             PresentacionEmpaque = dto.PresentacionEmpaque,
             FechaIngresoFrio = dto.FechaIngresoFrio is DateTime fi
@@ -80,7 +118,38 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
         db.Faenamientos.Add(faenamiento);
         await db.SaveChangesAsync();
 
-        return MapearFaenamiento(faenamiento, lote);
+        // 4. Detalle individual + retornos a la productora de origen
+        foreach (var c in dto.Cuyes)
+        {
+            db.CuyFaenamientos.Add(new CuyFaenamiento
+            {
+                RegistroFaenamientoId = faenamiento.Id,
+                NumeroEnLote = c.NumeroEnLote,
+                PesoCanalGramos = c.PesoCanalGramos,
+                Estado = c.Estado,
+                Motivo = string.IsNullOrWhiteSpace(c.Motivo) ? null : c.Motivo.Trim(),
+                RetornadoAProductora = c.Estado == EstadoCanal.Rechazado
+                    && c.RetornarAProductora
+            });
+
+            if (c.Estado == EstadoCanal.Rechazado && c.RetornarAProductora)
+            {
+                db.RetornosProductora.Add(new RetornoProductora
+                {
+                    LoteId = lote.Id,
+                    NumeroEnLote = c.NumeroEnLote,
+                    Motivo = string.IsNullOrWhiteSpace(c.Motivo)
+                        ? "No apto para faenamiento" : c.Motivo.Trim(),
+                    Responsable = dto.OperarioResponsable
+                });
+            }
+        }
+
+        if (registroIndividual)
+            await db.SaveChangesAsync();
+
+        return await ObtenerPorLoteIdAsync(dto.LoteId)
+            ?? throw new InvalidOperationException("Error al mapear el faenamiento.");
     }
 
     // ── Consultas ─────────────────────────────────────────────────────
@@ -89,6 +158,7 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
     {
         var faenamiento = await db.Faenamientos
             .Include(f => f.Lote).ThenInclude(l => l.Productora)
+            .Include(f => f.Cuyes)
             .FirstOrDefaultAsync(f => f.LoteId == loteId);
 
         return faenamiento is null
@@ -100,6 +170,7 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
     {
         var faenamiento = await db.Faenamientos
             .Include(f => f.Lote).ThenInclude(l => l.Productora)
+            .Include(f => f.Cuyes)
             .FirstOrDefaultAsync(f => f.Lote.CodigoLote == codigoLote);
 
         return faenamiento is null
@@ -112,6 +183,7 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
     {
         var query = db.Faenamientos
             .Include(f => f.Lote).ThenInclude(l => l.Productora)
+            .Include(f => f.Cuyes)
             .AsQueryable();
 
         if (desde.HasValue)
@@ -264,6 +336,36 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
         Observaciones: d.Observaciones
     );
 
+    // ── Retornos de cuyes a su productora de origen ───────────────────
+
+    public async Task<IEnumerable<RetornoProductoraResponseDto>> ListarRetornosAsync(
+        DateTime? desde, DateTime? hasta, int? productoraId)
+    {
+        var query = db.RetornosProductora
+            .Include(r => r.Lote).ThenInclude(l => l.Productora)
+            .AsQueryable();
+
+        if (desde.HasValue)
+            query = query.Where(r =>
+                r.FechaRetorno >= DateTime.SpecifyKind(desde.Value, DateTimeKind.Utc));
+
+        if (hasta.HasValue)
+            query = query.Where(r =>
+                r.FechaRetorno <= DateTime.SpecifyKind(hasta.Value, DateTimeKind.Utc));
+
+        if (productoraId.HasValue)
+            query = query.Where(r => r.Lote.ProductoraId == productoraId.Value);
+
+        return await query
+            .OrderByDescending(r => r.FechaRetorno)
+            .Select(r => new RetornoProductoraResponseDto(
+                r.Id, r.LoteId, r.Lote.CodigoLote,
+                r.Lote.ProductoraId, r.Lote.Productora.NombreCompleto,
+                r.Lote.Productora.Comunidad, r.NumeroEnLote,
+                r.Motivo, r.FechaRetorno, r.Responsable))
+            .ToListAsync();
+    }
+
     // ── Datos para codificador Ink Jet — RF-305 ───────────────────────
 
     public async Task<InkJetCodigoDto?> ObtenerDatosInkJetAsync(string codigoLote)
@@ -317,7 +419,13 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
             TiempoLavadoMinutos: f.TiempoLavadoMinutos,
             PresentacionEmpaque: f.PresentacionEmpaque,
             FechaIngresoFrio: f.FechaIngresoFrio,
-            FechaSalidaFrio: f.FechaSalidaFrio
+            FechaSalidaFrio: f.FechaSalidaFrio,
+            Cuyes: f.Cuyes
+                .OrderBy(c => c.NumeroEnLote)
+                .Select(c => new CuyFaenamientoResponseDto(
+                    c.Id, c.NumeroEnLote, c.PesoCanalGramos,
+                    c.Estado.ToString(), c.Motivo, c.RetornadoAProductora))
+                .ToList()
         );
     }
 }

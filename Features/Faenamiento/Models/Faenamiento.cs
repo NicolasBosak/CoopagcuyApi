@@ -26,4 +26,7 @@ public class RegistroFaenamiento
     public string? PresentacionEmpaque { get; set; }
     public DateTime? FechaIngresoFrio { get; set; }
     public DateTime? FechaSalidaFrio { get; set; }
+
+    // Navegación: estado individual por animal
+    public ICollection<CuyFaenamiento> Cuyes { get; set; } = [];
 }

@@ -59,6 +59,55 @@ public record ReporteNovedadDto(
     string RegistradoPor
 );
 
+// ── Reporte individual por cuy ────────────────────────────────────────
+
+public record ReporteCuyDto(
+    string CodigoLote,
+    string NombreProductora,
+    string Comunidad,
+    string CentroAcopio,
+    int NumeroEnLote,
+    decimal PesoGramos,
+    string ColorPelaje,
+    string EstadoOreja,
+    string TamanoAnimal,
+    string Estado,
+    string? MotivoNovedad,
+    DateTime FechaRecepcion
+);
+
+// ── Reporte de devoluciones y retornos ────────────────────────────────
+
+public record ReporteDevolucionesDto(
+    int TotalDevolucionesClientes,
+    int TotalUnidadesDevueltas,
+    int TotalRetornosProductora,
+    List<DevolucionItemDto> DevolucionesClientes,
+    List<RetornoItemDto> RetornosProductora
+);
+
+public record DevolucionItemDto(
+    int Id,
+    string CodigoLote,
+    string NombreProductora,
+    string Comunidad,
+    string ClienteDevuelve,
+    DateTime FechaDevolucion,
+    int CantidadUnidades,
+    string Motivo
+);
+
+public record RetornoItemDto(
+    int Id,
+    string CodigoLote,
+    string NombreProductora,
+    string Comunidad,
+    int NumeroEnLote,
+    string Motivo,
+    DateTime FechaRetorno,
+    string Responsable
+);
+
 // ── Filtros compartidos ───────────────────────────────────────────────
 
 public record FiltroPeriodoDto(

@@ -65,6 +65,51 @@ public class ReportesController(IReportesService service) : ControllerBase
     }
 
     /// <summary>
+    /// Reporte individual por cuy: estado de cada animal registrado.
+    /// </summary>
+    [HttpGet("cuyes")]
+    public async Task<IActionResult> PorCuy(
+        [FromQuery] DateTime desde,
+        [FromQuery] DateTime hasta,
+        [FromQuery] string? cat)
+    {
+        var resultado = await service.ReporteCuyesAsync(
+            new FiltroPeriodoDto(desde, hasta, cat));
+        return Ok(resultado);
+    }
+
+    /// <summary>
+    /// Reporte de devoluciones de clientes y retornos a productoras.
+    /// </summary>
+    [HttpGet("devoluciones")]
+    public async Task<IActionResult> Devoluciones(
+        [FromQuery] DateTime desde,
+        [FromQuery] DateTime hasta,
+        [FromQuery] string? cat)
+    {
+        var resultado = await service.ReporteDevolucionesAsync(
+            new FiltroPeriodoDto(desde, hasta, cat));
+        return Ok(resultado);
+    }
+
+    /// <summary>
+    /// Exporta el detalle individual por cuy a Excel.
+    /// </summary>
+    [HttpGet("exportar/excel/cuyes")]
+    public async Task<IActionResult> ExcelCuyes(
+        [FromQuery] DateTime desde,
+        [FromQuery] DateTime hasta,
+        [FromQuery] string? cat)
+    {
+        var bytes = await service.ExportarExcelCuyesAsync(
+            new FiltroPeriodoDto(desde, hasta, cat));
+
+        return File(bytes,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            $"Detalle-Cuyes-{desde:yyyyMMdd}-{hasta:yyyyMMdd}.xlsx");
+    }
+
+    /// <summary>
     /// Exporta reporte de productoras a Excel — RF-505.
     /// </summary>
     [HttpGet("exportar/excel/productoras")]

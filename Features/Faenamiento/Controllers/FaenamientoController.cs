@@ -148,6 +148,20 @@ public class FaenamientoController(IFaenamientoService service) : ControllerBase
     }
 
     /// <summary>
+    /// Lista los retornos de cuyes a sus productoras de origen
+    /// (animales marcados como no aptos durante el faenamiento).
+    /// </summary>
+    [HttpGet("retornos")]
+    public async Task<IActionResult> ListarRetornos(
+        [FromQuery] DateTime? desde,
+        [FromQuery] DateTime? hasta,
+        [FromQuery] int? productoraId)
+    {
+        var resultado = await service.ListarRetornosAsync(desde, hasta, productoraId);
+        return Ok(resultado);
+    }
+
+    /// <summary>
     /// Lista todos los despachos asociados a un lote.
     /// </summary>
     [HttpGet("despachos/lote/{loteId:int}")]

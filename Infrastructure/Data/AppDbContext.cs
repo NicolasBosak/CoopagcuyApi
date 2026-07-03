@@ -23,6 +23,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Comunidad> Comunidades => Set<Comunidad>();
     public DbSet<Movilizacion> Movilizaciones => Set<Movilizacion>();
     public DbSet<Pago> Pagos => Set<Pago>();
+    public DbSet<CuyRegistro> CuyRegistros => Set<CuyRegistro>();
+    public DbSet<CuyFaenamiento> CuyFaenamientos => Set<CuyFaenamiento>();
+    public DbSet<RetornoProductora> RetornosProductora => Set<RetornoProductora>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -131,6 +134,47 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasOne(c => c.Productora)
              .WithMany()
              .HasForeignKey(c => c.ProductoraId);
+        });
+
+        // Registro individual por cuy en recepción
+        modelBuilder.Entity<CuyRegistro>(e =>
+        {
+            e.HasKey(c => c.Id);
+            e.HasIndex(c => new { c.LoteId, c.NumeroEnLote }).IsUnique();
+            e.Property(c => c.PesoGramos).HasPrecision(10, 2);
+            e.Property(c => c.ColorPelaje).HasMaxLength(50).IsRequired();
+            e.Property(c => c.EstadoOreja).HasMaxLength(50).IsRequired();
+            e.Property(c => c.TamanoAnimal).HasMaxLength(50).IsRequired();
+            e.Property(c => c.SignosClinicos).HasMaxLength(300);
+            e.Property(c => c.Estado).HasConversion<string>();
+            e.Property(c => c.MotivoNovedad).HasMaxLength(500);
+            e.HasOne(c => c.Lote)
+             .WithMany(l => l.Cuyes)
+             .HasForeignKey(c => c.LoteId);
+        });
+
+        // Estado individual por cuy en faenamiento
+        modelBuilder.Entity<CuyFaenamiento>(e =>
+        {
+            e.HasKey(c => c.Id);
+            e.HasIndex(c => new { c.RegistroFaenamientoId, c.NumeroEnLote }).IsUnique();
+            e.Property(c => c.PesoCanalGramos).HasPrecision(10, 2);
+            e.Property(c => c.Estado).HasConversion<string>();
+            e.Property(c => c.Motivo).HasMaxLength(500);
+            e.HasOne(c => c.Registro)
+             .WithMany(f => f.Cuyes)
+             .HasForeignKey(c => c.RegistroFaenamientoId);
+        });
+
+        // Retorno de cuy no apto a su productora de origen
+        modelBuilder.Entity<RetornoProductora>(e =>
+        {
+            e.HasKey(r => r.Id);
+            e.Property(r => r.Motivo).HasMaxLength(500).IsRequired();
+            e.Property(r => r.Responsable).HasMaxLength(150).IsRequired();
+            e.HasOne(r => r.Lote)
+             .WithMany()
+             .HasForeignKey(r => r.LoteId);
         });
 
         // Movilización CAT → planta (eslabón transporte)

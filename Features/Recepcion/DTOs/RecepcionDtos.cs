@@ -19,9 +19,35 @@ public class RegistrarLoteDto
     // Condición sanitaria visual: null/vacío = sin signos clínicos
     public string? SignosClinicos { get; set; }
 
+    // Registro individual por animal. Si viene con datos, la evaluación
+    // se hace cuy por cuy y los totales del lote se derivan de aquí.
+    // Si viene vacío se usa el flujo agregado (registros offline antiguos).
+    public List<CuyRegistroDto> Cuyes { get; set; } = [];
+
     public bool SincronizadoOffline { get; set; } = false;
     public string? DispositivoId { get; set; }
 }
+
+public class CuyRegistroDto
+{
+    public decimal PesoGramos { get; set; }
+    public string ColorPelaje { get; set; } = string.Empty;
+    public string EstadoOreja { get; set; } = string.Empty;
+    public string TamanoAnimal { get; set; } = string.Empty;
+    public string? SignosClinicos { get; set; }
+}
+
+public record CuyRegistroResponseDto(
+    int Id,
+    int NumeroEnLote,
+    decimal PesoGramos,
+    string ColorPelaje,
+    string EstadoOreja,
+    string TamanoAnimal,
+    string? SignosClinicos,
+    string Estado,
+    string? MotivoNovedad
+);
 
 public class AgregarNovedadDto
 {
@@ -51,7 +77,8 @@ public record LoteResponseDto(
     string? ResponsableRecepcion,
     string? Observaciones,
     bool SincronizadoOffline,
-    List<NovedadResponseDto> Novedades
+    List<NovedadResponseDto> Novedades,
+    List<CuyRegistroResponseDto> Cuyes
 );
 
 public record NovedadResponseDto(

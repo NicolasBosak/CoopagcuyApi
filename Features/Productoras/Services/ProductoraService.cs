@@ -44,7 +44,15 @@ public class ProductoraService(AppDbContext db) : IProductoraService
         if (!string.IsNullOrEmpty(cat) && Enum.TryParse<Common.CentroAcopio>(cat, out var catEnum))
             query = query.Where(p => p.CatAsignado == catEnum);
 
-        return await query.Select(p => MapToDto(p)).ToListAsync();
+        // Incluye el conteo de cuyes retornados desde la planta,
+        // para que el CAT sepa qué productora presenta devoluciones
+        return await query
+            .Select(p => new ProductoraResponseDto(
+                p.Id, p.NombreCompleto, p.Cedula, p.Comunidad,
+                p.Canton, p.CatAsignado.ToString(), p.Telefono,
+                p.Activa, p.FechaRegistro,
+                db.RetornosProductora.Count(r => r.Lote.ProductoraId == p.Id)))
+            .ToListAsync();
     }
 
     public async Task<ProductoraResponseDto?> ObtenerPorIdAsync(int id)

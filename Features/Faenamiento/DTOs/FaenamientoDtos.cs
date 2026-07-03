@@ -20,7 +20,43 @@ public class RegistrarFaenamientoDto
     public string? PresentacionEmpaque { get; set; }
     public DateTime? FechaIngresoFrio { get; set; }
     public DateTime? FechaSalidaFrio { get; set; }
+
+    // Registro individual por animal. Si viene con datos, los totales
+    // (unidades faenadas, decomisos, peso canal) se derivan de aquí.
+    public List<CuyFaenamientoDto> Cuyes { get; set; } = [];
 }
+
+public class CuyFaenamientoDto
+{
+    public int NumeroEnLote { get; set; }
+    public decimal? PesoCanalGramos { get; set; }
+    public EstadoCanal Estado { get; set; }
+    public string? Motivo { get; set; }
+    // Si el animal no es apto y se devuelve a su productora de origen
+    public bool RetornarAProductora { get; set; } = false;
+}
+
+public record CuyFaenamientoResponseDto(
+    int Id,
+    int NumeroEnLote,
+    decimal? PesoCanalGramos,
+    string Estado,
+    string? Motivo,
+    bool RetornadoAProductora
+);
+
+public record RetornoProductoraResponseDto(
+    int Id,
+    int LoteId,
+    string CodigoLote,
+    int ProductoraId,
+    string NombreProductora,
+    string Comunidad,
+    int NumeroEnLote,
+    string Motivo,
+    DateTime FechaRetorno,
+    string Responsable
+);
 
 public class RegistrarDespachoDto
 {
@@ -52,7 +88,8 @@ public record FaenamientoResponseDto(
     int? TiempoLavadoMinutos,
     string? PresentacionEmpaque,
     DateTime? FechaIngresoFrio,
-    DateTime? FechaSalidaFrio
+    DateTime? FechaSalidaFrio,
+    List<CuyFaenamientoResponseDto> Cuyes
 );
 
 public record DespachoResponseDto(

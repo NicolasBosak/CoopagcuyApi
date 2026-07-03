@@ -21,7 +21,9 @@ public record ProductoraResponseDto(
     string CatAsignado,
     string? Telefono,
     bool Activa,
-    DateTime FechaRegistro
+    DateTime FechaRegistro,
+    // Cuyes retornados desde la planta por no aptos (seguimiento)
+    int TotalRetornos = 0
 );
 
 // Historial de cambios de una productora — RF-105

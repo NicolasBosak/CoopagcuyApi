@@ -31,8 +31,20 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
         // 2. Generar código único de lote — SRS RF-103 / Apéndice 5.2
         var codigoLote = await GenerarCodigoLoteAsync(dto.CentroAcopio, dto.FechaRecepcion);
 
-        // 3. Aplicar reglas de negocio — SRS Apéndice 5.1
-        var (estado, novedades) = EvaluarLote(dto);
+        var registroIndividual = dto.Cuyes.Count > 0;
+
+        // 3. Aplicar reglas de negocio — SRS Apéndice 5.1.
+        //    Con registro individual la evaluación es cuy por cuy y los
+        //    totales del lote se derivan de los animales; el flujo agregado
+        //    se mantiene para registros offline con el formato anterior.
+        EstadoLote estado;
+        List<Novedad> novedades;
+        List<CuyRegistro> cuyes = [];
+
+        if (registroIndividual)
+            (estado, novedades, cuyes) = EvaluarCuyes(dto);
+        else
+            (estado, novedades) = EvaluarLote(dto);
 
         // 4. Crear lote
         var lote = new Lote
@@ -41,8 +53,9 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
             ProductoraId = dto.ProductoraId,
             CentroAcopio = dto.CentroAcopio,
             FechaRecepcion = DateTime.SpecifyKind(dto.FechaRecepcion, DateTimeKind.Utc), // ← fix
-            CantidadAnimales = dto.CantidadAnimales,
-            PesoTotalGramos = dto.PesoTotalGramos,
+            CantidadAnimales = registroIndividual ? cuyes.Count : dto.CantidadAnimales,
+            PesoTotalGramos = registroIndividual
+                ? cuyes.Sum(c => c.PesoGramos) : dto.PesoTotalGramos,
             Estado = estado,
             ResponsableRecepcion = dto.ResponsableRecepcion,
             Observaciones = dto.Observaciones,
@@ -55,16 +68,22 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
         db.Lotes.Add(lote);
         await db.SaveChangesAsync();
 
-        // 5. Guardar novedades detectadas automáticamente
-        if (novedades.Count > 0)
+        // 5. Guardar el detalle individual por animal
+        foreach (var cuy in cuyes)
         {
-            foreach (var novedad in novedades)
-            {
-                novedad.LoteId = lote.Id;
-                db.Novedades.Add(novedad);
-            }
-            await db.SaveChangesAsync();
+            cuy.LoteId = lote.Id;
+            db.CuyRegistros.Add(cuy);
         }
+
+        // 6. Guardar novedades detectadas automáticamente
+        foreach (var novedad in novedades)
+        {
+            novedad.LoteId = lote.Id;
+            db.Novedades.Add(novedad);
+        }
+
+        if (cuyes.Count > 0 || novedades.Count > 0)
+            await db.SaveChangesAsync();
 
         return await MapearLoteAsync(lote.Id);
     }
@@ -89,6 +108,7 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
         var query = db.Lotes
             .Include(l => l.Productora)
             .Include(l => l.Novedades)
+            .Include(l => l.Cuyes)
             .AsQueryable();
 
         if (cat.HasValue)
@@ -146,6 +166,117 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
             Errores: errores
         );
     }
+
+    // ── Evaluación individual por cuy — SRS Apéndice 5.1 ─────────────
+    // Cada animal se evalúa por separado; el estado del lote se deriva:
+    // todos rechazados → Rechazado; alguna observación → ConNovedad.
+
+    private static (EstadoLote estado, List<Novedad> novedades, List<CuyRegistro> cuyes)
+        EvaluarCuyes(RegistrarLoteDto dto)
+    {
+        var novedades = new List<Novedad>();
+        var cuyes = new List<CuyRegistro>();
+        var numero = 0;
+
+        foreach (var c in dto.Cuyes)
+        {
+            numero++;
+            var motivos = new List<string>();
+            var rechazado = false;
+
+            if (c.PesoGramos < 850)
+            {
+                rechazado = true;
+                motivos.Add($"peso {c.PesoGramos:F0}g bajo el mínimo (850g)");
+                novedades.Add(NovedadDeCuy(numero, TipoNovedad.BajoPeso,
+                    $"Peso {c.PesoGramos:F0}g por debajo del mínimo (850g). Animal rechazado.",
+                    dto.ResponsableRecepcion, c.PesoGramos));
+            }
+            else if (c.PesoGramos < 875)
+            {
+                motivos.Add($"peso justo ({c.PesoGramos:F0}g)");
+                novedades.Add(NovedadDeCuy(numero, TipoNovedad.BajoPeso,
+                    $"Peso {c.PesoGramos:F0}g entre 850g–874g. Pasa con observación.",
+                    dto.ResponsableRecepcion, c.PesoGramos));
+            }
+            else if (c.PesoGramos > 1300)
+            {
+                motivos.Add($"sobre el rango operativo ({c.PesoGramos:F0}g)");
+                novedades.Add(NovedadDeCuy(numero, TipoNovedad.SobrePeso,
+                    $"Peso {c.PesoGramos:F0}g sobre el rango operativo (máx. 1300g).",
+                    dto.ResponsableRecepcion, c.PesoGramos));
+            }
+
+            if (c.ColorPelaje.Equals("Negro", StringComparison.OrdinalIgnoreCase))
+            {
+                motivos.Add("piel negra");
+                novedades.Add(NovedadDeCuy(numero, TipoNovedad.ColorNoConforme,
+                    "Piel completamente negra. No conforme para mercado formal.",
+                    dto.ResponsableRecepcion, null));
+            }
+
+            if (c.EstadoOreja.Equals("Dura", StringComparison.OrdinalIgnoreCase))
+            {
+                motivos.Add("oreja dura");
+                novedades.Add(NovedadDeCuy(numero, TipoNovedad.OrejaDura,
+                    "Oreja dura: animal de edad avanzada.",
+                    dto.ResponsableRecepcion, null));
+            }
+
+            if (!string.IsNullOrWhiteSpace(c.SignosClinicos))
+            {
+                motivos.Add($"signos clínicos: {c.SignosClinicos.Trim()}");
+                novedades.Add(NovedadDeCuy(numero, TipoNovedad.SignosClinicos,
+                    $"Condición sanitaria con observación: {c.SignosClinicos.Trim()}",
+                    dto.ResponsableRecepcion, null));
+            }
+
+            cuyes.Add(new CuyRegistro
+            {
+                NumeroEnLote = numero,
+                PesoGramos = c.PesoGramos,
+                ColorPelaje = c.ColorPelaje,
+                EstadoOreja = c.EstadoOreja,
+                TamanoAnimal = c.TamanoAnimal,
+                SignosClinicos = string.IsNullOrWhiteSpace(c.SignosClinicos)
+                    ? null : c.SignosClinicos.Trim(),
+                Estado = rechazado ? EstadoLote.Rechazado
+                    : motivos.Count > 0 ? EstadoLote.ConNovedad
+                    : EstadoLote.Aceptado,
+                MotivoNovedad = motivos.Count > 0
+                    ? string.Join("; ", motivos) : null
+            });
+        }
+
+        // Condición de ayuno: aplica al lote completo (condición de entrega)
+        if (!dto.EnAyunas)
+        {
+            novedades.Add(new Novedad
+            {
+                Tipo = TipoNovedad.SinAyuno,
+                Descripcion = "Lote recibido sin ayuno. El peso registrado puede no ser el peso real.",
+                RegistradoPor = dto.ResponsableRecepcion
+            });
+        }
+
+        var estadoLote = cuyes.Count > 0 && cuyes.All(c => c.Estado == EstadoLote.Rechazado)
+            ? EstadoLote.Rechazado
+            : novedades.Count > 0 || cuyes.Any(c => c.Estado != EstadoLote.Aceptado)
+                ? EstadoLote.ConNovedad
+                : EstadoLote.Aceptado;
+
+        return (estadoLote, novedades, cuyes);
+    }
+
+    private static Novedad NovedadDeCuy(
+        int numero, TipoNovedad tipo, string descripcion,
+        string registradoPor, decimal? peso) => new()
+        {
+            Tipo = tipo,
+            Descripcion = $"Cuy #{numero}: {descripcion}",
+            RegistradoPor = registradoPor,
+            PesoRegistradoGramos = peso
+        };
 
     // ── Lógica de negocio: evaluación del lote — SRS Apéndice 5.1 ────
 
@@ -271,6 +402,7 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
         var lote = await db.Lotes
             .Include(l => l.Productora)
             .Include(l => l.Novedades)
+            .Include(l => l.Cuyes)
             .FirstAsync(l => l.Id == loteId);
 
         return MapearLote(lote);
@@ -293,6 +425,13 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
             .Select(n => new NovedadResponseDto(
                 n.Id, n.Tipo.ToString(), n.Descripcion,
                 n.PesoRegistradoGramos, n.FechaRegistro, n.RegistradoPor))
+            .ToList(),
+        Cuyes: lote.Cuyes
+            .OrderBy(c => c.NumeroEnLote)
+            .Select(c => new CuyRegistroResponseDto(
+                c.Id, c.NumeroEnLote, c.PesoGramos, c.ColorPelaje,
+                c.EstadoOreja, c.TamanoAnimal, c.SignosClinicos,
+                c.Estado.ToString(), c.MotivoNovedad))
             .ToList()
     );
 }
