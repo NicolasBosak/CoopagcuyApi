@@ -17,7 +17,11 @@ public class ProductorasController(IProductoraService service) : ControllerBase
         [FromQuery] string? comunidad,
         [FromQuery] string? cat)
     {
-        var result = await service.ObtenerTodasAsync(comunidad, cat);
+        // El operador de CAT solo ve las productoras de su centro
+        var catEfectivo = User.IsInRole("OperadorCAT")
+            ? User.FindFirst("cat")?.Value ?? cat
+            : cat;
+        var result = await service.ObtenerTodasAsync(comunidad, catEfectivo);
         return Ok(result);
     }
 

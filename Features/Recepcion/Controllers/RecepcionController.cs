@@ -30,6 +30,15 @@ public class RecepcionController(
             : null;
     }
 
+    // CAT asignado al operador (para filtrar lo que ve). null si no es
+    // OperadorCAT o no tiene centro asignado.
+    private CentroAcopio? CatDelOperador()
+    {
+        if (!User.IsInRole("OperadorCAT")) return null;
+        var cat = User.FindFirst("cat")?.Value;
+        return Enum.TryParse<CentroAcopio>(cat, out var c) ? c : null;
+    }
+
     // ── Entregas por productora: armado de jaulas de hasta 20 ─────────
 
     /// <summary>
@@ -125,7 +134,9 @@ public class RecepcionController(
         [FromQuery] DateTime? desde,
         [FromQuery] DateTime? hasta)
     {
-        var resultado = await service.ListarLotesAsync(cat, estado, desde, hasta);
+        // El operador de CAT solo ve los lotes de su centro
+        var catEfectivo = CatDelOperador() ?? cat;
+        var resultado = await service.ListarLotesAsync(catEfectivo, estado, desde, hasta);
         return Ok(resultado);
     }
 

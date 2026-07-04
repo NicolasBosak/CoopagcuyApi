@@ -221,7 +221,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(m => m.RecibidoPor).HasMaxLength(150);
             e.Property(m => m.CondicionLlegada).HasMaxLength(300);
             e.HasOne(m => m.Lote)
-             .WithOne()
+             .WithOne(l => l.Movilizacion)
              .HasForeignKey<Movilizacion>(m => m.LoteId);
         });
 

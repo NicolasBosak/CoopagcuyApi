@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "coopagcuy-front",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--dir", "C:/Users/nicol/OneDrive/Documents/CoopagcuyFront/coopagcuy-frontend", "run", "dev", "--host"],
+      "port": 5173
+    }
+  ]
+}

@@ -212,6 +212,7 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
             .Include(l => l.Novedades)
             .Include(l => l.Cuyes).ThenInclude(c => c.Productora)
             .Include(l => l.Faenamientos).ThenInclude(f => f.Cuyes)
+            .Include(l => l.Movilizacion)
             .AsQueryable();
 
         if (cat.HasValue)
@@ -381,6 +382,7 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
             .Include(l => l.Novedades)
             .Include(l => l.Cuyes).ThenInclude(c => c.Productora)
             .Include(l => l.Faenamientos).ThenInclude(f => f.Cuyes)
+            .Include(l => l.Movilizacion)
             .FirstAsync(l => l.Id == loteId);
 
         return MapearLote(lote);
@@ -436,6 +438,7 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
             SincronizadoOffline: lote.SincronizadoOffline,
             Cerrado: lote.Cerrado,
             Disponibles: CalcularDisponibles(lote),
+            TieneMovilizacion: lote.Movilizacion is not null,
             Productoras: productoras,
             Novedades: lote.Novedades
                 .Select(n => new NovedadResponseDto(

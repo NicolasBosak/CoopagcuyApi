@@ -76,6 +76,8 @@ public record LoteResponseDto(
     bool SincronizadoOffline,
     bool Cerrado,
     int Disponibles,
+    // Ya tiene registro de movilización hacia la planta
+    bool TieneMovilizacion,
     List<ProductoraEnLoteDto> Productoras,
     List<NovedadResponseDto> Novedades,
     List<CuyRegistroResponseDto> Cuyes

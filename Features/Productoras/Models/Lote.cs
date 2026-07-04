@@ -47,5 +47,6 @@ public class Lote
     public ICollection<Novedad> Novedades { get; set; } = [];
     public ICollection<CuyRegistro> Cuyes { get; set; } = [];
     public ICollection<RegistroFaenamiento> Faenamientos { get; set; } = [];
+    public Movilizacion? Movilizacion { get; set; }
     public CodigoQR? CodigoQR { get; set; }
 }

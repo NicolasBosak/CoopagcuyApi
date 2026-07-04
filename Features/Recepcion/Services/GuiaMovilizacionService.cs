@@ -135,6 +135,67 @@ public class GuiaMovilizacionService(AppDbContext db) : IGuiaMovilizacionService
                         }
                     });
 
+                    // Detalle individual: los animales se registraron uno
+                    // por uno y la guía refleja ese nivel de detalle
+                    if (lote.Cuyes.Count > 0)
+                    {
+                        col.Item().PaddingTop(8).Background("#FAFAFA").Padding(10).Column(c =>
+                        {
+                            c.Item().Text("DETALLE POR ANIMAL")
+                                .FontSize(8).Bold().FontColor("#444444");
+
+                            c.Item().PaddingTop(4).Table(tabla =>
+                            {
+                                tabla.ColumnsDefinition(cols =>
+                                {
+                                    cols.ConstantColumn(25);   // N°
+                                    cols.RelativeColumn(3);    // Productora
+                                    cols.ConstantColumn(55);   // Peso
+                                    cols.RelativeColumn(2);    // Características
+                                    cols.ConstantColumn(65);   // Estado
+                                });
+
+                                tabla.Header(h =>
+                                {
+                                    foreach (var titulo in new[]
+                                        { "N°", "Productora", "Peso",
+                                          "Características", "Estado" })
+                                    {
+                                        h.Cell().BorderBottom(1).BorderColor("#CCCCCC")
+                                            .PaddingBottom(2)
+                                            .Text(titulo).FontSize(7).Bold();
+                                    }
+                                });
+
+                                foreach (var cuy in lote.Cuyes
+                                    .OrderBy(x => x.NumeroEnLote))
+                                {
+                                    var colorEstado = cuy.Estado switch
+                                    {
+                                        Common.EstadoLote.Rechazado => "#B71C1C",
+                                        Common.EstadoLote.ConNovedad => "#E65100",
+                                        _ => "#2E7D32"
+                                    };
+
+                                    tabla.Cell().PaddingVertical(1)
+                                        .Text($"{cuy.NumeroEnLote}").FontSize(7);
+                                    tabla.Cell().PaddingVertical(1)
+                                        .Text(cuy.Productora is not null
+                                            ? $"{cuy.Productora.NombreCompleto} ({cuy.Productora.Comunidad})"
+                                            : "—").FontSize(7);
+                                    tabla.Cell().PaddingVertical(1)
+                                        .Text($"{cuy.PesoGramos:F0}g").FontSize(7);
+                                    tabla.Cell().PaddingVertical(1)
+                                        .Text($"{cuy.ColorPelaje} · {cuy.EstadoOreja} · {cuy.TamanoAnimal}")
+                                        .FontSize(7);
+                                    tabla.Cell().PaddingVertical(1)
+                                        .Text(cuy.Estado.ToString()).FontSize(7)
+                                        .FontColor(colorEstado);
+                                }
+                            });
+                        });
+                    }
+
                     // Datos del transporte y declaración de tratamientos
                     if (movilizacion is not null)
                     {
