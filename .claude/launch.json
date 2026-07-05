@@ -6,6 +6,12 @@
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--dir", "C:/Users/nicol/OneDrive/Documents/CoopagcuyFront/coopagcuy-frontend", "run", "dev", "--host"],
       "port": 5173
+    },
+    {
+      "name": "coopagcuy-front-verificacion",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--dir", "C:/Users/nicol/OneDrive/Documents/CoopagcuyFront/coopagcuy-frontend", "run", "dev", "--port", "5175", "--strictPort"],
+      "port": 5175
     }
   ]
 }

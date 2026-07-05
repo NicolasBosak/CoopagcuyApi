@@ -16,6 +16,7 @@ public interface IFaenamientoService
     Task<IEnumerable<FaenamientoResponseDto>> ListarAsync(DateTime? desde, DateTime? hasta);
     Task<DespachoResponseDto> RegistrarDespachoAsync(RegistrarDespachoDto dto);
     Task<IEnumerable<DespachoResponseDto>> ListarDespachosPorLoteAsync(int loteId);
+    Task<IEnumerable<DespachoResponseDto>> ListarDespachosAsync(DateTime? desde, DateTime? hasta);
     Task<DevolucionResponseDto> RegistrarDevolucionAsync(RegistrarDevolucionDto dto);
     Task<IEnumerable<DevolucionResponseDto>> ListarDevolucionesAsync(
         DateTime? desde, DateTime? hasta, int? productoraId);
@@ -363,6 +364,31 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
             .OrderByDescending(d => d.FechaDespacho)
             .Select(d => new DespachoResponseDto(
                 d.Id, d.LoteId, lote.CodigoLote, d.ClienteDestino,
+                d.FechaDespacho, d.CantidadUnidades, d.Responsable,
+                d.Transporte, d.Observaciones))
+            .ToListAsync();
+    }
+
+    // Historial completo de despachos con filtro opcional por fecha.
+    public async Task<IEnumerable<DespachoResponseDto>> ListarDespachosAsync(
+        DateTime? desde, DateTime? hasta)
+    {
+        var query = db.Despachos
+            .Include(d => d.Lote)
+            .AsQueryable();
+
+        if (desde.HasValue)
+            query = query.Where(d =>
+                d.FechaDespacho >= DateTime.SpecifyKind(desde.Value, DateTimeKind.Utc));
+
+        if (hasta.HasValue)
+            query = query.Where(d =>
+                d.FechaDespacho <= DateTime.SpecifyKind(hasta.Value, DateTimeKind.Utc));
+
+        return await query
+            .OrderByDescending(d => d.FechaDespacho)
+            .Select(d => new DespachoResponseDto(
+                d.Id, d.LoteId, d.Lote.CodigoLote, d.ClienteDestino,
                 d.FechaDespacho, d.CantidadUnidades, d.Responsable,
                 d.Transporte, d.Observaciones))
             .ToListAsync();

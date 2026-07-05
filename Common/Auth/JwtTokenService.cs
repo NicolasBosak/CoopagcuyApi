@@ -24,7 +24,7 @@ public class JwtTokenService(IConfiguration configuration) : IJwtTokenService
         var claims = new List<Claim>
         {
             new(ClaimTypes.NameIdentifier, usuario.Id.ToString()),
-            new(ClaimTypes.Email,           usuario.Email),
+            new("cedula",                   usuario.Cedula),
             new(ClaimTypes.Name,            usuario.NombreCompleto),
             new(ClaimTypes.Role,            usuario.Rol.ToString())
         };

@@ -138,11 +138,27 @@ builder.Services.AddSwaggerGen(c =>
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("FrontendPolicy", policy =>
-        policy.WithOrigins(
-                builder.Configuration["Cors:AllowedOrigins"]?.Split(',')
-                ?? ["http://localhost:5173"])
-              .AllowAnyMethod()
-              .AllowAnyHeader());
+    {
+        if (builder.Environment.IsDevelopment())
+        {
+            // En desarrollo Vite salta de puerto (5173 → 5174…) cuando el
+            // habitual está ocupado: se acepta cualquier origen de loopback
+            // para que el login no falle por CORS tras un cambio de puerto
+            policy.SetIsOriginAllowed(origen =>
+                      Uri.TryCreate(origen, UriKind.Absolute, out var uri)
+                      && uri.IsLoopback)
+                  .AllowAnyMethod()
+                  .AllowAnyHeader();
+        }
+        else
+        {
+            policy.WithOrigins(
+                      builder.Configuration["Cors:AllowedOrigins"]?.Split(',')
+                      ?? ["http://localhost:5173"])
+                  .AllowAnyMethod()
+                  .AllowAnyHeader();
+        }
+    });
 });
 
 // Evita el error "Cannot write DateTime with Kind=Unspecified"

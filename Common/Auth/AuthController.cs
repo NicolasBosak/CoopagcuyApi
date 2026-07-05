@@ -24,9 +24,9 @@ public class AuthController(
         if (resultado is null)
         {
             logger.LogWarning(
-                "Intento de login fallido para {Email} desde {IP}",
-                dto.Email, HttpContext.Connection.RemoteIpAddress);
-            return Unauthorized(new { mensaje = "Correo o contraseña incorrectos." });
+                "Intento de login fallido para la cédula {Cedula} desde {IP}",
+                dto.Cedula, HttpContext.Connection.RemoteIpAddress);
+            return Unauthorized(new { mensaje = "Cédula o contraseña incorrectas." });
         }
 
         return Ok(resultado);
@@ -59,6 +59,7 @@ public class AuthController(
         {
             var usuario = await authService.CrearUsuarioInicialAsync(
                 dto.Nombre,
+                dto.Cedula,
                 dto.Email,
                 dto.Password,
                 RolUsuario.AdminTecnico);
@@ -67,7 +68,7 @@ public class AuthController(
             {
                 mensaje = "Usuario administrador creado correctamente.",
                 id = usuario.Id,
-                email = usuario.Email,
+                cedula = usuario.Cedula,
                 rol = usuario.Rol.ToString()
             });
         }
@@ -81,6 +82,7 @@ public class AuthController(
 public record SetupRequestDto(
     string ClaveSetup,
     string Nombre,
-    string Email,
+    string Cedula,
+    string? Email,
     string Password
 );

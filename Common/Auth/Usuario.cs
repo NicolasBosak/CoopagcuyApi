@@ -6,7 +6,14 @@ public class Usuario
 {
     public int Id { get; set; }
     public string NombreCompleto { get; set; } = string.Empty;
-    public string Email { get; set; } = string.Empty;
+
+    // Identificador único de acceso: número de cédula ecuatoriana.
+    // Es la única credencial de inicio de sesión junto con la contraseña.
+    public string Cedula { get; set; } = string.Empty;
+
+    // Dato de contacto opcional; no sirve para iniciar sesión
+    public string? Email { get; set; }
+
     public string PasswordHash { get; set; } = string.Empty;
     public RolUsuario Rol { get; set; }
 

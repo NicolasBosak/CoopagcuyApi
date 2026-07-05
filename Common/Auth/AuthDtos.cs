@@ -1,14 +1,14 @@
-﻿namespace CoopagcuyApi.Common.Auth;
+namespace CoopagcuyApi.Common.Auth;
 
 public record LoginRequestDto(
-    string Email,
+    string Cedula,
     string Password
 );
 
 public record LoginResponseDto(
     string Token,
     string NombreCompleto,
-    string Email,
+    string Cedula,
     string Rol,
     string? CatAsignado,
     DateTime Expira

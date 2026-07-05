@@ -188,4 +188,16 @@ public class FaenamientoController(IFaenamientoService service) : ControllerBase
             return NotFound(new { mensaje = ex.Message });
         }
     }
+
+    /// <summary>
+    /// Historial completo de despachos con filtro opcional por rango de fechas.
+    /// </summary>
+    [HttpGet("despachos")]
+    public async Task<IActionResult> ListarDespachos(
+        [FromQuery] DateTime? desde,
+        [FromQuery] DateTime? hasta)
+    {
+        var resultado = await service.ListarDespachosAsync(desde, hasta);
+        return Ok(resultado);
+    }
 }

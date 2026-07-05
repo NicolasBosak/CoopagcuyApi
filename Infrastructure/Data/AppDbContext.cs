@@ -121,12 +121,15 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
              .HasForeignKey(f => f.LoteFaenadoId);
         });
 
-        // Usuario
+        // Usuario: la cédula es el identificador único de inicio de sesión;
+        // el correo es solo un dato de contacto opcional (puede repetirse,
+        // p. ej. un correo familiar compartido)
         modelBuilder.Entity<Usuario>(e =>
         {
             e.HasKey(u => u.Id);
-            e.HasIndex(u => u.Email).IsUnique();
-            e.Property(u => u.Email).HasMaxLength(200).IsRequired();
+            e.HasIndex(u => u.Cedula).IsUnique();
+            e.Property(u => u.Cedula).HasMaxLength(10).IsRequired();
+            e.Property(u => u.Email).HasMaxLength(200);
             e.Property(u => u.Rol).HasConversion<string>();
             e.Property(u => u.CatAsignado).HasConversion<string>();
         });

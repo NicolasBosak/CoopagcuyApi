@@ -23,7 +23,7 @@ public class UsuarioService(AppDbContext db) : IUsuarioService
         return await query
             .OrderBy(u => u.NombreCompleto)
             .Select(u => new UsuarioResponseDto(
-                u.Id, u.NombreCompleto, u.Email,
+                u.Id, u.NombreCompleto, u.Cedula, u.Email,
                 u.Rol.ToString(),
                 u.CatAsignado != null ? u.CatAsignado.ToString() : null,
                 u.Activo, u.FechaCreacion))
@@ -38,19 +38,21 @@ public class UsuarioService(AppDbContext db) : IUsuarioService
 
     public async Task<UsuarioResponseDto> CrearAsync(CrearUsuarioDto dto)
     {
+        ValidarCedula(dto.Cedula);
         ValidarPassword(dto.Password);
         ValidarCatOperador(dto.Rol, dto.CatAsignado);
 
-        var email = dto.Email.Trim().ToLowerInvariant();
-        var existe = await db.Usuarios.AnyAsync(u => u.Email == email);
+        var cedula = dto.Cedula.Trim();
+        var existe = await db.Usuarios.AnyAsync(u => u.Cedula == cedula);
         if (existe)
             throw new InvalidOperationException(
-                "Ya existe un usuario registrado con ese correo.");
+                "Ya existe un usuario registrado con esa cédula.");
 
         var usuario = new Usuario
         {
             NombreCompleto = dto.NombreCompleto.Trim(),
-            Email = email,
+            Cedula = cedula,
+            Email = NormalizarEmail(dto.Email),
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password),
             Rol = dto.Rol,
             CatAsignado = dto.Rol == RolUsuario.OperadorCAT
@@ -70,6 +72,8 @@ public class UsuarioService(AppDbContext db) : IUsuarioService
         ValidarCatOperador(dto.Rol, dto.CatAsignado);
 
         usuario.NombreCompleto = dto.NombreCompleto.Trim();
+        // La cédula es inmutable; el correo de contacto sí puede cambiar
+        usuario.Email = NormalizarEmail(dto.Email);
         usuario.Rol = dto.Rol;
         usuario.CatAsignado = dto.Rol == RolUsuario.OperadorCAT
             ? dto.CatAsignado : null;
@@ -132,8 +136,21 @@ public class UsuarioService(AppDbContext db) : IUsuarioService
         }
     }
 
+    // La cédula es el identificador de acceso: debe ser una cédula
+    // ecuatoriana válida (provincia y dígito verificador)
+    private static void ValidarCedula(string cedula)
+    {
+        if (!ValidadorCedula.EsValida(cedula))
+            throw new InvalidOperationException(
+                "El número de cédula ingresado no es válido.");
+    }
+
+    private static string? NormalizarEmail(string? email) =>
+        string.IsNullOrWhiteSpace(email)
+            ? null : email.Trim().ToLowerInvariant();
+
     private static UsuarioResponseDto MapToDto(Usuario u) => new(
-        u.Id, u.NombreCompleto, u.Email,
+        u.Id, u.NombreCompleto, u.Cedula, u.Email,
         u.Rol.ToString(), u.CatAsignado?.ToString(),
         u.Activo, u.FechaCreacion);
 }

@@ -51,7 +51,8 @@ public class ProductorasController(IProductoraService service) : ControllerBase
     [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
     public async Task<IActionResult> Actualizar(int id, [FromBody] CrearProductoraDto dto)
     {
-        var modificadoPor = User.FindFirstValue(ClaimTypes.Email) ?? "desconocido";
+        // La auditoría identifica al usuario por su cédula (claim del token)
+        var modificadoPor = User.FindFirstValue("cedula") ?? "desconocido";
         var ok = await service.ActualizarAsync(id, dto, modificadoPor);
         return ok ? NoContent() : NotFound();
     }
