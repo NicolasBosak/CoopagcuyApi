@@ -6,14 +6,18 @@ namespace CoopagcuyApi.Infrastructure.Storage;
 public interface IBlobStorageService
 {
     Task<string> SubirQRAsync(string codigoLote, byte[] imagenPng);
-    Task<bool> EliminarAsync(string blobPath);
 }
 
 public class BlobStorageService(IConfiguration configuration) : IBlobStorageService
 {
+    // IsNullOrWhiteSpace y no solo null: appsettings.json trae la clave
+    // como cadena vacía y el valor real llega por user-secrets o entorno.
+    // Sin esta guardia el error aparecería recién al generar el primer QR.
     private readonly string _connectionString =
-        configuration["AzureBlob:ConnectionString"]
-        ?? throw new InvalidOperationException("AzureBlob:ConnectionString no configurado.");
+        !string.IsNullOrWhiteSpace(configuration["AzureBlob:ConnectionString"])
+            ? configuration["AzureBlob:ConnectionString"]!
+            : throw new InvalidOperationException(
+                "AzureBlob:ConnectionString no configurado.");
 
     private readonly string _containerName =
         configuration["AzureBlob:ContainerName"] ?? "qr-coopagcuy";
@@ -33,14 +37,5 @@ public class BlobStorageService(IConfiguration configuration) : IBlobStorageServ
         await blob.UploadAsync(stream, overwrite: true);
 
         return blob.Uri.ToString();
-    }
-
-    public async Task<bool> EliminarAsync(string blobPath)
-    {
-        var cliente = new BlobServiceClient(_connectionString);
-        var contenedor = cliente.GetBlobContainerClient(_containerName);
-        var blob = contenedor.GetBlobClient(blobPath);
-        var resultado = await blob.DeleteIfExistsAsync();
-        return resultado.Value;
     }
 }

@@ -94,10 +94,12 @@ public class QRService(
         return EsLoteFaenado(codigo)
             ? await db.CodigosQR
                 .Include(q => q.LoteFaenado)
+                .AsNoTracking()
                 .FirstOrDefaultAsync(q =>
                     q.LoteFaenado != null && q.LoteFaenado.Codigo == codigo)
             : await db.CodigosQR
                 .Include(q => q.Lote)
+                .AsNoTracking()
                 .FirstOrDefaultAsync(q =>
                     q.Lote != null && q.Lote.CodigoLote == codigo);
     }
@@ -115,12 +117,16 @@ public class QRService(
 
         if (EsLoteFaenado(codigo))
         {
+            // Endpoint público y anónimo: es la consulta más golpeada del
+            // sistema, siempre sin tracking y con includes separados
             var loteFaenado = await db.LotesFaenados
                 .Include(lf => lf.Sesiones).ThenInclude(f => f.Cuyes)
                 .Include(lf => lf.Sesiones).ThenInclude(f => f.Lote)
                     .ThenInclude(l => l.Productora)
                 .Include(lf => lf.Sesiones).ThenInclude(f => f.Lote)
                     .ThenInclude(l => l.Cuyes).ThenInclude(c => c.Productora)
+                .AsNoTracking()
+                .AsSplitQuery()
                 .FirstOrDefaultAsync(lf => lf.Codigo == codigo);
 
             if (loteFaenado is null) return null;
@@ -140,6 +146,8 @@ public class QRService(
                 .Include(l => l.Cuyes).ThenInclude(c => c.Productora)
                 .Include(l => l.Faenamientos).ThenInclude(f => f.Cuyes)
                 .Include(l => l.CodigoQR)
+                .AsNoTracking()
+                .AsSplitQuery()
                 .FirstOrDefaultAsync(l => l.CodigoLote == codigo);
 
             if (lote is null || lote.CodigoQR is null || !lote.CodigoQR.Activo)

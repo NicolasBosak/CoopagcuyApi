@@ -12,7 +12,10 @@ namespace CoopagcuyApi.Features.Reportes.Services;
 
 public interface IReportesService
 {
-    Task<DashboardDto> ObtenerDashboardAsync(DateTime? desde, DateTime? hasta);
+    // Con cat: indicadores del centro de acopio del operador; sin cat:
+    // vista global de la cadena (administradores y planta)
+    Task<DashboardDto> ObtenerDashboardAsync(
+        DateTime? desde, DateTime? hasta, CentroAcopio? cat = null);
     Task<IEnumerable<ReporteProductoraDto>> ReportePorProductoraAsync(FiltroPeriodoDto filtro);
     Task<IEnumerable<ReporteCATDto>> ReportePorCATAsync(FiltroPeriodoDto filtro);
     Task<IEnumerable<ReporteNovedadDto>> ReporteNovedadesAsync(FiltroPeriodoDto filtro);
@@ -41,7 +44,7 @@ public class ReportesService(AppDbContext db) : IReportesService
     // ── Dashboard — RF-508 ────────────────────────────────────────────
 
     public async Task<DashboardDto> ObtenerDashboardAsync(
-        DateTime? desde, DateTime? hasta)
+        DateTime? desde, DateTime? hasta, CentroAcopio? cat = null)
     {
         var desdeUtc = desde.HasValue
             ? DateTime.SpecifyKind(desde.Value, DateTimeKind.Utc)
@@ -53,9 +56,17 @@ public class ReportesService(AppDbContext db) : IReportesService
             ? DateTime.SpecifyKind(hasta.Value.Date.AddDays(1), DateTimeKind.Utc)
             : DateTime.UtcNow.AddDays(1);
 
-        var lotes = await db.Lotes
+        var query = db.Lotes
             .Where(l => l.FechaRecepcion >= desdeUtc &&
-                        l.FechaRecepcion < hastaUtc)
+                        l.FechaRecepcion < hastaUtc);
+
+        // Un Operador de CAT ve la recepción de su propio centro; los
+        // indicadores de cadena (faenamientos, QR) se mantienen globales
+        if (cat.HasValue)
+            query = query.Where(l => l.CentroAcopio == cat.Value);
+
+        var lotes = await query
+            .AsNoTracking()
             .ToListAsync();
 
         var total = lotes.Count;
@@ -73,7 +84,8 @@ public class ReportesService(AppDbContext db) : IReportesService
                 (decimal)lotes.Count(l => l.Estado == EstadoLote.Rechazado)
                 / total * 100, 1),
             LotesConQR: await db.CodigosQR.CountAsync(q => q.Activo),
-            TotalProductoras: await db.Productoras.CountAsync(p => p.Activa),
+            TotalProductoras: await db.Productoras.CountAsync(p =>
+                p.Activa && (cat == null || p.CatAsignado == cat.Value)),
             TotalFaenamientos: await db.Faenamientos.CountAsync(),
             FechaCorte: hastaUtc
         );
@@ -99,7 +111,7 @@ public class ReportesService(AppDbContext db) : IReportesService
             Enum.TryParse<CentroAcopio>(filtro.CentroAcopio, out var cat))
             query = query.Where(c => c.Lote.CentroAcopio == cat);
 
-        var cuyes = await query.ToListAsync();
+        var cuyes = await query.AsNoTracking().ToListAsync();
 
         return cuyes
             .GroupBy(c => c.Productora!)
@@ -130,6 +142,7 @@ public class ReportesService(AppDbContext db) : IReportesService
         var lotes = await db.Lotes
             .Where(l => l.FechaRecepcion >= desdeUtc &&
                         l.FechaRecepcion < hastaUtc)
+            .AsNoTracking()
             .ToListAsync();
 
         return lotes
@@ -450,6 +463,8 @@ public class ReportesService(AppDbContext db) : IReportesService
                 .ThenInclude(l => l.Productora)
             .Include(lf => lf.Sesiones).ThenInclude(f => f.Lote)
                 .ThenInclude(l => l.Cuyes).ThenInclude(c => c.Productora)
+            .AsNoTracking()
+            .AsSplitQuery()
             .FirstOrDefaultAsync(lf => lf.Codigo == codigo)
             ?? throw new KeyNotFoundException(
                 $"Lote faenado {codigo} no encontrado.");
@@ -692,6 +707,8 @@ public class ReportesService(AppDbContext db) : IReportesService
             .Include(l => l.Cuyes).ThenInclude(c => c.Productora)
             .Include(l => l.Faenamientos).ThenInclude(f => f.Cuyes)
             .Include(l => l.CodigoQR)
+            .AsNoTracking()
+            .AsSplitQuery()
             .FirstOrDefaultAsync(l => l.CodigoLote == codigoLote)
             ?? throw new KeyNotFoundException($"Lote {codigoLote} no encontrado.");
 

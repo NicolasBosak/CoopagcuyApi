@@ -97,6 +97,8 @@ public class MovilizacionService(AppDbContext db) : IMovilizacionService
 
         var lista = await query
             .OrderByDescending(m => m.FechaDespacho)
+            .Take(300)
+            .AsNoTracking()
             .ToListAsync();
 
         return lista.Select(m => Mapear(m, m.Lote));
@@ -106,6 +108,7 @@ public class MovilizacionService(AppDbContext db) : IMovilizacionService
     {
         var movilizacion = await db.Movilizaciones
             .Include(m => m.Lote).ThenInclude(l => l.Productora)
+            .AsNoTracking()
             .FirstOrDefaultAsync(m => m.Lote.CodigoLote == codigoLote);
 
         return movilizacion is null ? null : Mapear(movilizacion, movilizacion.Lote);

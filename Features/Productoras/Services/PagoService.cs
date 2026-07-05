@@ -85,6 +85,8 @@ public class PagoService(AppDbContext db) : IPagoService
 
         var lista = await query
             .OrderByDescending(p => p.FechaPago)
+            .Take(300)
+            .AsNoTracking()
             .ToListAsync();
 
         return lista.Select(p => Mapear(

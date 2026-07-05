@@ -25,6 +25,10 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
     // Capacidad máxima de la jaula de transporte — SRS RF-104
     private const int CapacidadJaula = 20;
 
+    // Tope del listado general: se carga lo más reciente y el histórico
+    // se consulta con los filtros de fecha (evita degradar con la historia)
+    private const int MaxLotesListado = 300;
+
     // ── Entregas por productora: la jaula se arma acumulando ─────────
     // Cada productora entrega los cuyes que quiera; se suman a la jaula
     // abierta del CAT hasta completar 20. Al llenarse, la jaula se cierra
@@ -171,6 +175,7 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
         var lote = await db.Lotes
             .Where(l => l.CentroAcopio == cat && !l.Cerrado)
             .OrderBy(l => l.Id)
+            .AsNoTracking()
             .FirstOrDefaultAsync();
 
         return lote is null ? null : await MapearLoteAsync(lote.Id);
@@ -252,7 +257,9 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
 
     public async Task<LoteResponseDto?> ObtenerLotePorCodigoAsync(string codigo)
     {
-        var lote = await db.Lotes.FirstOrDefaultAsync(l => l.CodigoLote == codigo);
+        var lote = await db.Lotes
+            .AsNoTracking()
+            .FirstOrDefaultAsync(l => l.CodigoLote == codigo);
         return lote is null ? null : await MapearLoteAsync(lote.Id);
     }
 
@@ -281,6 +288,12 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
 
         var lotes = await query
             .OrderByDescending(l => l.FechaRecepcion)
+            .Take(MaxLotesListado)
+            .AsNoTracking()
+            // Con cinco colecciones incluidas, una sola consulta JOIN
+            // multiplica filas de forma cartesiana; separarlas mantiene
+            // el tamaño proporcional a los datos reales
+            .AsSplitQuery()
             .ToListAsync();
 
         return lotes.Select(MapearLote);
@@ -445,6 +458,8 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
             .Include(l => l.Cuyes).ThenInclude(c => c.Productora)
             .Include(l => l.Faenamientos).ThenInclude(f => f.Cuyes)
             .Include(l => l.Movilizacion)
+            .AsNoTracking()
+            .AsSplitQuery()
             .FirstAsync(l => l.Id == loteId);
 
         return MapearLote(lote);

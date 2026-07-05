@@ -27,6 +27,11 @@ public interface IFaenamientoService
 
 public class FaenamientoService(AppDbContext db) : IFaenamientoService
 {
+    // Tope de los listados generales: se carga lo más reciente y el
+    // histórico se consulta con los filtros de fecha. Evita que las
+    // pantallas degraden a medida que crece la historia.
+    private const int MaxRegistrosListado = 300;
+
     // ── Lotes con saldo pendiente de faenar ───────────────────────────
     // La planta solo ve lotes cerrados con animales disponibles: al llegar
     // el saldo a cero, el lote desaparece de esta vista.
@@ -37,7 +42,15 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
             .Include(l => l.Cuyes).ThenInclude(c => c.Productora)
             .Include(l => l.Faenamientos).ThenInclude(f => f.Cuyes)
             .Where(l => l.Cerrado && l.Estado != EstadoLote.Rechazado)
+            // Pre-filtro en SQL: los lotes ya agotados no se cargan (sin
+            // esto la consulta arrastraría toda la historia en memoria).
+            // Es un filtro "superset": el saldo exacto —que contempla
+            // sesiones antiguas sin detalle por cuy— se recalcula abajo.
+            .Where(l => l.Faenamientos.SelectMany(f => f.Cuyes).Count()
+                        < l.CantidadAnimales)
             .OrderBy(l => l.FechaRecepcion)
+            .AsNoTracking()
+            .AsSplitQuery()
             .ToListAsync();
 
         return lotes
@@ -281,6 +294,7 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
             .Include(f => f.Lote).ThenInclude(l => l.Productora)
             .Include(f => f.LoteFaenado)
             .Include(f => f.Cuyes)
+            .AsNoTracking()
             .FirstOrDefaultAsync(f => f.LoteId == loteId);
 
         return faenamiento is null
@@ -294,6 +308,7 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
             .Include(f => f.Lote).ThenInclude(l => l.Productora)
             .Include(f => f.LoteFaenado)
             .Include(f => f.Cuyes)
+            .AsNoTracking()
             .FirstOrDefaultAsync(f => f.Lote.CodigoLote == codigoLote);
 
         return faenamiento is null
@@ -320,6 +335,8 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
 
         var lista = await query
             .OrderByDescending(f => f.FechaFaenamiento)
+            .Take(MaxRegistrosListado)
+            .AsNoTracking()
             .ToListAsync();
 
         return lista.Select(f => MapearFaenamiento(f, f.Lote));
@@ -508,6 +525,8 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
 
         var lista = await query
             .OrderByDescending(d => d.FechaDevolucion)
+            .Take(MaxRegistrosListado)
+            .AsNoTracking()
             .ToListAsync();
 
         return lista.Select(d => MapearDevolucion(
@@ -573,6 +592,8 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
                 .Include(lf => lf.Sesiones).ThenInclude(f => f.Cuyes)
                 .Include(lf => lf.Sesiones).ThenInclude(f => f.Lote)
                     .ThenInclude(l => l.Cuyes).ThenInclude(c => c.Productora)
+                .AsNoTracking()
+                .AsSplitQuery()
                 .FirstOrDefaultAsync(lf => lf.Codigo == codigoLote);
 
             if (loteFaenado is null) return null;
@@ -611,6 +632,8 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
             .Include(f => f.Lote).ThenInclude(l => l.Cuyes)
                 .ThenInclude(c => c.Productora)
             .Include(f => f.Cuyes)
+            .AsNoTracking()
+            .AsSplitQuery()
             .FirstOrDefaultAsync(f => f.Lote.CodigoLote == codigoLote);
 
         if (faenamiento is null) return null;
