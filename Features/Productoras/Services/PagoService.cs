@@ -31,9 +31,16 @@ public class PagoService(AppDbContext db) : IPagoService
                 ?? throw new KeyNotFoundException(
                     $"Lote con Id {loteId} no encontrado.");
 
-            if (lote.ProductoraId != dto.ProductoraId)
+            // La jaula es multi-productora: el pago es válido si la
+            // productora entregó cuyes en ese lote (Lote.ProductoraId es
+            // solo la referencia histórica de quien abrió la jaula)
+            var participo = lote.ProductoraId == dto.ProductoraId
+                || await db.CuyRegistros.AnyAsync(c =>
+                    c.LoteId == loteId && c.ProductoraId == dto.ProductoraId);
+
+            if (!participo)
                 throw new InvalidOperationException(
-                    "El lote indicado no pertenece a esa productora.");
+                    "La productora no registra entregas en ese lote.");
         }
 
         if (dto.MontoUsd <= 0)

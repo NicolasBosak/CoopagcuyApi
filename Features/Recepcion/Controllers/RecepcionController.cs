@@ -74,7 +74,9 @@ public class RecepcionController(
     [HttpGet("lotes/abierto")]
     public async Task<IActionResult> ObtenerLoteAbierto([FromQuery] CentroAcopio cat)
     {
-        var resultado = await service.ObtenerLoteAbiertoAsync(cat);
+        // El operador de CAT solo consulta la jaula de su propio centro
+        var catEfectivo = CatDelOperador() ?? cat;
+        var resultado = await service.ObtenerLoteAbiertoAsync(catEfectivo);
         return resultado is null ? NoContent() : Ok(resultado);
     }
 
@@ -103,6 +105,13 @@ public class RecepcionController(
         }
     }
 
+    // Un OperadorCAT no debe consultar lotes de otros centros ni por Id
+    // ni por código: las lecturas puntuales aplican el mismo filtro que
+    // el listado
+    private bool LoteFueraDeSuCat(DTOs.LoteResponseDto lote) =>
+        CatDelOperador() is CentroAcopio catOperador
+        && lote.CentroAcopio != catOperador.ToString();
+
     /// <summary>
     /// Obtiene un lote por su Id interno.
     /// </summary>
@@ -110,7 +119,15 @@ public class RecepcionController(
     public async Task<IActionResult> ObtenerLotePorId(int id)
     {
         var resultado = await service.ObtenerLotePorIdAsync(id);
-        return resultado is null ? NotFound() : Ok(resultado);
+        if (resultado is null) return NotFound();
+
+        if (LoteFueraDeSuCat(resultado))
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                mensaje = "Tu usuario solo puede consultar lotes de su centro."
+            });
+
+        return Ok(resultado);
     }
 
     /// <summary>
@@ -121,7 +138,15 @@ public class RecepcionController(
     public async Task<IActionResult> ObtenerLotePorCodigo(string codigo)
     {
         var resultado = await service.ObtenerLotePorCodigoAsync(codigo);
-        return resultado is null ? NotFound() : Ok(resultado);
+        if (resultado is null) return NotFound();
+
+        if (LoteFueraDeSuCat(resultado))
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                mensaje = "Tu usuario solo puede consultar lotes de su centro."
+            });
+
+        return Ok(resultado);
     }
 
     /// <summary>

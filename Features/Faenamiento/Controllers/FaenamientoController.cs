@@ -1,5 +1,6 @@
 ﻿using CoopagcuyApi.Features.Faenamiento.DTOs;
 using CoopagcuyApi.Features.Faenamiento.Services;
+using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -8,7 +9,10 @@ namespace CoopagcuyApi.Features.Faenamiento.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
-public class FaenamientoController(IFaenamientoService service) : ControllerBase
+public class FaenamientoController(
+    IFaenamientoService service,
+    IValidator<RegistrarFaenamientoBatchDto> batchValidator,
+    IValidator<RegistrarDespachoDto> despachoValidator) : ControllerBase
 {
     /// <summary>
     /// Lotes cerrados con animales pendientes de faenar. Los lotes con
@@ -32,6 +36,14 @@ public class FaenamientoController(IFaenamientoService service) : ControllerBase
     public async Task<IActionResult> RegistrarBatch(
         [FromBody] RegistrarFaenamientoBatchDto dto)
     {
+        var validacion = await batchValidator.ValidateAsync(dto);
+        if (!validacion.IsValid)
+            return BadRequest(new
+            {
+                mensaje = string.Join(" ",
+                    validacion.Errors.Select(e => e.ErrorMessage))
+            });
+
         try
         {
             var resultado = await service.RegistrarBatchAsync(dto);
@@ -101,6 +113,14 @@ public class FaenamientoController(IFaenamientoService service) : ControllerBase
     [Authorize(Roles = "OperadorFaenamiento,AdminCooperativa,AdminTecnico")]
     public async Task<IActionResult> RegistrarDespacho([FromBody] RegistrarDespachoDto dto)
     {
+        var validacion = await despachoValidator.ValidateAsync(dto);
+        if (!validacion.IsValid)
+            return BadRequest(new
+            {
+                mensaje = string.Join(" ",
+                    validacion.Errors.Select(e => e.ErrorMessage))
+            });
+
         try
         {
             var resultado = await service.RegistrarDespachoAsync(dto);

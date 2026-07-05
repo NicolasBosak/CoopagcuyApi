@@ -1,4 +1,5 @@
 ﻿using CoopagcuyApi.Common;
+using CoopagcuyApi.Common.Exceptions;
 using CoopagcuyApi.Features.Productoras.Models;
 using CoopagcuyApi.Features.Recepcion.DTOs;
 using CoopagcuyApi.Features.Recepcion.Models;
@@ -31,86 +32,137 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
 
     public async Task<EntregaResultadoDto> RegistrarEntregaAsync(RegistrarEntregaDto dto)
     {
-        var productora = await db.Productoras.FindAsync(dto.ProductoraId)
-            ?? throw new KeyNotFoundException(
-                $"Productora con Id {dto.ProductoraId} no encontrada.");
-
         if (dto.Cuyes.Count == 0)
             throw new InvalidOperationException(
                 "La entrega debe incluir al menos un cuy.");
 
-        var fechaUtc = DateTime.SpecifyKind(dto.FechaEntrega, DateTimeKind.Utc);
-        var pendientes = new Queue<CuyRegistroDto>(dto.Cuyes);
-        var lotesAfectados = new List<Lote>();
-        var seCompletoJaula = false;
+        // Toda la entrega es atómica y las entregas del MISMO CAT se
+        // serializan con un advisory lock de PostgreSQL: así no pueden
+        // crearse dos jaulas abiertas, sobrellenarse una jaula ni chocar
+        // dos códigos de lote generados a la vez. CATs distintos no se
+        // bloquean entre sí. El lock se libera solo al terminar la
+        // transacción.
+        var estrategia = db.Database.CreateExecutionStrategy();
 
-        while (pendientes.Count > 0)
+        // El delegado reintentable termina EXACTAMENTE en el commit: el
+        // mapeo de la respuesta queda fuera para que un fallo transitorio
+        // posterior nunca re-ejecute (y duplique) la entrega
+        var (idsAfectados, seCompleto) = await estrategia.ExecuteAsync(async () =>
         {
-            var lote = await ObtenerOCrearJaulaAbiertaAsync(dto, fechaUtc);
-            if (!lotesAfectados.Contains(lote))
-                lotesAfectados.Add(lote);
+            db.ChangeTracker.Clear();
 
-            var espacio = CapacidadJaula - lote.CantidadAnimales;
-            var aTomar = Math.Min(espacio, pendientes.Count);
+            await using var transaccion = await db.Database.BeginTransactionAsync();
 
-            for (var i = 0; i < aTomar; i++)
+            var claveLock = $"entrega-{dto.CentroAcopio}";
+            await db.Database.ExecuteSqlAsync(
+                $"SELECT pg_advisory_xact_lock(hashtext({claveLock}))");
+
+            // Idempotencia del sync offline: si esta entrega ya se procesó
+            // (reintento tras corte de red), no se registra dos veces.
+            // La verificación ocurre bajo el lock: un reintento concurrente
+            // espera aquí hasta que el primero confirme.
+            if (dto.IdCliente is not null && dto.DispositivoId is not null)
             {
-                var cuyDto = pendientes.Dequeue();
-                var numero = lote.CantidadAnimales + 1;
+                var yaProcesada = await db.SyncEntregasProcesadas.AnyAsync(s =>
+                    s.DispositivoId == dto.DispositivoId &&
+                    s.IdCliente == dto.IdCliente);
+                if (yaProcesada)
+                    throw new EntregaDuplicadaException(dto.IdCliente);
+            }
 
-                var (cuy, novedades) = EvaluarCuyIndividual(
-                    cuyDto, numero, dto.ResponsableRecepcion);
+            var productora = await db.Productoras.FindAsync(dto.ProductoraId)
+                ?? throw new KeyNotFoundException(
+                    $"Productora con Id {dto.ProductoraId} no encontrada.");
 
-                cuy.LoteId = lote.Id;
-                cuy.ProductoraId = dto.ProductoraId;
-                db.CuyRegistros.Add(cuy);
-                lote.Cuyes.Add(cuy);
+            var fechaUtc = DateTime.SpecifyKind(dto.FechaEntrega, DateTimeKind.Utc);
+            var pendientes = new Queue<CuyRegistroDto>(dto.Cuyes);
+            var lotesAfectados = new List<Lote>();
+            var seCompletoJaula = false;
 
-                foreach (var novedad in novedades)
+            while (pendientes.Count > 0)
+            {
+                var lote = await ObtenerOCrearJaulaAbiertaAsync(dto, fechaUtc);
+                if (!lotesAfectados.Contains(lote))
+                    lotesAfectados.Add(lote);
+
+                var espacio = CapacidadJaula - lote.CantidadAnimales;
+                var aTomar = Math.Min(espacio, pendientes.Count);
+
+                for (var i = 0; i < aTomar; i++)
                 {
-                    novedad.LoteId = lote.Id;
-                    novedad.Descripcion =
-                        $"{novedad.Descripcion} (entregado por {productora.NombreCompleto})";
-                    db.Novedades.Add(novedad);
+                    var cuyDto = pendientes.Dequeue();
+                    var numero = lote.CantidadAnimales + 1;
+
+                    var (cuy, novedades) = EvaluarCuyIndividual(
+                        cuyDto, numero, dto.ResponsableRecepcion);
+
+                    cuy.LoteId = lote.Id;
+                    cuy.ProductoraId = dto.ProductoraId;
+                    db.CuyRegistros.Add(cuy);
+                    lote.Cuyes.Add(cuy);
+
+                    foreach (var novedad in novedades)
+                    {
+                        novedad.LoteId = lote.Id;
+                        novedad.Descripcion =
+                            $"{novedad.Descripcion} (entregado por {productora.NombreCompleto})";
+                        db.Novedades.Add(novedad);
+                    }
+
+                    lote.CantidadAnimales = numero;
+                    lote.PesoTotalGramos += cuyDto.PesoGramos;
                 }
 
-                lote.CantidadAnimales = numero;
-                lote.PesoTotalGramos += cuyDto.PesoGramos;
-            }
-
-            // Condición de ayuno: aplica a la entrega de esta productora
-            if (!dto.EnAyunas)
-            {
-                db.Novedades.Add(new Novedad
+                // Condición de ayuno: aplica a la entrega de esta productora
+                if (!dto.EnAyunas)
                 {
-                    LoteId = lote.Id,
-                    Tipo = TipoNovedad.SinAyuno,
-                    Descripcion = $"Entrega de {productora.NombreCompleto} recibida sin ayuno. " +
-                                  "El peso registrado puede no ser el peso real.",
-                    RegistradoPor = dto.ResponsableRecepcion
-                });
+                    db.Novedades.Add(new Novedad
+                    {
+                        LoteId = lote.Id,
+                        Tipo = TipoNovedad.SinAyuno,
+                        Descripcion = $"Entrega de {productora.NombreCompleto} recibida sin ayuno. " +
+                                      "El peso registrado puede no ser el peso real.",
+                        RegistradoPor = dto.ResponsableRecepcion
+                    });
+                }
+
+                RecalcularEstadoLote(lote);
+
+                if (lote.CantidadAnimales >= CapacidadJaula)
+                {
+                    lote.Cerrado = true;
+                    lote.FechaCierre = DateTime.UtcNow;
+                    seCompletoJaula = true;
+                }
+
+                await db.SaveChangesAsync();
             }
 
-            RecalcularEstadoLote(lote);
-
-            if (lote.CantidadAnimales >= CapacidadJaula)
+            // La marca de idempotencia se confirma junto con los datos:
+            // o se guarda todo, o no se guarda nada
+            if (dto.IdCliente is not null && dto.DispositivoId is not null)
             {
-                lote.Cerrado = true;
-                lote.FechaCierre = DateTime.UtcNow;
-                seCompletoJaula = true;
+                db.SyncEntregasProcesadas.Add(new SyncEntregaProcesada
+                {
+                    DispositivoId = dto.DispositivoId,
+                    IdCliente = dto.IdCliente
+                });
+                await db.SaveChangesAsync();
             }
 
-            await db.SaveChangesAsync();
-        }
+            await transaccion.CommitAsync();
+
+            return (lotesAfectados.Select(l => l.Id).ToList(), seCompletoJaula);
+        });
 
         var respuesta = new List<LoteResponseDto>();
-        foreach (var lote in lotesAfectados)
-            respuesta.Add(await MapearLoteAsync(lote.Id));
+        foreach (var loteId in idsAfectados)
+            respuesta.Add(await MapearLoteAsync(loteId));
 
         return new EntregaResultadoDto(
             CuyesRegistrados: dto.Cuyes.Count,
             LotesAfectados: respuesta,
-            SeCompletoJaula: seCompletoJaula
+            SeCompletoJaula: seCompleto
         );
     }
 
@@ -236,36 +288,46 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
 
     // ── Sincronización offline — RF-211 ───────────────────────────────
     // Las entregas capturadas sin conexión se aplican en orden con la
-    // misma lógica de acumulación en jaulas que un registro en línea
+    // misma lógica de acumulación en jaulas que un registro en línea.
+    // Cada entrega produce UN resultado identificado por su IdCliente:
+    // el dispositivo empareja por ese Id (nunca por posición) y los
+    // reintentos de entregas ya procesadas no duplican animales.
     public async Task<SyncResultadoDto> SincronizarEntregasAsync(SyncEntregasDto dto)
     {
-        var errores = new List<SyncErrorDto>();
-        var guardadas = 0;
+        var resultados = new List<SyncItemResultadoDto>();
 
         foreach (var entrega in dto.Entregas)
         {
+            entrega.SincronizadoOffline = true;
+            entrega.DispositivoId = dto.DispositivoId;
+
             try
             {
-                entrega.SincronizadoOffline = true;
-                entrega.DispositivoId = dto.DispositivoId;
                 await RegistrarEntregaAsync(entrega);
-                guardadas++;
+                resultados.Add(new SyncItemResultadoDto(
+                    entrega.IdCliente, Exito: true, Duplicada: false, Motivo: null));
+            }
+            catch (EntregaDuplicadaException)
+            {
+                // Reintento de una entrega ya sincronizada: cuenta como
+                // éxito para que el dispositivo la marque y deje de reenviarla
+                resultados.Add(new SyncItemResultadoDto(
+                    entrega.IdCliente, Exito: true, Duplicada: true, Motivo: null));
             }
             catch (Exception ex)
             {
-                errores.Add(new SyncErrorDto(
-                    DispositivoId: dto.DispositivoId,
-                    CodigoLoteTemp: $"{entrega.CentroAcopio}-{entrega.FechaEntrega:yyyyMMdd}-ENTREGA",
-                    Motivo: ex.Message
-                ));
+                resultados.Add(new SyncItemResultadoDto(
+                    entrega.IdCliente, Exito: false, Duplicada: false,
+                    Motivo: ex.Message));
             }
         }
 
         return new SyncResultadoDto(
             TotalRecibidos: dto.Entregas.Count,
-            TotalGuardados: guardadas,
-            TotalConError: errores.Count,
-            Errores: errores
+            TotalGuardados: resultados.Count(r => r.Exito && !r.Duplicada),
+            TotalDuplicados: resultados.Count(r => r.Duplicada),
+            TotalConError: resultados.Count(r => !r.Exito),
+            Resultados: resultados
         );
     }
 

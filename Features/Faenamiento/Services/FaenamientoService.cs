@@ -80,37 +80,53 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
             throw new InvalidOperationException(
                 "Selecciona al menos un cuy para faenar.");
 
-        var registros = new List<FaenamientoResponseDto>();
-        var alertas = new List<AlertaNovedadPreviaDto>();
+        // La transacción explícita debe correr dentro de la estrategia de
+        // reintentos de Npgsql; si un intento falla a medias, se limpia el
+        // change tracker para que el reintento parta de cero
+        var estrategia = db.Database.CreateExecutionStrategy();
 
-        await using var transaccion = await db.Database.BeginTransactionAsync();
-
-        // Toda la sesión de planta —aunque tome animales de varias jaulas
-        // y comunidades— se agrupa bajo un solo lote de producto terminado
-        var loteFaenado = new LoteFaenado
+        return await estrategia.ExecuteAsync(async () =>
         {
-            Codigo = await GenerarCodigoFaenadoAsync(dto.FechaFaenamiento),
-            FechaFaenamiento = DateTime.SpecifyKind(
-                dto.FechaFaenamiento, DateTimeKind.Utc),
-            OperarioResponsable = dto.OperarioResponsable,
-            TemperaturaAlmacenamiento = dto.TemperaturaAlmacenamiento,
-            Observaciones = dto.Observaciones
-        };
-        db.LotesFaenados.Add(loteFaenado);
-        await db.SaveChangesAsync();
+            db.ChangeTracker.Clear();
 
-        foreach (var sesionLote in dto.Lotes.Where(l => l.Cuyes.Count > 0))
-        {
-            var (registro, alertasLote) = await RegistrarSesionLoteAsync(
-                sesionLote, dto, loteFaenado);
-            registros.Add(registro);
-            alertas.AddRange(alertasLote);
-        }
+            var registros = new List<FaenamientoResponseDto>();
+            var alertas = new List<AlertaNovedadPreviaDto>();
 
-        await transaccion.CommitAsync();
+            await using var transaccion = await db.Database.BeginTransactionAsync();
 
-        return new FaenamientoBatchResultadoDto(
-            loteFaenado.Codigo, registros, alertas);
+            // Serializa las sesiones del mismo día: el código FAE-…-SEC se
+            // calcula contando registros y dos sesiones simultáneas chocarían
+            var claveLock = $"fae-{dto.FechaFaenamiento:yyyyMMdd}";
+            await db.Database.ExecuteSqlAsync(
+                $"SELECT pg_advisory_xact_lock(hashtext({claveLock}))");
+
+            // Toda la sesión de planta —aunque tome animales de varias jaulas
+            // y comunidades— se agrupa bajo un solo lote de producto terminado
+            var loteFaenado = new LoteFaenado
+            {
+                Codigo = await GenerarCodigoFaenadoAsync(dto.FechaFaenamiento),
+                FechaFaenamiento = DateTime.SpecifyKind(
+                    dto.FechaFaenamiento, DateTimeKind.Utc),
+                OperarioResponsable = dto.OperarioResponsable,
+                TemperaturaAlmacenamiento = dto.TemperaturaAlmacenamiento,
+                Observaciones = dto.Observaciones
+            };
+            db.LotesFaenados.Add(loteFaenado);
+            await db.SaveChangesAsync();
+
+            foreach (var sesionLote in dto.Lotes.Where(l => l.Cuyes.Count > 0))
+            {
+                var (registro, alertasLote) = await RegistrarSesionLoteAsync(
+                    sesionLote, dto, loteFaenado);
+                registros.Add(registro);
+                alertas.AddRange(alertasLote);
+            }
+
+            await transaccion.CommitAsync();
+
+            return new FaenamientoBatchResultadoDto(
+                loteFaenado.Codigo, registros, alertas);
+        });
     }
 
     // Código del producto terminado: FAE-AAAAMMDD-SEC (mismo formato que
@@ -314,43 +330,73 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
     public async Task<DespachoResponseDto> RegistrarDespachoAsync(
         RegistrarDespachoDto dto)
     {
-        // Verificar que el lote existe y tiene faenamiento registrado
-        var lote = await db.Lotes
-            .Include(l => l.Faenamientos)
-            .FirstOrDefaultAsync(l => l.Id == dto.LoteId)
-            ?? throw new KeyNotFoundException(
-                $"Lote con Id {dto.LoteId} no encontrado.");
+        // El control de stock (faenadas − ya despachadas) se hace bajo un
+        // advisory lock por lote: dos despachos simultáneos del mismo lote
+        // se serializan y no pueden vender las mismas unidades dos veces
+        var estrategia = db.Database.CreateExecutionStrategy();
 
-        if (lote.Faenamientos.Count == 0)
-            throw new InvalidOperationException(
-                $"El lote {lote.CodigoLote} no tiene faenamiento registrado. " +
-                "Registre el faenamiento antes de despachar.");
-
-        var despacho = new Despacho
+        return await estrategia.ExecuteAsync(async () =>
         {
-            LoteId = dto.LoteId,
-            ClienteDestino = dto.ClienteDestino,
-            FechaDespacho = DateTime.SpecifyKind(dto.FechaDespacho, DateTimeKind.Utc),
-            CantidadUnidades = dto.CantidadUnidades,
-            Responsable = dto.Responsable,
-            Transporte = dto.Transporte,
-            Observaciones = dto.Observaciones
-        };
+            db.ChangeTracker.Clear();
 
-        db.Despachos.Add(despacho);
-        await db.SaveChangesAsync();
+            await using var transaccion = await db.Database.BeginTransactionAsync();
 
-        return new DespachoResponseDto(
-            Id: despacho.Id,
-            LoteId: despacho.LoteId,
-            CodigoLote: lote.CodigoLote,
-            ClienteDestino: despacho.ClienteDestino,
-            FechaDespacho: despacho.FechaDespacho,
-            CantidadUnidades: despacho.CantidadUnidades,
-            Responsable: despacho.Responsable,
-            Transporte: despacho.Transporte,
-            Observaciones: despacho.Observaciones
-        );
+            var claveLock = $"despacho-{dto.LoteId}";
+            await db.Database.ExecuteSqlAsync(
+                $"SELECT pg_advisory_xact_lock(hashtext({claveLock}))");
+
+            // Verificar que el lote existe y tiene faenamiento registrado
+            var lote = await db.Lotes
+                .Include(l => l.Faenamientos)
+                .FirstOrDefaultAsync(l => l.Id == dto.LoteId)
+                ?? throw new KeyNotFoundException(
+                    $"Lote con Id {dto.LoteId} no encontrado.");
+
+            if (lote.Faenamientos.Count == 0)
+                throw new InvalidOperationException(
+                    $"El lote {lote.CodigoLote} no tiene faenamiento registrado. " +
+                    "Registre el faenamiento antes de despachar.");
+
+            // Stock disponible: unidades faenadas menos las ya despachadas
+            var faenadas = lote.Faenamientos.Sum(f => f.UnidadesFaenadas);
+            var despachadas = await db.Despachos
+                .Where(d => d.LoteId == dto.LoteId)
+                .SumAsync(d => (int?)d.CantidadUnidades) ?? 0;
+            var disponibles = faenadas - despachadas;
+
+            if (dto.CantidadUnidades > disponibles)
+                throw new InvalidOperationException(
+                    $"El lote {lote.CodigoLote} tiene {disponibles} unidades " +
+                    $"faenadas sin despachar y se intentó despachar " +
+                    $"{dto.CantidadUnidades}.");
+
+            var despacho = new Despacho
+            {
+                LoteId = dto.LoteId,
+                ClienteDestino = dto.ClienteDestino,
+                FechaDespacho = DateTime.SpecifyKind(dto.FechaDespacho, DateTimeKind.Utc),
+                CantidadUnidades = dto.CantidadUnidades,
+                Responsable = dto.Responsable,
+                Transporte = dto.Transporte,
+                Observaciones = dto.Observaciones
+            };
+
+            db.Despachos.Add(despacho);
+            await db.SaveChangesAsync();
+            await transaccion.CommitAsync();
+
+            return new DespachoResponseDto(
+                Id: despacho.Id,
+                LoteId: despacho.LoteId,
+                CodigoLote: lote.CodigoLote,
+                ClienteDestino: despacho.ClienteDestino,
+                FechaDespacho: despacho.FechaDespacho,
+                CantidadUnidades: despacho.CantidadUnidades,
+                Responsable: despacho.Responsable,
+                Transporte: despacho.Transporte,
+                Observaciones: despacho.Observaciones
+            );
+        });
     }
 
     public async Task<IEnumerable<DespachoResponseDto>> ListarDespachosPorLoteAsync(

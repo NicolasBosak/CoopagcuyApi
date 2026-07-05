@@ -1,4 +1,5 @@
 using CoopagcuyApi.Common.Auth;
+using CoopagcuyApi.Common.Exceptions;
 using CoopagcuyApi.Features.Catalogos.Services;
 using CoopagcuyApi.Features.Faenamiento.Services;
 using CoopagcuyApi.Features.Productoras.Services;
@@ -10,10 +11,12 @@ using CoopagcuyApi.Infrastructure.Data;
 using CoopagcuyApi.Infrastructure.Storage;
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using Npgsql;
 using Serilog;
 using System.Text;
 using System.Threading.RateLimiting;
@@ -30,8 +33,12 @@ Log.Logger = new LoggerConfiguration()
 builder.Host.UseSerilog();
 
 // ── Base de datos: Neon PostgreSQL ────────────────────────────────────
+// Neon (serverless) suspende y corta conexiones inactivas: los errores
+// transitorios de conexión se reintentan en lugar de responder 500
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("NeonDb")));
+    options.UseNpgsql(
+        builder.Configuration.GetConnectionString("NeonDb"),
+        npgsql => npgsql.EnableRetryOnFailure(maxRetryCount: 3)));
 
 // ── Autenticación JWT ────────────────────────────────────────────────
 var jwtKey = builder.Configuration["Jwt:Key"]
@@ -76,17 +83,36 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUsuarioService, UsuarioService>();
 
 // ── Rate limiting ─────────────────────────────────────────────────────
-// Protege login y setup contra fuerza bruta: 10 intentos/minuto por IP
+// Las ventanas se particionan POR IP: un cliente abusivo no consume el
+// cupo de los demás operadores. (Nota: al desplegar detrás de un proxy
+// —Azure Container Apps— habrá que reenviar X-Forwarded-For con
+// UseForwardedHeaders para que la IP real llegue hasta aquí.)
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
-    options.AddFixedWindowLimiter("auth", limiter =>
-    {
-        limiter.PermitLimit = 10;
-        limiter.Window = TimeSpan.FromMinutes(1);
-        limiter.QueueLimit = 0;
-    });
+    // Login y setup: protección contra fuerza bruta
+    options.AddPolicy("auth", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "sin-ip",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
+
+    // Página pública del QR (anónima, códigos enumerables): frena el
+    // scraping masivo sin afectar a un consumidor real que escanea
+    options.AddPolicy("publico", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "sin-ip",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 30,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
 
     options.OnRejected = (context, _) =>
     {
@@ -168,6 +194,48 @@ AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 var app = builder.Build();
 
 // ── Middleware pipeline ───────────────────────────────────────────────
+
+// Red de seguridad para lo no previsto: cualquier excepción que los
+// controllers no manejen sale como JSON { mensaje } en lugar de un 500
+// vacío. Los choques de unicidad (dos registros simultáneos) se traducen
+// a 409 con un mensaje accionable.
+app.UseExceptionHandler(manejador => manejador.Run(async context =>
+{
+    var excepcion = context.Features
+        .Get<IExceptionHandlerFeature>()?.Error;
+
+    context.Response.ContentType = "application/json";
+
+    switch (excepcion)
+    {
+        case EntregaDuplicadaException:
+            context.Response.StatusCode = StatusCodes.Status409Conflict;
+            await context.Response.WriteAsJsonAsync(new
+            {
+                mensaje = "Esta entrega ya fue sincronizada anteriormente."
+            });
+            break;
+
+        case DbUpdateException { InnerException: PostgresException { SqlState: "23505" } }:
+            context.Response.StatusCode = StatusCodes.Status409Conflict;
+            await context.Response.WriteAsJsonAsync(new
+            {
+                mensaje = "El registro choca con otro guardado al mismo tiempo. " +
+                          "Actualiza la pantalla e intenta de nuevo."
+            });
+            break;
+
+        default:
+            context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+            await context.Response.WriteAsJsonAsync(new
+            {
+                mensaje = "Ocurrió un error inesperado en el servidor. " +
+                          "Intenta de nuevo; si persiste, avisa al administrador."
+            });
+            break;
+    }
+}));
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();

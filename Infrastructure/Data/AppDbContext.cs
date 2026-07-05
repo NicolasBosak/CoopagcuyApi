@@ -27,6 +27,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<CuyFaenamiento> CuyFaenamientos => Set<CuyFaenamiento>();
     public DbSet<RetornoProductora> RetornosProductora => Set<RetornoProductora>();
     public DbSet<LoteFaenado> LotesFaenados => Set<LoteFaenado>();
+    public DbSet<SyncEntregaProcesada> SyncEntregasProcesadas => Set<SyncEntregaProcesada>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -242,6 +243,16 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasOne(p => p.Lote)
              .WithMany()
              .HasForeignKey(p => p.LoteId);
+        });
+
+        // Marca de idempotencia del sync offline — RF-211: la pareja
+        // (dispositivo, id de cliente) solo puede procesarse una vez
+        modelBuilder.Entity<SyncEntregaProcesada>(e =>
+        {
+            e.HasKey(s => s.Id);
+            e.HasIndex(s => new { s.DispositivoId, s.IdCliente }).IsUnique();
+            e.Property(s => s.DispositivoId).HasMaxLength(100).IsRequired();
+            e.Property(s => s.IdCliente).HasMaxLength(100).IsRequired();
         });
 
         // Comunidad — catálogo gestionable RF-102 / RF-506

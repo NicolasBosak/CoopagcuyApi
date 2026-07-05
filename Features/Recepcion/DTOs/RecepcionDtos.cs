@@ -37,6 +37,9 @@ public class RegistrarEntregaDto
     public string? Observaciones { get; set; }
     public bool SincronizadoOffline { get; set; } = false;
     public string? DispositivoId { get; set; }
+    // Id generado por el dispositivo (UUID de IndexedDB): clave de
+    // idempotencia del sync offline. Nulo en registros en línea.
+    public string? IdCliente { get; set; }
 }
 
 public record EntregaResultadoDto(
@@ -92,17 +95,24 @@ public record NovedadResponseDto(
     string RegistradoPor
 );
 
+// Resultado del sync: un ítem POR CADA entrega recibida, identificado por
+// el IdCliente del dispositivo. El cliente empareja por ese Id (nunca por
+// posición) para marcar cada entrega local como sincronizada o con error.
 public record SyncResultadoDto(
     int TotalRecibidos,
     int TotalGuardados,
+    int TotalDuplicados,
     int TotalConError,
-    List<SyncErrorDto> Errores
+    List<SyncItemResultadoDto> Resultados
 );
 
-public record SyncErrorDto(
-    string DispositivoId,
-    string CodigoLoteTemp,
-    string Motivo
+public record SyncItemResultadoDto(
+    string? IdCliente,
+    bool Exito,
+    // La entrega ya se había sincronizado en un intento anterior:
+    // se ignora sin duplicar animales y el cliente la marca como lista
+    bool Duplicada,
+    string? Motivo
 );
 
 // ── Movilización CAT → planta (eslabón transporte) ────────────────────

@@ -12,8 +12,10 @@ public class RegistrarFaenamientoBatchValidator
             .NotEmpty()
             .WithMessage("El operario responsable es obligatorio.");
 
+        // El límite se evalúa en cada validación, no al construir el
+        // validador (evita congelar la hora de arranque)
         RuleFor(x => x.FechaFaenamiento)
-            .LessThanOrEqualTo(DateTime.UtcNow.AddMinutes(5))
+            .LessThanOrEqualTo(_ => DateTime.UtcNow.AddMinutes(5))
             .WithMessage("La fecha de faenamiento no puede ser futura.");
 
         RuleFor(x => x.Lotes)
@@ -44,7 +46,7 @@ public class RegistrarDespachoValidator : AbstractValidator<RegistrarDespachoDto
             .WithMessage("El responsable del despacho es obligatorio.");
 
         RuleFor(x => x.FechaDespacho)
-            .LessThanOrEqualTo(DateTime.UtcNow.AddMinutes(5))
+            .LessThanOrEqualTo(_ => DateTime.UtcNow.AddMinutes(5))
             .WithMessage("La fecha de despacho no puede ser futura.");
     }
 }

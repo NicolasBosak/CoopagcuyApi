@@ -1,6 +1,7 @@
 ﻿using System.Security.Claims;
 using CoopagcuyApi.Features.Productoras.DTOs;
 using CoopagcuyApi.Features.Productoras.Services;
+using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -9,7 +10,9 @@ namespace CoopagcuyApi.Features.Productoras.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [Authorize] // todos los endpoints requieren JWT
-public class ProductorasController(IProductoraService service) : ControllerBase
+public class ProductorasController(
+    IProductoraService service,
+    IValidator<CrearProductoraDto> validator) : ControllerBase
 {
     [HttpGet]
     [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorCAT")]
@@ -36,6 +39,14 @@ public class ProductorasController(IProductoraService service) : ControllerBase
     [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
     public async Task<IActionResult> Crear([FromBody] CrearProductoraDto dto)
     {
+        var validacion = await validator.ValidateAsync(dto);
+        if (!validacion.IsValid)
+            return BadRequest(new
+            {
+                mensaje = string.Join(" ",
+                    validacion.Errors.Select(e => e.ErrorMessage))
+            });
+
         try
         {
             var result = await service.CrearAsync(dto);
@@ -51,6 +62,14 @@ public class ProductorasController(IProductoraService service) : ControllerBase
     [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
     public async Task<IActionResult> Actualizar(int id, [FromBody] CrearProductoraDto dto)
     {
+        var validacion = await validator.ValidateAsync(dto);
+        if (!validacion.IsValid)
+            return BadRequest(new
+            {
+                mensaje = string.Join(" ",
+                    validacion.Errors.Select(e => e.ErrorMessage))
+            });
+
         // La auditoría identifica al usuario por su cédula (claim del token)
         var modificadoPor = User.FindFirstValue("cedula") ?? "desconocido";
         var ok = await service.ActualizarAsync(id, dto, modificadoPor);

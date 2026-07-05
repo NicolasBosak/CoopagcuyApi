@@ -1,6 +1,7 @@
 ﻿using CoopagcuyApi.Features.QR.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace CoopagcuyApi.Features.QR.Controllers;
 
@@ -62,6 +63,9 @@ public class QRController(IQRService service) : ControllerBase
     /// </summary>
     [HttpGet("publico/{codigoLote}")]
     [AllowAnonymous]
+    // Anónimo y con códigos enumerables: el rate limit por IP frena el
+    // scraping masivo sin afectar a un consumidor que escanea su compra
+    [EnableRateLimiting("publico")]
     public async Task<IActionResult> PaginaPublica(string codigoLote)
     {
         var datos = await service.ObtenerPaginaPublicaAsync(codigoLote);

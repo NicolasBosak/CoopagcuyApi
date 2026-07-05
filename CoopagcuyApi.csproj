@@ -33,6 +33,11 @@
     <PackageReference Include="QuestPDF" Version="2024.3.1" />
     <PackageReference Include="Serilog.AspNetCore" Version="8.0.1" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+    <!-- Referencias directas que reemplazan versiones transitivas con
+         vulnerabilidades conocidas (auditoría "dotnet list package") -->
+    <PackageReference Include="System.Text.Json" Version="8.0.5" />
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="8.0.1" />
+    <PackageReference Include="System.IO.Packaging" Version="8.0.1" />
   </ItemGroup>
 
 </Project>
