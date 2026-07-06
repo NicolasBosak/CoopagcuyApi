@@ -4,22 +4,27 @@ namespace CoopagcuyApi.Features.Faenamiento.Models;
 
 /// <summary>
 /// Devolución de producto por parte de un cliente (restaurante) — RF-307.
-/// Queda vinculada al lote de origen y, a través de él, a la productora,
-/// para la gestión de pérdidas y descuentos.
+/// Nace de un despacho concreto: el cliente y el lote faenado se derivan
+/// de él, y las unidades devueltas nunca pueden superar las enviadas.
 /// </summary>
 public class Devolucion
 {
     public int Id { get; set; }
-    public int LoteId { get; set; }
-    public Lote Lote { get; set; } = null!;
 
-    // Sesión de faenamiento específica de la que proviene el producto
-    // devuelto: permite saber, por ejemplo, que la devolución corresponde
-    // a la segunda tanda faenada del lote (la que traía cuyes con novedad)
+    // Despacho del que proviene el producto devuelto
+    public int? DespachoId { get; set; }
+    public Despacho? Despacho { get; set; }
+
+    // Referencias legadas: las devoluciones anteriores al vínculo con el
+    // despacho apuntaban a la jaula y a la sesión de faenamiento
+    public int? LoteId { get; set; }
+    public Lote? Lote { get; set; }
     public int? RegistroFaenamientoId { get; set; }
     public RegistroFaenamiento? RegistroFaenamiento { get; set; }
 
+    // Copiado del despacho al registrar: la historia queda inmutable
     public string ClienteDevuelve { get; set; } = string.Empty;
+
     public DateTime FechaDevolucion { get; set; }
     public int CantidadUnidades { get; set; }
     public string Motivo { get; set; } = string.Empty;

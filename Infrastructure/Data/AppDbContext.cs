@@ -155,7 +155,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(u => u.CatAsignado).HasConversion<string>();
         });
 
-        // Devolución — RF-307
+        // Devolución — RF-307: nace de un despacho; Lote y sesión quedan
+        // como referencias legadas de devoluciones antiguas
         modelBuilder.Entity<Devolucion>(e =>
         {
             e.HasKey(d => d.Id);
@@ -163,6 +164,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(d => d.Motivo).HasMaxLength(500).IsRequired();
             e.Property(d => d.Responsable).HasMaxLength(150).IsRequired();
             e.Property(d => d.Observaciones).HasMaxLength(500);
+            e.HasOne(d => d.Despacho)
+             .WithMany()
+             .HasForeignKey(d => d.DespachoId);
             e.HasOne(d => d.Lote)
              .WithMany()
              .HasForeignKey(d => d.LoteId);

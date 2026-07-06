@@ -412,7 +412,7 @@ public class ReportesService(AppDbContext db) : IReportesService
         var (desdeUtc, hastaUtc) = RangoUtc(filtro);
 
         var devQuery = db.Devoluciones
-            .Include(d => d.Lote).ThenInclude(l => l.Productora)
+            .Include(d => d.Lote).ThenInclude(l => l!.Productora)
             .Where(d => d.FechaDevolucion >= desdeUtc &&
                         d.FechaDevolucion < hastaUtc);
 
@@ -424,19 +424,26 @@ public class ReportesService(AppDbContext db) : IReportesService
         if (!string.IsNullOrEmpty(filtro.CentroAcopio) &&
             Enum.TryParse<CentroAcopio>(filtro.CentroAcopio, out var cat))
         {
-            devQuery = devQuery.Where(d => d.Lote.CentroAcopio == cat);
+            // Las devoluciones por despacho abarcan un lote faenado que
+            // puede cruzar varios CAT: solo las legadas (por jaula)
+            // admiten este filtro
+            devQuery = devQuery.Where(d =>
+                d.Lote != null && d.Lote.CentroAcopio == cat);
             retQuery = retQuery.Where(r => r.Lote.CentroAcopio == cat);
         }
 
         var devoluciones = await devQuery
             .OrderByDescending(d => d.FechaDevolucion)
             .Select(d => new DevolucionItemDto(
-                d.Id, d.Lote.CodigoLote,
+                d.Id,
+                d.Despacho != null && d.Despacho.LoteFaenado != null
+                    ? d.Despacho.LoteFaenado.Codigo
+                    : d.Lote != null ? d.Lote.CodigoLote : "—",
                 d.RegistroFaenamiento != null
                     ? d.RegistroFaenamiento.NumeroSesion : null,
-                d.Lote.Productora != null
+                d.Lote != null && d.Lote.Productora != null
                     ? d.Lote.Productora.NombreCompleto : "Varias productoras",
-                d.Lote.Productora != null
+                d.Lote != null && d.Lote.Productora != null
                     ? d.Lote.Productora.Comunidad : "-",
                 d.ClienteDevuelve, d.FechaDevolucion,
                 d.CantidadUnidades, d.Motivo))

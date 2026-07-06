@@ -486,6 +486,7 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
                 ClienteDestino: despacho.ClienteDestino,
                 FechaDespacho: despacho.FechaDespacho,
                 CantidadUnidades: despacho.CantidadUnidades,
+                UnidadesDevueltas: 0,
                 Responsable: despacho.Responsable,
                 Transporte: despacho.Transporte,
                 Observaciones: despacho.Observaciones,
@@ -522,11 +523,20 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
             .AsSplitQuery()
             .ToListAsync();
 
+        // Unidades ya devueltas por despacho: el formulario de devolución
+        // solo ofrece despachos con restante y topa la cantidad
+        var devueltas = await db.Devoluciones
+            .Where(v => v.DespachoId != null)
+            .GroupBy(v => v.DespachoId!.Value)
+            .Select(g => new { DespachoId = g.Key, Total = g.Sum(v => v.CantidadUnidades) })
+            .ToDictionaryAsync(x => x.DespachoId, x => x.Total);
+
         return lista.Select(d => new DespachoResponseDto(
             d.Id,
             d.LoteFaenado?.Codigo,
             d.Lote?.CodigoLote,
             d.ClienteDestino, d.FechaDespacho, d.CantidadUnidades,
+            devueltas.GetValueOrDefault(d.Id),
             d.Responsable, d.Transporte, d.Observaciones,
             d.Cuyes
                 .OrderBy(dc => dc.CuyFaenamiento.Registro.Lote.CodigoLote)
@@ -542,73 +552,73 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
     public async Task<DevolucionResponseDto> RegistrarDevolucionAsync(
         RegistrarDevolucionDto dto)
     {
-        // La devolución solo aplica a producto despachado: el lote debe
-        // tener faenamiento registrado.
-        var lote = await db.Lotes
-            .Include(l => l.Productora)
-            .Include(l => l.Faenamientos)
-            .FirstOrDefaultAsync(l => l.Id == dto.LoteId)
-            ?? throw new KeyNotFoundException(
-                $"Lote con Id {dto.LoteId} no encontrado.");
-
-        if (lote.Faenamientos.Count == 0)
+        if (dto.CantidadUnidades <= 0)
             throw new InvalidOperationException(
-                $"El lote {lote.CodigoLote} no tiene faenamiento registrado. " +
-                "No es posible registrar una devolución.");
+                "La cantidad devuelta debe ser mayor a cero.");
 
-        // La sesión indicada debe pertenecer al lote
-        RegistroFaenamiento? sesion = null;
-        if (dto.RegistroFaenamientoId is int sesionId)
+        // La devolución nace de un despacho concreto: el cliente y el lote
+        // faenado se derivan de él. El tope (enviadas − ya devueltas) se
+        // valida bajo un advisory lock por despacho.
+        var estrategia = db.Database.CreateExecutionStrategy();
+
+        return await estrategia.ExecuteAsync(async () =>
         {
-            sesion = lote.Faenamientos.FirstOrDefault(f => f.Id == sesionId)
-                ?? throw new InvalidOperationException(
-                    $"La sesión de faenamiento indicada no pertenece " +
-                    $"al lote {lote.CodigoLote}.");
-        }
+            db.ChangeTracker.Clear();
 
-        // La devolución de cliente solo existe para producto que salió de
-        // la planta: el lote faenado debe tener al menos un despacho.
-        // (Los animales devueltos vivos ANTES del faenamiento se registran
-        // como retorno a la productora, no como devolución.)
-        var faeIds = lote.Faenamientos
-            .Where(f => f.LoteFaenadoId != null)
-            .Select(f => f.LoteFaenadoId!.Value)
-            .Distinct()
-            .ToList();
+            await using var transaccion = await db.Database.BeginTransactionAsync();
 
-        var fueDespachado = await db.Despachos.AnyAsync(d =>
-            (d.LoteFaenadoId != null && faeIds.Contains(d.LoteFaenadoId.Value))
-            || d.LoteId == dto.LoteId);
+            var claveLock = $"devolucion-despacho-{dto.DespachoId}";
+            await db.Database.ExecuteSqlAsync(
+                $"SELECT pg_advisory_xact_lock(hashtext({claveLock}))");
 
-        if (!fueDespachado)
-            throw new InvalidOperationException(
-                $"El lote {lote.CodigoLote} aún no tiene despachos " +
-                "registrados: solo se puede devolver producto que ya fue " +
-                "enviado a un cliente.");
+            var despacho = await db.Despachos
+                .Include(d => d.LoteFaenado)
+                .Include(d => d.Lote).ThenInclude(l => l!.Productora)
+                .AsNoTracking()
+                .FirstOrDefaultAsync(d => d.Id == dto.DespachoId)
+                ?? throw new KeyNotFoundException(
+                    $"Despacho con Id {dto.DespachoId} no encontrado.");
 
-        var devolucion = new Devolucion
-        {
-            LoteId = dto.LoteId,
-            RegistroFaenamientoId = sesion?.Id,
-            ClienteDevuelve = dto.ClienteDevuelve,
-            FechaDevolucion = DateTime.SpecifyKind(dto.FechaDevolucion, DateTimeKind.Utc),
-            CantidadUnidades = dto.CantidadUnidades,
-            Motivo = dto.Motivo,
-            Responsable = dto.Responsable,
-            Observaciones = dto.Observaciones
-        };
+            var yaDevueltas = await db.Devoluciones
+                .Where(v => v.DespachoId == dto.DespachoId)
+                .SumAsync(v => (int?)v.CantidadUnidades) ?? 0;
 
-        db.Devoluciones.Add(devolucion);
-        await db.SaveChangesAsync();
+            var restante = despacho.CantidadUnidades - yaDevueltas;
+            if (dto.CantidadUnidades > restante)
+                throw new InvalidOperationException(
+                    $"El despacho a {despacho.ClienteDestino} tiene " +
+                    $"{restante} unidades sin devolver y se intentó " +
+                    $"devolver {dto.CantidadUnidades}.");
 
-        return MapearDevolucion(devolucion, lote, sesion?.NumeroSesion);
+            var devolucion = new Devolucion
+            {
+                DespachoId = despacho.Id,
+                LoteId = despacho.LoteId,
+                // El cliente se copia del despacho: no se vuelve a digitar
+                ClienteDevuelve = despacho.ClienteDestino,
+                FechaDevolucion = DateTime.SpecifyKind(
+                    dto.FechaDevolucion, DateTimeKind.Utc),
+                CantidadUnidades = dto.CantidadUnidades,
+                Motivo = dto.Motivo,
+                Responsable = dto.Responsable,
+                Observaciones = dto.Observaciones
+            };
+
+            db.Devoluciones.Add(devolucion);
+            await db.SaveChangesAsync();
+            await transaccion.CommitAsync();
+
+            return MapearDevolucion(
+                devolucion, despacho.Lote, null, despacho.LoteFaenado?.Codigo);
+        });
     }
 
     public async Task<IEnumerable<DevolucionResponseDto>> ListarDevolucionesAsync(
         DateTime? desde, DateTime? hasta, int? productoraId)
     {
         var query = db.Devoluciones
-            .Include(d => d.Lote).ThenInclude(l => l.Productora)
+            .Include(d => d.Despacho).ThenInclude(x => x!.LoteFaenado)
+            .Include(d => d.Lote).ThenInclude(l => l!.Productora)
             .Include(d => d.RegistroFaenamiento)
             .AsQueryable();
 
@@ -621,7 +631,8 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
                 d.FechaDevolucion <= DateTime.SpecifyKind(hasta.Value, DateTimeKind.Utc));
 
         if (productoraId.HasValue)
-            query = query.Where(d => d.Lote.ProductoraId == productoraId.Value);
+            query = query.Where(d =>
+                d.Lote != null && d.Lote.ProductoraId == productoraId.Value);
 
         var lista = await query
             .OrderByDescending(d => d.FechaDevolucion)
@@ -630,17 +641,22 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
             .ToListAsync();
 
         return lista.Select(d => MapearDevolucion(
-            d, d.Lote, d.RegistroFaenamiento?.NumeroSesion));
+            d, d.Lote, d.RegistroFaenamiento?.NumeroSesion,
+            d.Despacho?.LoteFaenado?.Codigo));
     }
 
     private static DevolucionResponseDto MapearDevolucion(
-        Devolucion d, Lote lote, int? numeroSesion) => new(
+        Devolucion d, Lote? lote, int? numeroSesion,
+        string? codigoLoteFaenado) => new(
         Id: d.Id,
         LoteId: d.LoteId,
-        CodigoLote: lote.CodigoLote,
+        CodigoLoteFaenado: codigoLoteFaenado,
+        CodigoLote: lote?.CodigoLote,
         NumeroSesion: numeroSesion,
-        NombreProductora: lote.Productora?.NombreCompleto ?? string.Empty,
-        Comunidad: lote.Productora?.Comunidad ?? string.Empty,
+        // Un lote faenado puede reunir varias productoras: el nombre
+        // individual solo existe en devoluciones legadas por jaula
+        NombreProductora: lote?.Productora?.NombreCompleto ?? "Varias productoras",
+        Comunidad: lote?.Productora?.Comunidad ?? "—",
         ClienteDevuelve: d.ClienteDevuelve,
         FechaDevolucion: d.FechaDevolucion,
         CantidadUnidades: d.CantidadUnidades,

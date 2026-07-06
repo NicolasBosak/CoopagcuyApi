@@ -161,6 +161,9 @@ public record DespachoResponseDto(
     string ClienteDestino,
     DateTime FechaDespacho,
     int CantidadUnidades,
+    // Unidades ya devueltas por el cliente: el restante es lo único
+    // que puede devolverse
+    int UnidadesDevueltas,
     string Responsable,
     string? Transporte,
     string? Observaciones,
@@ -169,10 +172,9 @@ public record DespachoResponseDto(
 
 public class RegistrarDevolucionDto
 {
-    public int LoteId { get; set; }
-    // Sesión de faenamiento de la que proviene el producto devuelto
-    public int? RegistroFaenamientoId { get; set; }
-    public string ClienteDevuelve { get; set; } = string.Empty;
+    // Despacho del que el cliente devuelve producto: el cliente y el
+    // lote faenado se derivan de él (no se piden de nuevo)
+    public int DespachoId { get; set; }
     public DateTime FechaDevolucion { get; set; }
     public int CantidadUnidades { get; set; }
     public string Motivo { get; set; } = string.Empty;
@@ -182,8 +184,11 @@ public class RegistrarDevolucionDto
 
 public record DevolucionResponseDto(
     int Id,
-    int LoteId,
-    string CodigoLote,
+    int? LoteId,
+    // Código del lote faenado del despacho; en devoluciones antiguas
+    // solo existe el código de la jaula
+    string? CodigoLoteFaenado,
+    string? CodigoLote,
     int? NumeroSesion,
     string NombreProductora,
     string Comunidad,
