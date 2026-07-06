@@ -32,11 +32,13 @@ public class GuiaMovilizacionService(AppDbContext db) : IGuiaMovilizacionService
             .FirstOrDefaultAsync(l => l.CodigoLote == codigoLote)
             ?? throw new KeyNotFoundException($"Lote {codigoLote} no encontrado.");
 
-        // Productoras que integran la jaula, con su aporte de animales
+        // Productoras que integran la jaula, con su aporte de animales.
+        // Agrupado por Id (no por instancia) para que siga siendo correcto
+        // aunque la consulta se materialice sin tracking
         var contribuyentes = lote.Cuyes
             .Where(c => c.Productora is not null)
-            .GroupBy(c => c.Productora!)
-            .Select(g => (Productora: g.Key, Cantidad: g.Count()))
+            .GroupBy(c => c.ProductoraId)
+            .Select(g => (Productora: g.First().Productora!, Cantidad: g.Count()))
             .OrderByDescending(x => x.Cantidad)
             .ToList();
 

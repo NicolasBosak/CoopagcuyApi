@@ -113,22 +113,28 @@ public class ReportesService(AppDbContext db) : IReportesService
 
         var cuyes = await query.AsNoTracking().ToListAsync();
 
+        // Agrupar por Id, no por instancia (ver nota en RecepcionService:
+        // sin tracking cada fila trae su propio objeto Productora)
         return cuyes
-            .GroupBy(c => c.Productora!)
-            .Select(g => new ReporteProductoraDto(
-                ProductoraId: g.Key.Id,
-                NombreProductora: g.Key.NombreCompleto,
-                Comunidad: g.Key.Comunidad,
-                CentroAcopio: g.Key.CatAsignado.ToString(),
-                TotalLotes: g.Select(c => c.LoteId).Distinct().Count(),
-                TotalAnimales: g.Count(),
-                LotesAceptados: g.Count(c => c.Estado == EstadoLote.Aceptado),
-                LotesConNovedad: g.Count(c => c.Estado == EstadoLote.ConNovedad),
-                LotesRechazados: g.Count(c => c.Estado == EstadoLote.Rechazado),
-                PesoTotalGramos: g.Sum(c => c.PesoGramos),
-                PesoPromedioGramos: Math.Round(g.Average(c => c.PesoGramos), 0),
-                UltimaEntrega: g.Max(c => (DateTime?)c.Lote.FechaRecepcion)
-            ))
+            .GroupBy(c => c.ProductoraId)
+            .Select(g =>
+            {
+                var p = g.First().Productora!;
+                return new ReporteProductoraDto(
+                    ProductoraId: p.Id,
+                    NombreProductora: p.NombreCompleto,
+                    Comunidad: p.Comunidad,
+                    CentroAcopio: p.CatAsignado.ToString(),
+                    TotalLotes: g.Select(c => c.LoteId).Distinct().Count(),
+                    TotalAnimales: g.Count(),
+                    LotesAceptados: g.Count(c => c.Estado == EstadoLote.Aceptado),
+                    LotesConNovedad: g.Count(c => c.Estado == EstadoLote.ConNovedad),
+                    LotesRechazados: g.Count(c => c.Estado == EstadoLote.Rechazado),
+                    PesoTotalGramos: g.Sum(c => c.PesoGramos),
+                    PesoPromedioGramos: Math.Round(g.Average(c => c.PesoGramos), 0),
+                    UltimaEntrega: g.Max(c => (DateTime?)c.Lote.FechaRecepcion)
+                );
+            })
             .OrderByDescending(r => r.TotalAnimales);
     }
 

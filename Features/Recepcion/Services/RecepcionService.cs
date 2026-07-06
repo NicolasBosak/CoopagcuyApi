@@ -477,12 +477,19 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
 
     private static LoteResponseDto MapearLote(Lote lote)
     {
-        // Resumen de productoras que integran la jaula
+        // Resumen de productoras que integran la jaula. Se agrupa por Id
+        // y NUNCA por la instancia: con consultas sin tracking cada fila
+        // materializa su propio objeto Productora, y agrupar por
+        // referencia parte a una misma productora en N grupos de 1
         var productoras = lote.Cuyes
             .Where(c => c.Productora is not null)
-            .GroupBy(c => c.Productora!)
-            .Select(g => new ProductoraEnLoteDto(
-                g.Key.Id, g.Key.NombreCompleto, g.Key.Comunidad, g.Count()))
+            .GroupBy(c => c.ProductoraId)
+            .Select(g =>
+            {
+                var p = g.First().Productora!;
+                return new ProductoraEnLoteDto(
+                    p.Id, p.NombreCompleto, p.Comunidad, g.Count());
+            })
             .OrderByDescending(p => p.Cantidad)
             .ToList();
 
