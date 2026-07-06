@@ -166,6 +166,43 @@ public class ReportesController(IReportesService service) : ControllerBase
     }
 
     /// <summary>
+    /// Exporta el reporte por centro de acopio a Excel — RF-505.
+    /// </summary>
+    [HttpGet("exportar/excel/cat")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
+    public async Task<IActionResult> ExcelCAT(
+        [FromQuery] DateTime desde,
+        [FromQuery] DateTime hasta,
+        [FromQuery] string? cat)
+    {
+        var bytes = await service.ExportarExcelCATAsync(
+            new FiltroPeriodoDto(desde, hasta, cat));
+
+        return File(bytes,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            $"Reporte-CAT-{desde:yyyyMMdd}-{hasta:yyyyMMdd}.xlsx");
+    }
+
+    /// <summary>
+    /// Exporta devoluciones de clientes y retornos a productoras a
+    /// Excel (dos hojas) — RF-505.
+    /// </summary>
+    [HttpGet("exportar/excel/devoluciones")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
+    public async Task<IActionResult> ExcelDevoluciones(
+        [FromQuery] DateTime desde,
+        [FromQuery] DateTime hasta,
+        [FromQuery] string? cat)
+    {
+        var bytes = await service.ExportarExcelDevolucionesAsync(
+            new FiltroPeriodoDto(desde, hasta, cat));
+
+        return File(bytes,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            $"Reporte-Devoluciones-{desde:yyyyMMdd}-{hasta:yyyyMMdd}.xlsx");
+    }
+
+    /// <summary>
     /// Exporta la ficha de trazabilidad de un lote en PDF — RF-505.
     /// </summary>
     [HttpGet("exportar/pdf/lote/{codigoLote}")]

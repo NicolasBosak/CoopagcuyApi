@@ -21,6 +21,8 @@ public interface IReportesService
     Task<IEnumerable<ReporteNovedadDto>> ReporteNovedadesAsync(FiltroPeriodoDto filtro);
     Task<byte[]> ExportarExcelProductorasAsync(FiltroPeriodoDto filtro);
     Task<byte[]> ExportarExcelNovedadesAsync(FiltroPeriodoDto filtro);
+    Task<byte[]> ExportarExcelCATAsync(FiltroPeriodoDto filtro);
+    Task<byte[]> ExportarExcelDevolucionesAsync(FiltroPeriodoDto filtro);
     Task<byte[]> ExportarPDFLoteAsync(string codigoLote);
     Task<IEnumerable<ReporteCuyDto>> ReporteCuyesAsync(FiltroPeriodoDto filtro);
     Task<byte[]> ExportarExcelCuyesAsync(FiltroPeriodoDto filtro);
@@ -398,6 +400,126 @@ public class ReportesService(AppDbContext db) : IReportesService
         }
 
         hoja.Columns().AdjustToContents();
+
+        using var stream = new MemoryStream();
+        libro.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    // ── Exportar Excel por CAT — RF-505 ───────────────────────────────
+
+    public async Task<byte[]> ExportarExcelCATAsync(FiltroPeriodoDto filtro)
+    {
+        var datos = await ReportePorCATAsync(filtro);
+
+        using var libro = new XLWorkbook();
+        var hoja = libro.Worksheets.Add("Por CAT");
+
+        var encabezados = new[]
+        {
+            "Centro de Acopio", "Lotes", "Animales", "Aceptados",
+            "Con novedad", "Rechazados", "Tasa aceptación (%)",
+            "Peso total (g)"
+        };
+
+        for (int i = 0; i < encabezados.Length; i++)
+        {
+            var celda = hoja.Cell(1, i + 1);
+            celda.Value = encabezados[i];
+            celda.Style.Font.Bold = true;
+            celda.Style.Fill.BackgroundColor = XLColor.FromHtml("#2E7D32");
+            celda.Style.Font.FontColor = XLColor.White;
+        }
+
+        int fila = 2;
+        foreach (var r in datos)
+        {
+            hoja.Cell(fila, 1).Value = r.CentroAcopio;
+            hoja.Cell(fila, 2).Value = r.TotalLotes;
+            hoja.Cell(fila, 3).Value = r.TotalAnimales;
+            hoja.Cell(fila, 4).Value = r.LotesAceptados;
+            hoja.Cell(fila, 5).Value = r.LotesConNovedad;
+            hoja.Cell(fila, 6).Value = r.LotesRechazados;
+            hoja.Cell(fila, 7).Value = r.TasaAceptacion;
+            hoja.Cell(fila, 8).Value = r.PesoTotalGramos;
+            fila++;
+        }
+
+        hoja.Columns().AdjustToContents();
+
+        using var stream = new MemoryStream();
+        libro.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    // ── Exportar Excel devoluciones y retornos — RF-505 ───────────────
+    // Dos hojas: devoluciones de clientes (post-despacho) y cuyes
+    // devueltos vivos a su productora (pre-faenamiento)
+
+    public async Task<byte[]> ExportarExcelDevolucionesAsync(FiltroPeriodoDto filtro)
+    {
+        var datos = await ReporteDevolucionesAsync(filtro);
+
+        using var libro = new XLWorkbook();
+
+        var hojaDev = libro.Worksheets.Add("Devoluciones clientes");
+        var encDev = new[]
+        {
+            "Lote", "Sesión", "Productora", "Comunidad", "Cliente",
+            "Unidades", "Motivo", "Fecha"
+        };
+        for (int i = 0; i < encDev.Length; i++)
+        {
+            var celda = hojaDev.Cell(1, i + 1);
+            celda.Value = encDev[i];
+            celda.Style.Font.Bold = true;
+            celda.Style.Fill.BackgroundColor = XLColor.FromHtml("#2E7D32");
+            celda.Style.Font.FontColor = XLColor.White;
+        }
+
+        int fila = 2;
+        foreach (var d in datos.DevolucionesClientes)
+        {
+            hojaDev.Cell(fila, 1).Value = d.CodigoLote;
+            hojaDev.Cell(fila, 2).Value = d.NumeroSesion is int s ? $"F{s}" : "—";
+            hojaDev.Cell(fila, 3).Value = d.NombreProductora;
+            hojaDev.Cell(fila, 4).Value = d.Comunidad;
+            hojaDev.Cell(fila, 5).Value = d.ClienteDevuelve;
+            hojaDev.Cell(fila, 6).Value = d.CantidadUnidades;
+            hojaDev.Cell(fila, 7).Value = d.Motivo;
+            hojaDev.Cell(fila, 8).Value = d.FechaDevolucion.ToString("dd/MM/yyyy");
+            fila++;
+        }
+        hojaDev.Columns().AdjustToContents();
+
+        var hojaRet = libro.Worksheets.Add("Retornos a productora");
+        var encRet = new[]
+        {
+            "Lote", "Cuy N°", "Productora", "Comunidad", "Motivo",
+            "Fecha", "Responsable"
+        };
+        for (int i = 0; i < encRet.Length; i++)
+        {
+            var celda = hojaRet.Cell(1, i + 1);
+            celda.Value = encRet[i];
+            celda.Style.Font.Bold = true;
+            celda.Style.Fill.BackgroundColor = XLColor.FromHtml("#2E7D32");
+            celda.Style.Font.FontColor = XLColor.White;
+        }
+
+        fila = 2;
+        foreach (var r in datos.RetornosProductora)
+        {
+            hojaRet.Cell(fila, 1).Value = r.CodigoLote;
+            hojaRet.Cell(fila, 2).Value = r.NumeroEnLote;
+            hojaRet.Cell(fila, 3).Value = r.NombreProductora;
+            hojaRet.Cell(fila, 4).Value = r.Comunidad;
+            hojaRet.Cell(fila, 5).Value = r.Motivo;
+            hojaRet.Cell(fila, 6).Value = r.FechaRetorno.ToString("dd/MM/yyyy");
+            hojaRet.Cell(fila, 7).Value = r.Responsable;
+            fila++;
+        }
+        hojaRet.Columns().AdjustToContents();
 
         using var stream = new MemoryStream();
         libro.SaveAs(stream);
