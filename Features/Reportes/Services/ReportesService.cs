@@ -475,15 +475,23 @@ public class ReportesService(AppDbContext db) : IReportesService
             ?? throw new KeyNotFoundException(
                 $"Lote faenado {codigo} no encontrado.");
 
-        // Animales procesados con su origen individual
+        // Animales procesados con su origen individual: la productora se
+        // muestra en la ficha para poder devolverle en mano los animales
+        // retornados vivos
         var animales = loteFaenado.Sesiones
-            .SelectMany(f => f.Cuyes.Select(cf => (
-                Faenado: cf,
-                Jaula: f.Lote,
-                Comunidad: f.Lote.Cuyes
+            .SelectMany(f => f.Cuyes.Select(cf =>
+            {
+                var origen = f.Lote.Cuyes
                     .FirstOrDefault(c => c.NumeroEnLote == cf.NumeroEnLote)
-                    ?.Productora?.Comunidad
-                    ?? f.Lote.Productora?.Comunidad ?? "—")))
+                    ?.Productora;
+                return (
+                    Faenado: cf,
+                    Jaula: f.Lote,
+                    Comunidad: origen?.Comunidad
+                        ?? f.Lote.Productora?.Comunidad ?? "—",
+                    Productora: origen?.NombreCompleto
+                        ?? f.Lote.Productora?.NombreCompleto ?? "—");
+            }))
             .OrderBy(a => a.Jaula.CodigoLote)
             .ThenBy(a => a.Faenado.NumeroEnLote)
             .ToList();
@@ -600,9 +608,10 @@ public class ReportesService(AppDbContext db) : IReportesService
                             tabla.ColumnsDefinition(cols =>
                             {
                                 cols.RelativeColumn(2);    // Jaula origen
-                                cols.ConstantColumn(30);   // N°
+                                cols.ConstantColumn(25);   // N°
+                                cols.RelativeColumn(2);    // Productora
                                 cols.RelativeColumn(2);    // Comunidad
-                                cols.ConstantColumn(65);   // Peso canal
+                                cols.ConstantColumn(55);   // Peso canal
                                 cols.ConstantColumn(70);   // Estado
                                 cols.RelativeColumn(2);    // Observación
                             });
@@ -610,8 +619,9 @@ public class ReportesService(AppDbContext db) : IReportesService
                             tabla.Header(h =>
                             {
                                 foreach (var titulo in new[]
-                                    { "Jaula origen", "N°", "Comunidad",
-                                      "Peso canal", "Estado", "Observación" })
+                                    { "Jaula origen", "N°", "Productora",
+                                      "Comunidad", "Peso canal", "Estado",
+                                      "Observación" })
                                 {
                                     h.Cell().BorderBottom(1).BorderColor("#CCCCCC")
                                         .PaddingBottom(2)
@@ -621,24 +631,35 @@ public class ReportesService(AppDbContext db) : IReportesService
 
                             foreach (var animal in animales)
                             {
-                                var colorEstado = animal.Faenado.Estado switch
-                                {
-                                    EstadoCanal.Rechazado => "#B71C1C",
-                                    EstadoCanal.ConNovedad => "#E65100",
-                                    _ => "#2E7D32"
-                                };
+                                // Un animal retornado vivo se distingue del
+                                // decomiso: hay que devolverlo en mano a su
+                                // productora
+                                var estadoTexto = animal.Faenado.RetornadoAProductora
+                                    ? "Devuelto vivo"
+                                    : animal.Faenado.Estado.ToString();
+
+                                var colorEstado = animal.Faenado.RetornadoAProductora
+                                    ? "#E65100"
+                                    : animal.Faenado.Estado switch
+                                    {
+                                        EstadoCanal.Rechazado => "#B71C1C",
+                                        EstadoCanal.ConNovedad => "#E65100",
+                                        _ => "#2E7D32"
+                                    };
 
                                 tabla.Cell().PaddingVertical(1)
                                     .Text(animal.Jaula.CodigoLote).FontSize(7);
                                 tabla.Cell().PaddingVertical(1)
                                     .Text($"{animal.Faenado.NumeroEnLote}").FontSize(7);
                                 tabla.Cell().PaddingVertical(1)
+                                    .Text(animal.Productora).FontSize(7);
+                                tabla.Cell().PaddingVertical(1)
                                     .Text(animal.Comunidad).FontSize(7);
                                 tabla.Cell().PaddingVertical(1)
                                     .Text(animal.Faenado.PesoCanalGramos is decimal p
                                         ? $"{p:F0}g" : "—").FontSize(7);
                                 tabla.Cell().PaddingVertical(1)
-                                    .Text(animal.Faenado.Estado.ToString()).FontSize(7)
+                                    .Text(estadoTexto).FontSize(7)
                                     .FontColor(colorEstado);
                                 tabla.Cell().PaddingVertical(1)
                                     .Text(animal.Faenado.Motivo ?? "—").FontSize(7);

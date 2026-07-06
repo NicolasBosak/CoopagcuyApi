@@ -15,7 +15,7 @@ public interface IFaenamientoService
     Task<FaenamientoResponseDto?> ObtenerPorCodigoLoteAsync(string codigoLote);
     Task<IEnumerable<FaenamientoResponseDto>> ListarAsync(DateTime? desde, DateTime? hasta);
     Task<DespachoResponseDto> RegistrarDespachoAsync(RegistrarDespachoDto dto);
-    Task<IEnumerable<DespachoResponseDto>> ListarDespachosPorLoteAsync(int loteId);
+    Task<IEnumerable<LoteFaenadoDespachableDto>> ListarDespachablesAsync();
     Task<IEnumerable<DespachoResponseDto>> ListarDespachosAsync(DateTime? desde, DateTime? hasta);
     Task<DevolucionResponseDto> RegistrarDevolucionAsync(RegistrarDevolucionDto dto);
     Task<IEnumerable<DevolucionResponseDto>> ListarDevolucionesAsync(
@@ -42,6 +42,10 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
             .Include(l => l.Cuyes).ThenInclude(c => c.Productora)
             .Include(l => l.Faenamientos).ThenInclude(f => f.Cuyes)
             .Where(l => l.Cerrado && l.Estado != EstadoLote.Rechazado)
+            // La jaula solo es faenable cuando un operador de planta
+            // confirmó su llegada (eslabón de transporte cerrado)
+            .Where(l => l.Movilizacion != null &&
+                        l.Movilizacion.FechaRecepcionPlanta != null)
             // Pre-filtro en SQL: los lotes ya agotados no se cargan (sin
             // esto la consulta arrastraría toda la historia en memoria).
             // Es un filtro "superset": el saldo exacto —que contempla
@@ -344,12 +348,60 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
 
     // ── Registro de despacho ──────────────────────────────────────────
 
+    // Lotes faenados con saldo despachable: animales no rechazados que
+    // aún no están en ningún despacho. Al agotarse el saldo, el lote
+    // desaparece del selector automáticamente.
+    public async Task<IEnumerable<LoteFaenadoDespachableDto>> ListarDespachablesAsync()
+    {
+        var lotes = await db.LotesFaenados
+            .Include(lf => lf.Sesiones).ThenInclude(f => f.Cuyes)
+            .Include(lf => lf.Sesiones).ThenInclude(f => f.Lote)
+            .OrderByDescending(lf => lf.FechaFaenamiento)
+            .Take(MaxRegistrosListado)
+            .AsNoTracking()
+            .AsSplitQuery()
+            .ToListAsync();
+
+        var despachadosIds = (await db.DespachoCuys
+            .Select(dc => dc.CuyFaenamientoId)
+            .ToListAsync())
+            .ToHashSet();
+
+        return lotes
+            .Select(lf =>
+            {
+                var faenados = lf.Sesiones
+                    .SelectMany(f => f.Cuyes
+                        .Select(c => (Cuy: c, Jaula: f.Lote.CodigoLote)))
+                    .Where(x => x.Cuy.Estado != EstadoCanal.Rechazado)
+                    .ToList();
+
+                var disponibles = faenados
+                    .Where(x => !despachadosIds.Contains(x.Cuy.Id))
+                    .OrderBy(x => x.Jaula)
+                    .ThenBy(x => x.Cuy.NumeroEnLote)
+                    .Select(x => new CuyDespachableDto(
+                        x.Cuy.Id, x.Jaula, x.Cuy.NumeroEnLote,
+                        x.Cuy.PesoCanalGramos, x.Cuy.Estado.ToString()))
+                    .ToList();
+
+                return new LoteFaenadoDespachableDto(
+                    lf.Id, lf.Codigo, lf.FechaFaenamiento,
+                    TotalFaenadas: faenados.Count,
+                    Despachadas: faenados.Count - disponibles.Count,
+                    Disponibles: disponibles.Count,
+                    Cuyes: disponibles);
+            })
+            .Where(lf => lf.Disponibles > 0)
+            .ToList();
+    }
+
     public async Task<DespachoResponseDto> RegistrarDespachoAsync(
         RegistrarDespachoDto dto)
     {
-        // El control de stock (faenadas − ya despachadas) se hace bajo un
-        // advisory lock por lote: dos despachos simultáneos del mismo lote
-        // se serializan y no pueden vender las mismas unidades dos veces
+        // La disponibilidad se valida bajo un advisory lock por lote
+        // faenado; el índice único de DespachoCuys.CuyFaenamientoId es la
+        // red final: un animal jamás puede despacharse dos veces
         var estrategia = db.Database.CreateExecutionStrategy();
 
         return await estrategia.ExecuteAsync(async () =>
@@ -358,44 +410,69 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
 
             await using var transaccion = await db.Database.BeginTransactionAsync();
 
-            var claveLock = $"despacho-{dto.LoteId}";
+            var claveLock = $"despacho-fae-{dto.LoteFaenadoId}";
             await db.Database.ExecuteSqlAsync(
                 $"SELECT pg_advisory_xact_lock(hashtext({claveLock}))");
 
-            // Verificar que el lote existe y tiene faenamiento registrado
-            var lote = await db.Lotes
-                .Include(l => l.Faenamientos)
-                .FirstOrDefaultAsync(l => l.Id == dto.LoteId)
+            var loteFaenado = await db.LotesFaenados
+                .Include(lf => lf.Sesiones).ThenInclude(f => f.Cuyes)
+                .Include(lf => lf.Sesiones).ThenInclude(f => f.Lote)
+                .AsNoTracking()
+                .AsSplitQuery()
+                .FirstOrDefaultAsync(lf => lf.Id == dto.LoteFaenadoId)
                 ?? throw new KeyNotFoundException(
-                    $"Lote con Id {dto.LoteId} no encontrado.");
+                    $"Lote faenado con Id {dto.LoteFaenadoId} no encontrado.");
 
-            if (lote.Faenamientos.Count == 0)
-                throw new InvalidOperationException(
-                    $"El lote {lote.CodigoLote} no tiene faenamiento registrado. " +
-                    "Registre el faenamiento antes de despachar.");
+            // Animales del lote faenado con su jaula de origen
+            var animales = loteFaenado.Sesiones
+                .SelectMany(f => f.Cuyes
+                    .Select(c => (Cuy: c, Jaula: f.Lote.CodigoLote)))
+                .ToDictionary(x => x.Cuy.Id);
 
-            // Stock disponible: unidades faenadas menos las ya despachadas
-            var faenadas = lote.Faenamientos.Sum(f => f.UnidadesFaenadas);
-            var despachadas = await db.Despachos
-                .Where(d => d.LoteId == dto.LoteId)
-                .SumAsync(d => (int?)d.CantidadUnidades) ?? 0;
-            var disponibles = faenadas - despachadas;
+            var idsSolicitados = dto.CuyFaenamientoIds.Distinct().ToList();
 
-            if (dto.CantidadUnidades > disponibles)
-                throw new InvalidOperationException(
-                    $"El lote {lote.CodigoLote} tiene {disponibles} unidades " +
-                    $"faenadas sin despachar y se intentó despachar " +
-                    $"{dto.CantidadUnidades}.");
+            var yaDespachados = (await db.DespachoCuys
+                .Where(dc => idsSolicitados.Contains(dc.CuyFaenamientoId))
+                .Select(dc => dc.CuyFaenamientoId)
+                .ToListAsync())
+                .ToHashSet();
+
+            var detalle = new List<CuyDespachadoDto>();
+            foreach (var cuyId in idsSolicitados)
+            {
+                if (!animales.TryGetValue(cuyId, out var animal))
+                    throw new InvalidOperationException(
+                        $"Uno de los animales seleccionados no pertenece " +
+                        $"al lote faenado {loteFaenado.Codigo}.");
+
+                if (animal.Cuy.Estado == EstadoCanal.Rechazado)
+                    throw new InvalidOperationException(
+                        $"El cuy #{animal.Cuy.NumeroEnLote} de la jaula " +
+                        $"{animal.Jaula} fue rechazado en planta y no puede " +
+                        "despacharse.");
+
+                if (yaDespachados.Contains(cuyId))
+                    throw new InvalidOperationException(
+                        $"El cuy #{animal.Cuy.NumeroEnLote} de la jaula " +
+                        $"{animal.Jaula} ya fue despachado anteriormente.");
+
+                detalle.Add(new CuyDespachadoDto(
+                    animal.Jaula, animal.Cuy.NumeroEnLote));
+            }
 
             var despacho = new Despacho
             {
-                LoteId = dto.LoteId,
+                LoteFaenadoId = loteFaenado.Id,
                 ClienteDestino = dto.ClienteDestino,
-                FechaDespacho = DateTime.SpecifyKind(dto.FechaDespacho, DateTimeKind.Utc),
-                CantidadUnidades = dto.CantidadUnidades,
+                FechaDespacho = DateTime.SpecifyKind(
+                    dto.FechaDespacho, DateTimeKind.Utc),
+                CantidadUnidades = detalle.Count,
                 Responsable = dto.Responsable,
                 Transporte = dto.Transporte,
-                Observaciones = dto.Observaciones
+                Observaciones = dto.Observaciones,
+                Cuyes = idsSolicitados
+                    .Select(id => new DespachoCuy { CuyFaenamientoId = id })
+                    .ToList()
             };
 
             db.Despachos.Add(despacho);
@@ -404,32 +481,17 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
 
             return new DespachoResponseDto(
                 Id: despacho.Id,
-                LoteId: despacho.LoteId,
-                CodigoLote: lote.CodigoLote,
+                CodigoLoteFaenado: loteFaenado.Codigo,
+                CodigoLote: null,
                 ClienteDestino: despacho.ClienteDestino,
                 FechaDespacho: despacho.FechaDespacho,
                 CantidadUnidades: despacho.CantidadUnidades,
                 Responsable: despacho.Responsable,
                 Transporte: despacho.Transporte,
-                Observaciones: despacho.Observaciones
+                Observaciones: despacho.Observaciones,
+                Cuyes: detalle
             );
         });
-    }
-
-    public async Task<IEnumerable<DespachoResponseDto>> ListarDespachosPorLoteAsync(
-        int loteId)
-    {
-        var lote = await db.Lotes.FindAsync(loteId)
-            ?? throw new KeyNotFoundException($"Lote con Id {loteId} no encontrado.");
-
-        return await db.Despachos
-            .Where(d => d.LoteId == loteId)
-            .OrderByDescending(d => d.FechaDespacho)
-            .Select(d => new DespachoResponseDto(
-                d.Id, d.LoteId, lote.CodigoLote, d.ClienteDestino,
-                d.FechaDespacho, d.CantidadUnidades, d.Responsable,
-                d.Transporte, d.Observaciones))
-            .ToListAsync();
     }
 
     // Historial completo de despachos con filtro opcional por fecha.
@@ -437,7 +499,12 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
         DateTime? desde, DateTime? hasta)
     {
         var query = db.Despachos
+            .Include(d => d.LoteFaenado)
             .Include(d => d.Lote)
+            .Include(d => d.Cuyes)
+                .ThenInclude(dc => dc.CuyFaenamiento)
+                .ThenInclude(c => c.Registro)
+                .ThenInclude(f => f.Lote)
             .AsQueryable();
 
         if (desde.HasValue)
@@ -448,13 +515,26 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
             query = query.Where(d =>
                 d.FechaDespacho <= DateTime.SpecifyKind(hasta.Value, DateTimeKind.Utc));
 
-        return await query
+        var lista = await query
             .OrderByDescending(d => d.FechaDespacho)
-            .Select(d => new DespachoResponseDto(
-                d.Id, d.LoteId, d.Lote.CodigoLote, d.ClienteDestino,
-                d.FechaDespacho, d.CantidadUnidades, d.Responsable,
-                d.Transporte, d.Observaciones))
+            .Take(MaxRegistrosListado)
+            .AsNoTracking()
+            .AsSplitQuery()
             .ToListAsync();
+
+        return lista.Select(d => new DespachoResponseDto(
+            d.Id,
+            d.LoteFaenado?.Codigo,
+            d.Lote?.CodigoLote,
+            d.ClienteDestino, d.FechaDespacho, d.CantidadUnidades,
+            d.Responsable, d.Transporte, d.Observaciones,
+            d.Cuyes
+                .OrderBy(dc => dc.CuyFaenamiento.Registro.Lote.CodigoLote)
+                .ThenBy(dc => dc.CuyFaenamiento.NumeroEnLote)
+                .Select(dc => new CuyDespachadoDto(
+                    dc.CuyFaenamiento.Registro.Lote.CodigoLote,
+                    dc.CuyFaenamiento.NumeroEnLote))
+                .ToList()));
     }
 
     // ── Devoluciones de clientes — RF-307 ─────────────────────────────
@@ -485,6 +565,26 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
                     $"La sesión de faenamiento indicada no pertenece " +
                     $"al lote {lote.CodigoLote}.");
         }
+
+        // La devolución de cliente solo existe para producto que salió de
+        // la planta: el lote faenado debe tener al menos un despacho.
+        // (Los animales devueltos vivos ANTES del faenamiento se registran
+        // como retorno a la productora, no como devolución.)
+        var faeIds = lote.Faenamientos
+            .Where(f => f.LoteFaenadoId != null)
+            .Select(f => f.LoteFaenadoId!.Value)
+            .Distinct()
+            .ToList();
+
+        var fueDespachado = await db.Despachos.AnyAsync(d =>
+            (d.LoteFaenadoId != null && faeIds.Contains(d.LoteFaenadoId.Value))
+            || d.LoteId == dto.LoteId);
+
+        if (!fueDespachado)
+            throw new InvalidOperationException(
+                $"El lote {lote.CodigoLote} aún no tiene despachos " +
+                "registrados: solo se puede devolver producto que ya fue " +
+                "enviado a un cliente.");
 
         var devolucion = new Devolucion
         {

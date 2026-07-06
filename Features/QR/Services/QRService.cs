@@ -224,6 +224,11 @@ public class QRService(
         parametros.Add("✓ Crianza familiar — Azuay, Ecuador");
 
         var lotesOrigen = sesiones.Select(s => s.LoteId).Distinct().ToList();
+        var faeIds = sesiones
+            .Where(s => s.LoteFaenadoId != null)
+            .Select(s => s.LoteFaenadoId!.Value)
+            .Distinct()
+            .ToList();
         var primerLote = sesiones.Select(s => s.Lote)
             .OrderBy(l => l.FechaRecepcion)
             .FirstOrDefault();
@@ -235,10 +240,14 @@ public class QRService(
             .Distinct()
             .ToList();
 
-        // Trazabilidad hacia adelante: último despacho de las jaulas origen
+        // Trazabilidad hacia adelante: último despacho del lote faenado
+        // (o de las jaulas de origen, para despachos legados)
         var ultimoDespacho = await db.Despachos
-            .Where(d => lotesOrigen.Contains(d.LoteId))
+            .Where(d =>
+                (d.LoteFaenadoId != null && faeIds.Contains(d.LoteFaenadoId.Value))
+                || (d.LoteId != null && lotesOrigen.Contains(d.LoteId.Value)))
             .OrderByDescending(d => d.FechaDespacho)
+            .AsNoTracking()
             .FirstOrDefaultAsync();
 
         var conNovedad = detalleCuyes.Any(c => c.Estado != "Apto");

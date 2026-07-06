@@ -28,18 +28,18 @@ public class RegistrarDespachoValidator : AbstractValidator<RegistrarDespachoDto
 {
     public RegistrarDespachoValidator()
     {
-        RuleFor(x => x.LoteId)
+        RuleFor(x => x.LoteFaenadoId)
             .GreaterThan(0)
-            .WithMessage("Debe seleccionar un lote válido.");
+            .WithMessage("Debe seleccionar un lote faenado válido.");
+
+        RuleFor(x => x.CuyFaenamientoIds)
+            .NotEmpty()
+            .WithMessage("Selecciona al menos un animal para despachar.");
 
         RuleFor(x => x.ClienteDestino)
             .NotEmpty()
             .WithMessage("El cliente de destino es obligatorio.")
             .MaximumLength(200);
-
-        RuleFor(x => x.CantidadUnidades)
-            .GreaterThan(0)
-            .WithMessage("La cantidad de unidades debe ser mayor a cero.");
 
         RuleFor(x => x.Responsable)
             .NotEmpty()

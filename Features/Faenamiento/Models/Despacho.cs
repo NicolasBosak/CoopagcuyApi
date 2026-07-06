@@ -1,12 +1,25 @@
-﻿using CoopagcuyApi.Features.Productoras.Models;
+using CoopagcuyApi.Features.Productoras.Models;
 
 namespace CoopagcuyApi.Features.Faenamiento.Models;
 
+/// <summary>
+/// Despacho comercial del producto terminado. Pertenece a un lote faenado
+/// (FAE-…) y detalla los animales específicos enviados, de modo que el
+/// saldo despachable por lote se calcula por unidad y cada canal queda
+/// trazada hasta su cliente.
+/// </summary>
 public class Despacho
 {
     public int Id { get; set; }
-    public int LoteId { get; set; }
-    public Lote Lote { get; set; } = null!;
+
+    // Lote de producto terminado despachado
+    public int? LoteFaenadoId { get; set; }
+    public LoteFaenado? LoteFaenado { get; set; }
+
+    // Referencia legada: los despachos anteriores al detalle por animal
+    // apuntaban a la jaula de recepción
+    public int? LoteId { get; set; }
+    public Lote? Lote { get; set; }
 
     public string ClienteDestino { get; set; } = string.Empty;
     public DateTime FechaDespacho { get; set; }
@@ -14,4 +27,7 @@ public class Despacho
     public string Responsable { get; set; } = string.Empty;
     public string? Transporte { get; set; }
     public string? Observaciones { get; set; }
+
+    // Animales específicos incluidos en este despacho
+    public ICollection<DespachoCuy> Cuyes { get; set; } = [];
 }

@@ -106,8 +106,20 @@ public class FaenamientoController(
     }
 
     /// <summary>
-    /// Registra el despacho del producto terminado a un cliente.
-    /// Requiere que el lote tenga faenamiento registrado previamente.
+    /// Lotes faenados con saldo despachable y sus animales disponibles.
+    /// Un lote totalmente despachado deja de aparecer aquí.
+    /// </summary>
+    [HttpGet("despachos/disponibles")]
+    [Authorize(Roles = "OperadorFaenamiento,AdminCooperativa,AdminTecnico")]
+    public async Task<IActionResult> ListarDespachables()
+    {
+        var resultado = await service.ListarDespachablesAsync();
+        return Ok(resultado);
+    }
+
+    /// <summary>
+    /// Registra el despacho de animales específicos de un lote faenado
+    /// a un cliente. Cada animal solo puede despacharse una vez.
     /// </summary>
     [HttpPost("despachos")]
     [Authorize(Roles = "OperadorFaenamiento,AdminCooperativa,AdminTecnico")]
@@ -125,9 +137,7 @@ public class FaenamientoController(
         {
             var resultado = await service.RegistrarDespachoAsync(dto);
             return CreatedAtAction(
-                nameof(ListarDespachosPorLote),
-                new { loteId = resultado.LoteId },
-                resultado);
+                nameof(ListarDespachos), null, resultado);
         }
         catch (KeyNotFoundException ex)
         {
@@ -190,23 +200,6 @@ public class FaenamientoController(
     {
         var resultado = await service.ListarRetornosAsync(desde, hasta, productoraId);
         return Ok(resultado);
-    }
-
-    /// <summary>
-    /// Lista todos los despachos asociados a un lote.
-    /// </summary>
-    [HttpGet("despachos/lote/{loteId:int}")]
-    public async Task<IActionResult> ListarDespachosPorLote(int loteId)
-    {
-        try
-        {
-            var resultado = await service.ListarDespachosPorLoteAsync(loteId);
-            return Ok(resultado);
-        }
-        catch (KeyNotFoundException ex)
-        {
-            return NotFound(new { mensaje = ex.Message });
-        }
     }
 
     /// <summary>

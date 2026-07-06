@@ -89,16 +89,43 @@ public record RetornoProductoraResponseDto(
     string Responsable
 );
 
+// ── Despacho por lote faenado con detalle por animal ─────────────────
+
 public class RegistrarDespachoDto
 {
-    public int LoteId { get; set; }
+    public int LoteFaenadoId { get; set; }
+    // Animales específicos que se envían (registros de CuyFaenamiento)
+    public List<int> CuyFaenamientoIds { get; set; } = [];
     public string ClienteDestino { get; set; } = string.Empty;
     public DateTime FechaDespacho { get; set; }
-    public int CantidadUnidades { get; set; }
     public string Responsable { get; set; } = string.Empty;
     public string? Transporte { get; set; }
     public string? Observaciones { get; set; }
 }
+
+// Lote faenado con saldo despachable y sus animales disponibles
+public record LoteFaenadoDespachableDto(
+    int LoteFaenadoId,
+    string Codigo,
+    DateTime FechaFaenamiento,
+    int TotalFaenadas,
+    int Despachadas,
+    int Disponibles,
+    List<CuyDespachableDto> Cuyes
+);
+
+public record CuyDespachableDto(
+    int CuyFaenamientoId,
+    string CodigoJaula,
+    int NumeroEnLote,
+    decimal? PesoCanalGramos,
+    string Estado
+);
+
+public record CuyDespachadoDto(
+    string CodigoJaula,
+    int NumeroEnLote
+);
 
 public record FaenamientoResponseDto(
     int Id,
@@ -127,14 +154,17 @@ public record FaenamientoResponseDto(
 
 public record DespachoResponseDto(
     int Id,
-    int LoteId,
-    string CodigoLote,
+    // Código del lote faenado (FAE-…); en despachos legados puede ser
+    // nulo y se muestra el código de la jaula
+    string? CodigoLoteFaenado,
+    string? CodigoLote,
     string ClienteDestino,
     DateTime FechaDespacho,
     int CantidadUnidades,
     string Responsable,
     string? Transporte,
-    string? Observaciones
+    string? Observaciones,
+    List<CuyDespachadoDto> Cuyes
 );
 
 public class RegistrarDevolucionDto

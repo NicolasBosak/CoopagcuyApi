@@ -28,6 +28,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<RetornoProductora> RetornosProductora => Set<RetornoProductora>();
     public DbSet<LoteFaenado> LotesFaenados => Set<LoteFaenado>();
     public DbSet<SyncEntregaProcesada> SyncEntregasProcesadas => Set<SyncEntregaProcesada>();
+    public DbSet<DespachoCuy> DespachoCuys => Set<DespachoCuy>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -85,14 +86,33 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
              .HasForeignKey(f => f.LoteId);
         });
 
-        // Despacho
+        // Despacho: pertenece al lote faenado; LoteId queda como
+        // referencia legada de los despachos previos al detalle por animal
         modelBuilder.Entity<Despacho>(e =>
         {
             e.HasKey(d => d.Id);
             e.Property(d => d.ClienteDestino).HasMaxLength(200).IsRequired();
+            e.HasOne(d => d.LoteFaenado)
+             .WithMany()
+             .HasForeignKey(d => d.LoteFaenadoId);
             e.HasOne(d => d.Lote)
              .WithMany()
              .HasForeignKey(d => d.LoteId);
+        });
+
+        // Detalle por animal del despacho: un cuy faenado solo puede
+        // despacharse una vez (índice único = garantía contra dobles
+        // despachos incluso bajo concurrencia)
+        modelBuilder.Entity<DespachoCuy>(e =>
+        {
+            e.HasKey(dc => dc.Id);
+            e.HasIndex(dc => dc.CuyFaenamientoId).IsUnique();
+            e.HasOne(dc => dc.Despacho)
+             .WithMany(d => d.Cuyes)
+             .HasForeignKey(dc => dc.DespachoId);
+            e.HasOne(dc => dc.CuyFaenamiento)
+             .WithMany()
+             .HasForeignKey(dc => dc.CuyFaenamientoId);
         });
 
         // CodigoQR: del lote faenado (producto) o de la jaula (histórico)
