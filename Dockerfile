@@ -16,6 +16,10 @@ FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
 WORKDIR /app
 COPY --from=build /app .
 
+# La imagen aspnet:8.0 no incluye fuentes de texto por defecto.
+# Instalamos fontconfig y fonts-liberation para que QuestPDF pueda renderizar texto en los PDF.
+RUN apt-get update && apt-get install -y fontconfig fonts-liberation && rm -rf /var/lib/apt/lists/*
+
 # La imagen aspnet:8.0 escucha en 8080 por defecto; ese es el targetPort
 # que espera el ingress de Azure Container Apps
 ENV ASPNETCORE_ENVIRONMENT=Production
