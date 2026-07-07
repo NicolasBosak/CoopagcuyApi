@@ -166,6 +166,78 @@ public class ReportesController(IReportesService service) : ControllerBase
     }
 
     /// <summary>
+    /// Entrada: cuyes que llegaron a planta, vivos, aún sin faenar.
+    /// </summary>
+    [HttpGet("entrada")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
+    public async Task<IActionResult> Entrada(
+        [FromQuery] DateTime desde, [FromQuery] DateTime hasta,
+        [FromQuery] string? cat)
+        => Ok(await service.ReporteEntradaAsync(
+            new FiltroPeriodoDto(desde, hasta, cat)));
+
+    /// <summary>
+    /// Tránsito: lotes faenados completos en el período.
+    /// </summary>
+    [HttpGet("transito")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
+    public async Task<IActionResult> Transito(
+        [FromQuery] DateTime desde, [FromQuery] DateTime hasta,
+        [FromQuery] string? cat)
+        => Ok(await service.ReporteTransitoAsync(
+            new FiltroPeriodoDto(desde, hasta, cat)));
+
+    /// <summary>
+    /// Salida: despachos comerciales con datos de transporte.
+    /// </summary>
+    [HttpGet("salida")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
+    public async Task<IActionResult> Salida(
+        [FromQuery] DateTime desde, [FromQuery] DateTime hasta,
+        [FromQuery] string? cat)
+        => Ok(await service.ReporteSalidaAsync(
+            new FiltroPeriodoDto(desde, hasta, cat)));
+
+    [HttpGet("exportar/excel/entrada")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
+    public async Task<IActionResult> ExcelEntrada(
+        [FromQuery] DateTime desde, [FromQuery] DateTime hasta,
+        [FromQuery] string? cat)
+    {
+        var bytes = await service.ExportarExcelEntradaAsync(
+            new FiltroPeriodoDto(desde, hasta, cat));
+        return File(bytes,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            $"Reporte-Entrada-{desde:yyyyMMdd}-{hasta:yyyyMMdd}.xlsx");
+    }
+
+    [HttpGet("exportar/excel/transito")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
+    public async Task<IActionResult> ExcelTransito(
+        [FromQuery] DateTime desde, [FromQuery] DateTime hasta,
+        [FromQuery] string? cat)
+    {
+        var bytes = await service.ExportarExcelTransitoAsync(
+            new FiltroPeriodoDto(desde, hasta, cat));
+        return File(bytes,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            $"Reporte-Transito-{desde:yyyyMMdd}-{hasta:yyyyMMdd}.xlsx");
+    }
+
+    [HttpGet("exportar/excel/salida")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
+    public async Task<IActionResult> ExcelSalida(
+        [FromQuery] DateTime desde, [FromQuery] DateTime hasta,
+        [FromQuery] string? cat)
+    {
+        var bytes = await service.ExportarExcelSalidaAsync(
+            new FiltroPeriodoDto(desde, hasta, cat));
+        return File(bytes,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            $"Reporte-Salida-{desde:yyyyMMdd}-{hasta:yyyyMMdd}.xlsx");
+    }
+
+    /// <summary>
     /// Exporta el reporte por centro de acopio a Excel — RF-505.
     /// </summary>
     [HttpGet("exportar/excel/cat")]

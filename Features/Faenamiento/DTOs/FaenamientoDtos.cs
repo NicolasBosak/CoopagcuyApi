@@ -99,7 +99,9 @@ public class RegistrarDespachoDto
     public string ClienteDestino { get; set; } = string.Empty;
     public DateTime FechaDespacho { get; set; }
     public string Responsable { get; set; } = string.Empty;
-    public string? Transporte { get; set; }
+    // Transporte de salida (aparecen en el reporte de Salida)
+    public string? Chofer { get; set; }
+    public string? Ruta { get; set; }
     public string? Observaciones { get; set; }
 }
 
@@ -165,7 +167,8 @@ public record DespachoResponseDto(
     // que puede devolverse
     int UnidadesDevueltas,
     string Responsable,
-    string? Transporte,
+    string? Chofer,
+    string? Ruta,
     string? Observaciones,
     List<CuyDespachadoDto> Cuyes
 );

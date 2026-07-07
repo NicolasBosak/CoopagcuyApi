@@ -468,7 +468,8 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
                     dto.FechaDespacho, DateTimeKind.Utc),
                 CantidadUnidades = detalle.Count,
                 Responsable = dto.Responsable,
-                Transporte = dto.Transporte,
+                Chofer = dto.Chofer,
+                Ruta = dto.Ruta,
                 Observaciones = dto.Observaciones,
                 Cuyes = idsSolicitados
                     .Select(id => new DespachoCuy { CuyFaenamientoId = id })
@@ -488,7 +489,8 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
                 CantidadUnidades: despacho.CantidadUnidades,
                 UnidadesDevueltas: 0,
                 Responsable: despacho.Responsable,
-                Transporte: despacho.Transporte,
+                Chofer: despacho.Chofer,
+                Ruta: despacho.Ruta,
                 Observaciones: despacho.Observaciones,
                 Cuyes: detalle
             );
@@ -537,7 +539,7 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
             d.Lote?.CodigoLote,
             d.ClienteDestino, d.FechaDespacho, d.CantidadUnidades,
             devueltas.GetValueOrDefault(d.Id),
-            d.Responsable, d.Transporte, d.Observaciones,
+            d.Responsable, d.Chofer, d.Ruta, d.Observaciones,
             d.Cuyes
                 .OrderBy(dc => dc.CuyFaenamiento.Registro.Lote.CodigoLote)
                 .ThenBy(dc => dc.CuyFaenamiento.NumeroEnLote)

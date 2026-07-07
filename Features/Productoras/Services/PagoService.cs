@@ -47,6 +47,22 @@ public class PagoService(AppDbContext db) : IPagoService
             throw new InvalidOperationException(
                 "El monto del pago debe ser mayor a cero.");
 
+        // A crédito: se difiere en N letras (mínimo 2) y el valor de cada
+        // una lo calcula el servidor. Al contado no lleva letras.
+        var esCredito = dto.MetodoPago.Trim()
+            .Equals("Credito", StringComparison.OrdinalIgnoreCase);
+        int? numeroLetras = null;
+        decimal? valorPorLetra = null;
+
+        if (esCredito)
+        {
+            if (dto.NumeroLetras is not int n || n < 2)
+                throw new InvalidOperationException(
+                    "Un pago a crédito debe diferirse en al menos 2 letras.");
+            numeroLetras = n;
+            valorPorLetra = Math.Round(dto.MontoUsd / n, 2);
+        }
+
         var pago = new Pago
         {
             ProductoraId = dto.ProductoraId,
@@ -54,6 +70,8 @@ public class PagoService(AppDbContext db) : IPagoService
             MontoUsd = dto.MontoUsd,
             FechaPago = DateTime.SpecifyKind(dto.FechaPago, DateTimeKind.Utc),
             MetodoPago = dto.MetodoPago.Trim(),
+            NumeroLetras = numeroLetras,
+            ValorPorLetra = valorPorLetra,
             Responsable = dto.Responsable.Trim(),
             Observaciones = dto.Observaciones
         };
@@ -103,6 +121,8 @@ public class PagoService(AppDbContext db) : IPagoService
         MontoUsd: p.MontoUsd,
         FechaPago: p.FechaPago,
         MetodoPago: p.MetodoPago,
+        NumeroLetras: p.NumeroLetras,
+        ValorPorLetra: p.ValorPorLetra,
         Responsable: p.Responsable,
         Observaciones: p.Observaciones
     );

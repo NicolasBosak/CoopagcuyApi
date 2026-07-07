@@ -18,7 +18,13 @@ public class Pago
 
     public decimal MontoUsd { get; set; }
     public DateTime FechaPago { get; set; }
-    public string MetodoPago { get; set; } = string.Empty; // Efectivo | Transferencia
+    // Modalidad de pago: "Contado" | "Credito". (Los pagos antiguos
+    // guardan "Efectivo"/"Transferencia" como valores legados.)
+    public string MetodoPago { get; set; } = string.Empty;
+    // Solo para crédito: en cuántas letras se difiere el pago y cuánto
+    // corresponde a cada una (monto ÷ número de letras)
+    public int? NumeroLetras { get; set; }
+    public decimal? ValorPorLetra { get; set; }
     public string Responsable { get; set; } = string.Empty;
     public string? Observaciones { get; set; }
     public DateTime FechaRegistro { get; set; } = DateTime.UtcNow;

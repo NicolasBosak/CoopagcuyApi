@@ -70,6 +70,7 @@ jobs:
       - name: Aplicar migraciones
         env:
           ConnectionStrings__NeonDb: ${{ secrets.NEON_CONNECTION_STRING }}
+          Jwt__Key: ${{ secrets.JWT_KEY }}
         run: |
           dotnet tool install --global dotnet-ef --version 8.*
           export PATH="$PATH:$HOME/.dotnet/tools"

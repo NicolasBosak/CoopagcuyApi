@@ -92,6 +92,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         {
             e.HasKey(d => d.Id);
             e.Property(d => d.ClienteDestino).HasMaxLength(200).IsRequired();
+            e.Property(d => d.Chofer).HasMaxLength(150);
+            e.Property(d => d.Ruta).HasMaxLength(200);
             e.HasOne(d => d.LoteFaenado)
              .WithMany()
              .HasForeignKey(d => d.LoteFaenadoId);
@@ -258,6 +260,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         {
             e.HasKey(p => p.Id);
             e.Property(p => p.MontoUsd).HasPrecision(10, 2);
+            e.Property(p => p.ValorPorLetra).HasPrecision(10, 2);
             e.Property(p => p.MetodoPago).HasMaxLength(50).IsRequired();
             e.Property(p => p.Responsable).HasMaxLength(150).IsRequired();
             e.Property(p => p.Observaciones).HasMaxLength(500);

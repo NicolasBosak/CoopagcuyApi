@@ -44,7 +44,10 @@ public class RegistrarPagoDto
     public int? LoteId { get; set; }
     public decimal MontoUsd { get; set; }
     public DateTime FechaPago { get; set; }
-    public string MetodoPago { get; set; } = string.Empty; // Efectivo | Transferencia
+    public string MetodoPago { get; set; } = string.Empty; // Contado | Credito
+    // Solo para crédito: en cuántas letras se difiere. El valor por letra
+    // lo calcula el servidor (monto ÷ número de letras).
+    public int? NumeroLetras { get; set; }
     public string Responsable { get; set; } = string.Empty;
     public string? Observaciones { get; set; }
 }
@@ -58,6 +61,8 @@ public record PagoResponseDto(
     decimal MontoUsd,
     DateTime FechaPago,
     string MetodoPago,
+    int? NumeroLetras,
+    decimal? ValorPorLetra,
     string Responsable,
     string? Observaciones
 );

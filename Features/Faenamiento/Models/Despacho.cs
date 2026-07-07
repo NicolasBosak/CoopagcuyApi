@@ -25,6 +25,10 @@ public class Despacho
     public DateTime FechaDespacho { get; set; }
     public int CantidadUnidades { get; set; }
     public string Responsable { get; set; } = string.Empty;
+    // Datos del transporte de salida (para el reporte de Salida)
+    public string? Chofer { get; set; }
+    public string? Ruta { get; set; }
+    // Campo genérico legado; reemplazado por Chofer/Ruta
     public string? Transporte { get; set; }
     public string? Observaciones { get; set; }
 

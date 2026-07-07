@@ -18,13 +18,17 @@ public class ProductorasController(
     [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorCAT")]
     public async Task<IActionResult> Listar(
         [FromQuery] string? comunidad,
-        [FromQuery] string? cat)
+        [FromQuery] string? cat,
+        [FromQuery] bool incluirInactivas = false)
     {
-        // El operador de CAT solo ve las productoras de su centro
-        var catEfectivo = User.IsInRole("OperadorCAT")
+        // El operador de CAT solo ve las productoras activas de su centro;
+        // las inactivas solo se listan para la administración
+        var esOperador = User.IsInRole("OperadorCAT");
+        var catEfectivo = esOperador
             ? User.FindFirst("cat")?.Value ?? cat
             : cat;
-        var result = await service.ObtenerTodasAsync(comunidad, catEfectivo);
+        var result = await service.ObtenerTodasAsync(
+            comunidad, catEfectivo, incluirInactivas && !esOperador);
         return Ok(result);
     }
 
@@ -77,6 +81,19 @@ public class ProductorasController(
     }
 
     /// <summary>
+    /// Activa o desactiva una productora (baja lógica). Conserva su
+    /// historial de lotes, pagos y trazabilidad.
+    /// </summary>
+    [HttpPatch("{id:int}/estado")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
+    public async Task<IActionResult> CambiarEstado(
+        int id, [FromBody] CambiarEstadoProductoraDto dto)
+    {
+        var ok = await service.CambiarEstadoAsync(id, dto.Activa);
+        return ok ? NoContent() : NotFound();
+    }
+
+    /// <summary>
     /// Historial de cambios de la productora — RF-105.
     /// </summary>
     [HttpGet("{id:int}/historial")]
@@ -87,3 +104,5 @@ public class ProductorasController(
         return Ok(result);
     }
 }
+
+public record CambiarEstadoProductoraDto(bool Activa);

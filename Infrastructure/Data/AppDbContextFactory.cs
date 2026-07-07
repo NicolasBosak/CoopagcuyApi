@@ -18,6 +18,11 @@ public class AppDbContextFactory : IDesignTimeDbContextFactory<AppDbContext>
 {
     public AppDbContext CreateDbContext(string[] args)
     {
+        // Debe coincidir con Program.cs: sin esto, Npgsql mapea DateTime a
+        // "timestamp with time zone" (default moderno) en vez de "without",
+        // y las migraciones generadas querrían alterar TODA columna de fecha
+        AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
+
         var config = new ConfigurationBuilder()
             .AddJsonFile("appsettings.json", optional: true)
             .AddUserSecrets<AppDbContextFactory>(optional: true)

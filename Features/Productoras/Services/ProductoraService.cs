@@ -8,9 +8,11 @@ namespace CoopagcuyApi.Features.Productoras.Services;
 public interface IProductoraService
 {
     Task<ProductoraResponseDto> CrearAsync(CrearProductoraDto dto);
-    Task<IEnumerable<ProductoraResponseDto>> ObtenerTodasAsync(string? comunidad, string? cat);
+    Task<IEnumerable<ProductoraResponseDto>> ObtenerTodasAsync(
+        string? comunidad, string? cat, bool incluirInactivas = false);
     Task<ProductoraResponseDto?> ObtenerPorIdAsync(int id);
     Task<bool> ActualizarAsync(int id, CrearProductoraDto dto, string modificadoPor);
+    Task<bool> CambiarEstadoAsync(int id, bool activa);
     Task<IEnumerable<ProductoraCambioDto>> ObtenerHistorialAsync(int id);
 }
 
@@ -40,9 +42,13 @@ public class ProductoraService(AppDbContext db) : IProductoraService
     }
 
     public async Task<IEnumerable<ProductoraResponseDto>> ObtenerTodasAsync(
-        string? comunidad, string? cat)
+        string? comunidad, string? cat, bool incluirInactivas = false)
     {
-        var query = db.Productoras.Where(p => p.Activa);
+        // La administración pide incluir inactivas para poder reactivarlas;
+        // el resto de pantallas solo ve las activas
+        var query = incluirInactivas
+            ? db.Productoras.AsQueryable()
+            : db.Productoras.Where(p => p.Activa);
 
         if (!string.IsNullOrEmpty(comunidad))
             query = query.Where(p => p.Comunidad.Contains(comunidad));
@@ -85,6 +91,17 @@ public class ProductoraService(AppDbContext db) : IProductoraService
         productora.CatAsignado = dto.CatAsignado;
         productora.Telefono = dto.Telefono;
 
+        await db.SaveChangesAsync();
+        return true;
+    }
+
+    // Baja/alta lógica: conserva todo el historial de la productora
+    public async Task<bool> CambiarEstadoAsync(int id, bool activa)
+    {
+        var productora = await db.Productoras.FindAsync(id);
+        if (productora is null) return false;
+
+        productora.Activa = activa;
         await db.SaveChangesAsync();
         return true;
     }

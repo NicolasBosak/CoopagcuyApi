@@ -109,6 +109,42 @@ public record RetornoItemDto(
     string Responsable
 );
 
+// ── Flujo de trazabilidad: Entrada / Tránsito / Salida ────────────────
+
+// Entrada: cuyes que llegaron a planta, vivos, aún sin faenar
+public record ReporteEntradaDto(
+    string CodigoLote,
+    string CentroAcopio,
+    string Productora,
+    string Comunidad,
+    int CantidadEnEspera,
+    DateTime FechaLlegada
+);
+
+// Tránsito: lote faenado completo con sus datos consolidados
+public record ReporteTransitoDto(
+    string CodigoLoteFaenado,
+    DateTime FechaFaenamiento,
+    string Operario,
+    string JaulasOrigen,
+    string Comunidades,
+    int Unidades,
+    decimal PesoTotalGramos,
+    decimal PesoPromedioGramos,
+    string Estado
+);
+
+// Salida: despacho comercial con datos de transporte
+public record ReporteSalidaDto(
+    string CodigoLoteFaenado,
+    DateTime FechaDespacho,
+    string Cliente,
+    string Chofer,
+    string Ruta,
+    int Unidades,
+    string Responsable
+);
+
 // ── Filtros compartidos ───────────────────────────────────────────────
 
 public record FiltroPeriodoDto(
