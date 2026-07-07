@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+# ============================================================
+# Provisión inicial de Azure — Sistema Cuy Azuayito (UNA SOLA VEZ)
+# ============================================================
+# Ejecuta este archivo por SECCIONES (no de un tirón la primera vez):
+# revisa cada bloque, edita los valores <...> y córrelo.
+# Requiere: az CLI con sesión iniciada (az login) y permisos de
+# Colaborador sobre la suscripción.
+# ============================================================
+set -euo pipefail
+
+# ── Variables a editar ──────────────────────────────────────
+SUB="<id-de-suscripcion>"
+LOCATION="eastus2"
+RG="rg-cuyazuayito"
+ACA_ENV="cae-cuyazuayito"
+STORAGE="stcuyazuayito$RANDOM"          # global, único, minúsculas, sin guiones
+GH_OWNER="NicolasBosak"
+GHCR_PAT="<PAT-con-read:packages>"      # para que Container Apps baje la imagen privada de ghcr.io
+
+az account set --subscription "$SUB"
+
+# ── 1. Grupo de recursos y proveedores ──────────────────────
+az group create -n "$RG" -l "$LOCATION"
+# az extension add --name containerapp --upgrade
+az provider register --namespace Microsoft.App --wait
+az provider register --namespace Microsoft.OperationalInsights --wait
+
+# ── 2. Entorno de Container Apps ─────────────────────────────
+az containerapp env create -n "$ACA_ENV" -g "$RG" -l "$LOCATION"
+
+# ── 3. Storage para los QR (un contenedor por entorno) ──────
+az storage account create -n "$STORAGE" -g "$RG" -l "$LOCATION" --sku Standard_LRS
+CONN_BLOB=$(az storage account show-connection-string -n "$STORAGE" -g "$RG" -o tsv)
+az storage container create --account-name "$STORAGE" -n qr-staging
+az storage container create --account-name "$STORAGE" -n qr-prod
+# ── 4. Base de datos Neon (MANUAL, en console.neon.tech) ────
+#   Crea una rama "staging" a partir de "main". Tendrás DOS cadenas
+#   de conexión (una por rama); las usarás como NEON_CONNECTION_STRING
+#   en cada Environment de GitHub y como secreto del Container App.
+
+# ── 5. Un Container App por entorno ──────────────────────────
+# Se crean con la imagen base de .NET (placeholder); el primer deploy
+# del pipeline la reemplaza por la imagen real. min-replicas 0 = escala
+# a cero (casi sin costo; arranque en frío de unos segundos).
+crear_app () {
+  local NAME="$1" NEON="$2" BLOBC="$3" JWT="$4" SETUP="$5"
+  az containerapp create \
+    -n "$NAME" -g "$RG" --environment "$ACA_ENV" \
+    --image mcr.microsoft.com/dotnet/aspnet:8.0 \
+    --target-port 8080 --ingress external \
+    --min-replicas 0 --max-replicas 2 \
+    --registry-server ghcr.io --registry-username "$GH_OWNER" --registry-password "$GHCR_PAT" \
+    --secrets neon="$NEON" jwtkey="$JWT" setupkey="$SETUP" blobconn="$CONN_BLOB" \
+    --env-vars \
+      ASPNETCORE_ENVIRONMENT=Production \
+      ConnectionStrings__NeonDb=secretref:neon \
+      Jwt__Key=secretref:jwtkey \
+      Jwt__Issuer=CoopagcuyApi Jwt__Audience=CoopagcuyFrontend \
+      Setup__Key=secretref:setupkey \
+      AzureBlob__ConnectionString=secretref:blobconn \
+      AzureBlob__ContainerName="$BLOBC"
+}
+
+# Genera claves fuertes distintas por entorno para Jwt:Key y Setup:Key
+crear_app "coopagcuy-api-staging" "<neon-conn-staging>" "qr-staging" "<jwt-key-staging>" "<setup-key-staging>"
+crear_app "coopagcuy-api-prod"    "<neon-conn-prod>"    "qr-prod"    "<jwt-key-prod>"    "<setup-key-prod>"
+API_STAGING="https://$(az containerapp show -n coopagcuy-api-staging -g "$RG" --query properties.configuration.ingress.fqdn -o tsv)"
+API_PROD="https://$(az containerapp show -n coopagcuy-api-prod -g "$RG" --query properties.configuration.ingress.fqdn -o tsv)"
+echo "API staging: $API_STAGING"
+echo "API prod:    $API_PROD"
+
+# ── 6. Static Web Apps (front) por entorno ──────────────────
+# Sin vincular repo: se despliega con token desde GitHub Actions.
+az staticwebapp create -n swa-cuyazuayito-staging -g "$RG" -l "$LOCATION" --sku Free
+az staticwebapp create -n swa-cuyazuayito-prod    -g "$RG" -l "$LOCATION" --sku Free
+
+FRONT_STAGING="https://$(az staticwebapp show -n swa-cuyazuayito-staging -g "$RG" --query defaultHostname -o tsv)"
+FRONT_PROD="https://$(az staticwebapp show -n swa-cuyazuayito-prod -g "$RG" --query defaultHostname -o tsv)"
+TOKEN_STAGING=$(az staticwebapp secrets list -n swa-cuyazuayito-staging -g "$RG" --query properties.apiKey -o tsv)
+TOKEN_PROD=$(az staticwebapp secrets list -n swa-cuyazuayito-prod -g "$RG" --query properties.apiKey -o tsv)
+echo "Front staging: $FRONT_STAGING   (SWA_DEPLOY_TOKEN staging: $TOKEN_STAGING)"
+echo "Front prod:    $FRONT_PROD      (SWA_DEPLOY_TOKEN prod: $TOKEN_PROD)"
+
+# ── 7. Completar CORS y QR con las URLs ya conocidas ────────
+az containerapp update -n coopagcuy-api-staging -g "$RG" \
+  --set-env-vars Cors__AllowedOrigins="$FRONT_STAGING" QR__BaseUrl="$FRONT_STAGING/qr"
+az containerapp update -n coopagcuy-api-prod -g "$RG" \
+  --set-env-vars Cors__AllowedOrigins="$FRONT_PROD" QR__BaseUrl="$FRONT_PROD/qr"
+
+# ── 8. Identidad OIDC para que GitHub Actions haga login sin secreto ──
+APP_ID=$(az ad app create --display-name "gh-cuyazuayito" --query appId -o tsv)
+az ad sp create --id "$APP_ID"
+SUB_ID=$(az account show --query id -o tsv)
+az role assignment create --assignee "$APP_ID" --role Contributor \
+  --scope "/subscriptions/$SUB_ID/resourceGroups/$RG"
+
+# Un credential federado por rama/entorno de CADA repo
+cred () {  # cred <subject> <nombre>
+  az ad app federated-credential create --id "$APP_ID" --parameters "{
+    \"name\": \"$2\",
+    \"issuer\": \"https://token.actions.githubusercontent.com\",
+    \"subject\": \"$1\",
+    \"audiences\": [\"api://AzureADTokenExchange\"]
+  }"
+}
+cred "repo:$GH_OWNER/CoopagcuyApi:environment:staging"    "api-staging"
+cred "repo:$GH_OWNER/CoopagcuyApi:environment:production" "api-prod"
+
+echo ""
+echo "AZURE_CLIENT_ID=$APP_ID"
+echo "AZURE_TENANT_ID=$(az account show --query tenantId -o tsv)"
+echo "AZURE_SUBSCRIPTION_ID=$SUB_ID"
+echo ""
+echo "Ahora configura los secretos/variables en GitHub (ver docs/DESPLIEGUE.md)."

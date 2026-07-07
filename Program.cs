@@ -12,6 +12,7 @@ using CoopagcuyApi.Infrastructure.Storage;
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -187,6 +188,22 @@ builder.Services.AddCors(options =>
     });
 });
 
+// ── Cabeceras reenviadas por el proxy (Azure Container Apps) ─────────
+// El ingress termina el TLS y reenvía al contenedor por HTTP: sin esto,
+// el rate limiter por-IP vería la IP del proxy (una sola partición) y
+// UseHttpsRedirection creería que la petición llegó sin cifrar. El
+// ingress tiene IP dinámica, por eso se confía en sus cabeceras.
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders =
+        ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
+// Sonda de salud para las probes de Container Apps y el smoke test del CI
+builder.Services.AddHealthChecks();
+
 // Evita el error "Cannot write DateTime with Kind=Unspecified"
 // Npgsql tratará todos los DateTime sin zona horaria como UTC
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
@@ -194,6 +211,10 @@ AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 var app = builder.Build();
 
 // ── Middleware pipeline ───────────────────────────────────────────────
+
+// Debe ir PRIMERO: reescribe esquema e IP del cliente a partir de las
+// cabeceras del proxy, antes de que cualquier middleware las lea
+app.UseForwardedHeaders();
 
 // Red de seguridad para lo no previsto: cualquier excepción que los
 // controllers no manejen sale como JSON { mensaje } en lugar de un 500
@@ -265,5 +286,9 @@ app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+
+// Endpoint anónimo y liviano: no toca la base para no despertar a Neon
+// en cada probe. Confirma solo que el proceso responde.
+app.MapHealthChecks("/health");
 
 app.Run();

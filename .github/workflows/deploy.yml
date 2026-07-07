@@ -1,0 +1,103 @@
+name: Desplegar API
+
+# develop -> staging (automático); main -> producción (con aprobación).
+# Los Pull Requests solo compilan (job build-test), no despliegan.
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+    branches: [develop, main]
+  workflow_dispatch:
+
+# Evita que dos despliegues de la misma rama se pisen entre sí
+concurrency:
+  group: deploy-api-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ── 1. Compilación y verificación ───────────────────────────────────
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - run: dotnet restore
+      - run: dotnet build -c Release --no-restore
+
+  # ── 2. Migraciones + despliegue (solo en push a develop/main) ────────
+  deploy:
+    needs: build-test
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write   # push de la imagen a ghcr.io
+      id-token: write    # login a Azure vía OIDC (sin secreto de larga vida)
+    # El nombre del entorno decide el gate: production exige aprobación
+    environment:
+      name: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # ghcr.io exige el nombre del repositorio en minúsculas
+      - name: Calcular nombre de imagen
+        run: echo "IMAGE=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+
+      # ── 2a. Imagen Docker -> ghcr.io, etiquetada con el SHA ──────────
+      - name: Login a ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Construir y publicar imagen
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ github.sha }}
+            ${{ env.IMAGE }}:${{ github.ref_name }}
+
+      # ── 2b. Migraciones EF contra la rama Neon del entorno ───────────
+      # Corren ANTES de publicar la app: si una migración falla, el
+      # despliegue se detiene y la versión vieja sigue intacta.
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Aplicar migraciones
+        env:
+          ConnectionStrings__NeonDb: ${{ secrets.NEON_CONNECTION_STRING }}
+        run: |
+          dotnet tool install --global dotnet-ef --version 8.*
+          export PATH="$PATH:$HOME/.dotnet/tools"
+          dotnet ef database update --project CoopagcuyApi.csproj
+
+      # ── 2c. Actualizar la imagen del Container App ───────────────────
+      - name: Login a Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Desplegar nueva revisión
+        uses: azure/cli@v2
+        with:
+          azcliversion: latest
+          inlineScript: |
+            az containerapp update \
+              --name ${{ vars.CONTAINERAPP_NAME }} \
+              --resource-group ${{ vars.RESOURCE_GROUP }} \
+              --image ${{ env.IMAGE }}:${{ github.sha }}
+
+      # ── 2d. Smoke test: la nueva revisión responde /health ───────────
+      - name: Smoke test
+        run: |
+          for i in $(seq 1 12); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" "${{ vars.API_URL }}/health" || true)
+            if [ "$code" = "200" ]; then echo "Health OK"; exit 0; fi
+            echo "intento $i -> $code"; sleep 10
+          done
+          echo "El endpoint /health no respondió 200 tras el despliegue"; exit 1

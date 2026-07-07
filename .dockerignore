@@ -1,0 +1,23 @@
+# Artefactos de compilación local (se regeneran dentro de la imagen)
+bin/
+obj/
+**/bin/
+**/obj/
+
+# Metadatos de IDE y control de versiones
+.vs/
+.git/
+.github/
+.gitignore
+
+# Secretos y configuración local: nunca deben entrar a la imagen
+appsettings.Development.json
+**/*.user
+CoopagcuyApi.csproj.Backup.tmp
+
+# Infraestructura y documentación: no son parte del runtime
+infra/
+docs/
+scripts/
+Dockerfile
+.dockerignore
