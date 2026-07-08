@@ -28,9 +28,15 @@ public record PaginaPublicaDto(
     decimal PesoPromedioCanalGramos,
     string EstadoCanal,
     string Marca,
+    // Transporte CAT → Centro de Faenamiento (eslabón visible al consumidor)
+    DateTime? FechaSalidaCat,
+    DateTime? FechaLlegadaPlanta,
     // Trazabilidad hacia adelante: comercialización (último despacho)
     DateTime? FechaComercializacion,
     string? DestinoComercial,
+    // Mercado de destino: Local | Nacional | Internacional, y su ubicación
+    string? TipoMercado,
+    string? UbicacionMercado,
     // Novedades registradas en planta sobre los animales faenados
     List<string> ObservacionesProceso,
     // Comunidades que aportaron animales, con su cantidad

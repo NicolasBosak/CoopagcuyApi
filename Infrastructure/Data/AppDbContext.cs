@@ -94,6 +94,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(d => d.ClienteDestino).HasMaxLength(200).IsRequired();
             e.Property(d => d.Chofer).HasMaxLength(150);
             e.Property(d => d.Ruta).HasMaxLength(200);
+            e.Property(d => d.TipoMercado).HasMaxLength(20).IsRequired();
+            e.Property(d => d.Ciudad).HasMaxLength(100);
+            e.Property(d => d.Pais).HasMaxLength(100);
             e.HasOne(d => d.LoteFaenado)
              .WithMany()
              .HasForeignKey(d => d.LoteFaenadoId);

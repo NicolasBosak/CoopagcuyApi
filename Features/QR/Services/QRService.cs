@@ -250,6 +250,19 @@ public class QRService(
             .AsNoTracking()
             .FirstOrDefaultAsync();
 
+        // Eslabón de transporte CAT → planta: primera salida y llegada
+        // confirmada de las jaulas de origen (para mostrarlo al consumidor)
+        var movilizacion = await db.Movilizaciones
+            .Where(m => lotesOrigen.Contains(m.LoteId))
+            .OrderBy(m => m.FechaDespacho)
+            .AsNoTracking()
+            .FirstOrDefaultAsync();
+
+        var ubicacionMercado = ultimoDespacho is null
+            ? null
+            : string.Join(", ", new[] { ultimoDespacho.Ciudad, ultimoDespacho.Pais }
+                .Where(x => !string.IsNullOrWhiteSpace(x)));
+
         var conNovedad = detalleCuyes.Any(c => c.Estado != "Apto");
 
         return new PaginaPublicaDto(
@@ -271,8 +284,13 @@ public class QRService(
             PesoPromedioCanalGramos: Math.Round(promedio, 0),
             EstadoCanal: conNovedad ? "ConNovedad" : "Apto",
             Marca: "Cuy Azuayito — COOPAGCUY",
+            FechaSalidaCat: movilizacion?.FechaDespacho,
+            FechaLlegadaPlanta: movilizacion?.FechaRecepcionPlanta,
             FechaComercializacion: ultimoDespacho?.FechaDespacho,
             DestinoComercial: ultimoDespacho?.ClienteDestino,
+            TipoMercado: ultimoDespacho?.TipoMercado,
+            UbicacionMercado: string.IsNullOrWhiteSpace(ubicacionMercado)
+                ? null : ubicacionMercado,
             ObservacionesProceso: observacionesProceso,
             ComunidadesAporte: comunidadesAporte,
             DetalleCuyes: detalleCuyes

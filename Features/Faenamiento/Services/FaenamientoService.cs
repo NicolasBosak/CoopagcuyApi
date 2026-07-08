@@ -470,6 +470,10 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
                 Responsable = dto.Responsable,
                 Chofer = dto.Chofer,
                 Ruta = dto.Ruta,
+                TipoMercado = string.IsNullOrWhiteSpace(dto.TipoMercado)
+                    ? "Local" : dto.TipoMercado.Trim(),
+                Ciudad = dto.Ciudad,
+                Pais = dto.Pais,
                 Observaciones = dto.Observaciones,
                 Cuyes = idsSolicitados
                     .Select(id => new DespachoCuy { CuyFaenamientoId = id })
@@ -491,6 +495,9 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
                 Responsable: despacho.Responsable,
                 Chofer: despacho.Chofer,
                 Ruta: despacho.Ruta,
+                TipoMercado: despacho.TipoMercado,
+                Ciudad: despacho.Ciudad,
+                Pais: despacho.Pais,
                 Observaciones: despacho.Observaciones,
                 Cuyes: detalle
             );
@@ -539,7 +546,8 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
             d.Lote?.CodigoLote,
             d.ClienteDestino, d.FechaDespacho, d.CantidadUnidades,
             devueltas.GetValueOrDefault(d.Id),
-            d.Responsable, d.Chofer, d.Ruta, d.Observaciones,
+            d.Responsable, d.Chofer, d.Ruta,
+            d.TipoMercado, d.Ciudad, d.Pais, d.Observaciones,
             d.Cuyes
                 .OrderBy(dc => dc.CuyFaenamiento.Registro.Lote.CodigoLote)
                 .ThenBy(dc => dc.CuyFaenamiento.NumeroEnLote)

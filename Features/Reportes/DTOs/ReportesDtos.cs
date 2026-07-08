@@ -134,13 +134,16 @@ public record ReporteTransitoDto(
     string Estado
 );
 
-// Salida: despacho comercial con datos de transporte
+// Salida: despacho comercial con datos de transporte y mercado
 public record ReporteSalidaDto(
     string CodigoLoteFaenado,
     DateTime FechaDespacho,
     string Cliente,
     string Chofer,
     string Ruta,
+    // Mercado de destino (Local/Nacional/Internacional) y su ubicación
+    string TipoMercado,
+    string Ubicacion,
     int Unidades,
     string Responsable
 );

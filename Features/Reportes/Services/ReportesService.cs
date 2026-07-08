@@ -714,6 +714,10 @@ public class ReportesService(AppDbContext db) : IReportesService
             d.FechaDespacho, d.ClienteDestino,
             string.IsNullOrWhiteSpace(d.Chofer) ? "—" : d.Chofer,
             string.IsNullOrWhiteSpace(d.Ruta) ? "—" : d.Ruta,
+            string.IsNullOrWhiteSpace(d.TipoMercado) ? "Local" : d.TipoMercado,
+            string.Join(", ", new[] { d.Ciudad, d.Pais }
+                .Where(x => !string.IsNullOrWhiteSpace(x))) is { Length: > 0 } u
+                ? u : "—",
             d.CantidadUnidades, d.Responsable)).ToList();
     }
 
@@ -811,7 +815,7 @@ public class ReportesService(AppDbContext db) : IReportesService
         using var libro = new XLWorkbook();
         var hoja = libro.Worksheets.Add("Salida");
         EncabezadoExcel(hoja, ["Lote faenado", "Fecha", "Cliente",
-            "Chofer", "Ruta", "Unidades", "Responsable"]);
+            "Chofer", "Ruta", "Mercado", "Ubicación", "Unidades", "Responsable"]);
         int fila = 2;
         foreach (var r in datos)
         {
@@ -820,8 +824,10 @@ public class ReportesService(AppDbContext db) : IReportesService
             hoja.Cell(fila, 3).Value = r.Cliente;
             hoja.Cell(fila, 4).Value = r.Chofer;
             hoja.Cell(fila, 5).Value = r.Ruta;
-            hoja.Cell(fila, 6).Value = r.Unidades;
-            hoja.Cell(fila, 7).Value = r.Responsable;
+            hoja.Cell(fila, 6).Value = r.TipoMercado;
+            hoja.Cell(fila, 7).Value = r.Ubicacion;
+            hoja.Cell(fila, 8).Value = r.Unidades;
+            hoja.Cell(fila, 9).Value = r.Responsable;
             fila++;
         }
         hoja.Columns().AdjustToContents();

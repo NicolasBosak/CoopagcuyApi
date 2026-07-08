@@ -45,6 +45,10 @@ public class RegistrarDespachoValidator : AbstractValidator<RegistrarDespachoDto
             .NotEmpty()
             .WithMessage("El responsable del despacho es obligatorio.");
 
+        RuleFor(x => x.TipoMercado)
+            .Must(t => t is "Local" or "Nacional" or "Internacional")
+            .WithMessage("El mercado de destino debe ser Local, Nacional o Internacional.");
+
         RuleFor(x => x.FechaDespacho)
             .LessThanOrEqualTo(_ => DateTime.UtcNow.AddMinutes(5))
             .WithMessage("La fecha de despacho no puede ser futura.");

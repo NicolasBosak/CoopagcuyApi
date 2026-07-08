@@ -102,6 +102,10 @@ public class RegistrarDespachoDto
     // Transporte de salida (aparecen en el reporte de Salida)
     public string? Chofer { get; set; }
     public string? Ruta { get; set; }
+    // Mercado de destino: Local | Nacional | Internacional
+    public string TipoMercado { get; set; } = "Local";
+    public string? Ciudad { get; set; }
+    public string? Pais { get; set; }
     public string? Observaciones { get; set; }
 }
 
@@ -169,6 +173,9 @@ public record DespachoResponseDto(
     string Responsable,
     string? Chofer,
     string? Ruta,
+    string TipoMercado,
+    string? Ciudad,
+    string? Pais,
     string? Observaciones,
     List<CuyDespachadoDto> Cuyes
 );
