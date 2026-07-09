@@ -40,7 +40,7 @@ public class ReportesController(IReportesService service) : ControllerBase
     /// Reporte de producción por productora — RF-501.
     /// </summary>
     [HttpGet("productoras")]
-    [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
     public async Task<IActionResult> PorProductora(
         [FromQuery] DateTime desde,
         [FromQuery] DateTime hasta,
@@ -55,7 +55,7 @@ public class ReportesController(IReportesService service) : ControllerBase
     /// Reporte de volumen por CAT — RF-502.
     /// </summary>
     [HttpGet("cat")]
-    [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
     public async Task<IActionResult> PorCAT(
         [FromQuery] DateTime desde,
         [FromQuery] DateTime hasta,
@@ -70,7 +70,7 @@ public class ReportesController(IReportesService service) : ControllerBase
     /// Reporte de novedades registradas — RF-503.
     /// </summary>
     [HttpGet("novedades")]
-    [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
     public async Task<IActionResult> Novedades(
         [FromQuery] DateTime desde,
         [FromQuery] DateTime hasta,
@@ -85,7 +85,7 @@ public class ReportesController(IReportesService service) : ControllerBase
     /// Reporte individual por cuy: estado de cada animal registrado.
     /// </summary>
     [HttpGet("cuyes")]
-    [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
     public async Task<IActionResult> PorCuy(
         [FromQuery] DateTime desde,
         [FromQuery] DateTime hasta,
@@ -100,7 +100,7 @@ public class ReportesController(IReportesService service) : ControllerBase
     /// Reporte de devoluciones de clientes y retornos a productoras.
     /// </summary>
     [HttpGet("devoluciones")]
-    [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
     public async Task<IActionResult> Devoluciones(
         [FromQuery] DateTime desde,
         [FromQuery] DateTime hasta,
@@ -115,7 +115,7 @@ public class ReportesController(IReportesService service) : ControllerBase
     /// Exporta el detalle individual por cuy a Excel.
     /// </summary>
     [HttpGet("exportar/excel/cuyes")]
-    [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
     public async Task<IActionResult> ExcelCuyes(
         [FromQuery] DateTime desde,
         [FromQuery] DateTime hasta,
@@ -133,7 +133,7 @@ public class ReportesController(IReportesService service) : ControllerBase
     /// Exporta reporte de productoras a Excel — RF-505.
     /// </summary>
     [HttpGet("exportar/excel/productoras")]
-    [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
     public async Task<IActionResult> ExcelProductoras(
         [FromQuery] DateTime desde,
         [FromQuery] DateTime hasta,
@@ -151,7 +151,7 @@ public class ReportesController(IReportesService service) : ControllerBase
     /// Exporta reporte de novedades a Excel — RF-505.
     /// </summary>
     [HttpGet("exportar/excel/novedades")]
-    [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
     public async Task<IActionResult> ExcelNovedades(
         [FromQuery] DateTime desde,
         [FromQuery] DateTime hasta,
@@ -169,7 +169,7 @@ public class ReportesController(IReportesService service) : ControllerBase
     /// Entrada: cuyes que llegaron a planta, vivos, aún sin faenar.
     /// </summary>
     [HttpGet("entrada")]
-    [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
     public async Task<IActionResult> Entrada(
         [FromQuery] DateTime desde, [FromQuery] DateTime hasta,
         [FromQuery] string? cat)
@@ -180,7 +180,7 @@ public class ReportesController(IReportesService service) : ControllerBase
     /// Tránsito: lotes faenados completos en el período.
     /// </summary>
     [HttpGet("transito")]
-    [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
     public async Task<IActionResult> Transito(
         [FromQuery] DateTime desde, [FromQuery] DateTime hasta,
         [FromQuery] string? cat)
@@ -191,7 +191,7 @@ public class ReportesController(IReportesService service) : ControllerBase
     /// Salida: despachos comerciales con datos de transporte.
     /// </summary>
     [HttpGet("salida")]
-    [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
     public async Task<IActionResult> Salida(
         [FromQuery] DateTime desde, [FromQuery] DateTime hasta,
         [FromQuery] string? cat)
@@ -199,7 +199,7 @@ public class ReportesController(IReportesService service) : ControllerBase
             new FiltroPeriodoDto(desde, hasta, cat)));
 
     [HttpGet("exportar/excel/entrada")]
-    [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
     public async Task<IActionResult> ExcelEntrada(
         [FromQuery] DateTime desde, [FromQuery] DateTime hasta,
         [FromQuery] string? cat)
@@ -212,7 +212,7 @@ public class ReportesController(IReportesService service) : ControllerBase
     }
 
     [HttpGet("exportar/excel/transito")]
-    [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
     public async Task<IActionResult> ExcelTransito(
         [FromQuery] DateTime desde, [FromQuery] DateTime hasta,
         [FromQuery] string? cat)
@@ -225,7 +225,7 @@ public class ReportesController(IReportesService service) : ControllerBase
     }
 
     [HttpGet("exportar/excel/salida")]
-    [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
     public async Task<IActionResult> ExcelSalida(
         [FromQuery] DateTime desde, [FromQuery] DateTime hasta,
         [FromQuery] string? cat)
@@ -241,7 +241,7 @@ public class ReportesController(IReportesService service) : ControllerBase
     /// Exporta el reporte por centro de acopio a Excel — RF-505.
     /// </summary>
     [HttpGet("exportar/excel/cat")]
-    [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
     public async Task<IActionResult> ExcelCAT(
         [FromQuery] DateTime desde,
         [FromQuery] DateTime hasta,
@@ -260,7 +260,7 @@ public class ReportesController(IReportesService service) : ControllerBase
     /// Excel (dos hojas) — RF-505.
     /// </summary>
     [HttpGet("exportar/excel/devoluciones")]
-    [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
     public async Task<IActionResult> ExcelDevoluciones(
         [FromQuery] DateTime desde,
         [FromQuery] DateTime hasta,
@@ -278,7 +278,7 @@ public class ReportesController(IReportesService service) : ControllerBase
     /// Exporta la ficha de trazabilidad de un lote en PDF — RF-505.
     /// </summary>
     [HttpGet("exportar/pdf/lote/{codigoLote}")]
-    [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
     public async Task<IActionResult> PDFLote(string codigoLote)
     {
         try
