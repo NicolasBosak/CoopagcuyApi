@@ -1,4 +1,5 @@
-﻿using CoopagcuyApi.Features.Faenamiento.DTOs;
+﻿using CoopagcuyApi.Common;
+using CoopagcuyApi.Features.Faenamiento.DTOs;
 using FluentValidation;
 
 namespace CoopagcuyApi.Features.Faenamiento.Validators;
@@ -11,12 +12,6 @@ public class RegistrarFaenamientoBatchValidator
         RuleFor(x => x.OperarioResponsable)
             .NotEmpty()
             .WithMessage("El operario responsable es obligatorio.");
-
-        // El límite se evalúa en cada validación, no al construir el
-        // validador (evita congelar la hora de arranque)
-        RuleFor(x => x.FechaFaenamiento)
-            .LessThanOrEqualTo(_ => DateTime.UtcNow.AddMinutes(5))
-            .WithMessage("La fecha de faenamiento no puede ser futura.");
 
         RuleFor(x => x.Lotes)
             .NotEmpty()
@@ -45,8 +40,17 @@ public class RegistrarDespachoValidator : AbstractValidator<RegistrarDespachoDto
             .NotEmpty()
             .WithMessage("El responsable del despacho es obligatorio.");
 
+        RuleFor(x => x.TipoMercado)
+            .Must(t => t is "Local" or "Nacional" or "Internacional")
+            .WithMessage("El mercado de destino debe ser Local, Nacional o Internacional.");
+
+        // El despacho es el único registro que se agenda: la entrega puede
+        // pactarse con el cliente para más adelante. Lo que no se permite es
+        // retroceder la fecha e inventar una salida que ya habría ocurrido.
+        // Los 5 minutos de gracia absorben el tiempo de llenar el formulario
+        // tras elegir "ahora", que si no llegaría al servidor ya vencido.
         RuleFor(x => x.FechaDespacho)
-            .LessThanOrEqualTo(_ => DateTime.UtcNow.AddMinutes(5))
-            .WithMessage("La fecha de despacho no puede ser futura.");
+            .Must(f => FechaUtc.Normalizar(f) >= DateTime.UtcNow.AddMinutes(-5))
+            .WithMessage("La fecha de despacho no puede ser pasada.");
     }
 }

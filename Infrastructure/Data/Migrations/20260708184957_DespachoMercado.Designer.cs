@@ -3,6 +3,7 @@ using System;
 using CoopagcuyApi.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CoopagcuyApi.Infrastructure.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260708184957_DespachoMercado")]
+    partial class DespachoMercado
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -566,7 +569,7 @@ namespace CoopagcuyApi.Infrastructure.Data.Migrations
                         .HasPrecision(10, 2)
                         .HasColumnType("numeric(10,2)");
 
-                    b.Property<int?>("NumeroDias")
+                    b.Property<int?>("NumeroLetras")
                         .HasColumnType("integer");
 
                     b.Property<string>("Observaciones")
@@ -581,7 +584,7 @@ namespace CoopagcuyApi.Infrastructure.Data.Migrations
                         .HasMaxLength(150)
                         .HasColumnType("character varying(150)");
 
-                    b.Property<decimal?>("ValorPorDia")
+                    b.Property<decimal?>("ValorPorLetra")
                         .HasPrecision(10, 2)
                         .HasColumnType("numeric(10,2)");
 
@@ -605,6 +608,11 @@ namespace CoopagcuyApi.Infrastructure.Data.Migrations
                     b.Property<bool>("Activa")
                         .HasColumnType("boolean");
 
+                    b.Property<string>("Canton")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<string>("CatAsignado")
                         .IsRequired()
                         .HasColumnType("text");
@@ -614,8 +622,10 @@ namespace CoopagcuyApi.Infrastructure.Data.Migrations
                         .HasMaxLength(13)
                         .HasColumnType("character varying(13)");
 
-                    b.Property<int>("ComunidadId")
-                        .HasColumnType("integer");
+                    b.Property<string>("Comunidad")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<DateTime>("FechaRegistro")
                         .HasColumnType("timestamp without time zone");
@@ -632,8 +642,6 @@ namespace CoopagcuyApi.Infrastructure.Data.Migrations
 
                     b.HasIndex("Cedula")
                         .IsUnique();
-
-                    b.HasIndex("ComunidadId");
 
                     b.ToTable("Productoras");
                 });
@@ -1030,17 +1038,6 @@ namespace CoopagcuyApi.Infrastructure.Data.Migrations
                     b.Navigation("Lote");
 
                     b.Navigation("Productora");
-                });
-
-            modelBuilder.Entity("CoopagcuyApi.Features.Productoras.Models.Productora", b =>
-                {
-                    b.HasOne("CoopagcuyApi.Features.Catalogos.Models.Comunidad", "Comunidad")
-                        .WithMany()
-                        .HasForeignKey("ComunidadId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Comunidad");
                 });
 
             modelBuilder.Entity("CoopagcuyApi.Features.Productoras.Models.ProductoraCambio", b =>

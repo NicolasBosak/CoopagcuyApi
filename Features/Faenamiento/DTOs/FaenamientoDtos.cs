@@ -23,9 +23,9 @@ public record CuyFaenamientoResponseDto(
 
 // ── Faenamiento por cuota: puede tomar animales de varios lotes ──────
 
+// La fecha de la sesión la sella el servidor al registrarla
 public class RegistrarFaenamientoBatchDto
 {
-    public DateTime FechaFaenamiento { get; set; }
     public string OperarioResponsable { get; set; } = string.Empty;
     public decimal? TemperaturaAlmacenamiento { get; set; }
     public string? Observaciones { get; set; }
@@ -99,7 +99,13 @@ public class RegistrarDespachoDto
     public string ClienteDestino { get; set; } = string.Empty;
     public DateTime FechaDespacho { get; set; }
     public string Responsable { get; set; } = string.Empty;
-    public string? Transporte { get; set; }
+    // Transporte de salida (aparecen en el reporte de Salida)
+    public string? Chofer { get; set; }
+    public string? Ruta { get; set; }
+    // Mercado de destino: Local | Nacional | Internacional
+    public string TipoMercado { get; set; } = "Local";
+    public string? Ciudad { get; set; }
+    public string? Pais { get; set; }
     public string? Observaciones { get; set; }
 }
 
@@ -165,7 +171,11 @@ public record DespachoResponseDto(
     // que puede devolverse
     int UnidadesDevueltas,
     string Responsable,
-    string? Transporte,
+    string? Chofer,
+    string? Ruta,
+    string TipoMercado,
+    string? Ciudad,
+    string? Pais,
     string? Observaciones,
     List<CuyDespachadoDto> Cuyes
 );
@@ -175,7 +185,6 @@ public class RegistrarDevolucionDto
     // Despacho del que el cliente devuelve producto: el cliente y el
     // lote faenado se derivan de él (no se piden de nuevo)
     public int DespachoId { get; set; }
-    public DateTime FechaDevolucion { get; set; }
     public int CantidadUnidades { get; set; }
     public string Motivo { get; set; } = string.Empty;
     public string Responsable { get; set; } = string.Empty;

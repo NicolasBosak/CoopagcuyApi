@@ -1,5 +1,6 @@
 ﻿using ClosedXML.Excel;
 using CoopagcuyApi.Common;
+using CoopagcuyApi.Features.Productoras.Models;
 using CoopagcuyApi.Features.Reportes.DTOs;
 using CoopagcuyApi.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
@@ -23,6 +24,14 @@ public interface IReportesService
     Task<byte[]> ExportarExcelNovedadesAsync(FiltroPeriodoDto filtro);
     Task<byte[]> ExportarExcelCATAsync(FiltroPeriodoDto filtro);
     Task<byte[]> ExportarExcelDevolucionesAsync(FiltroPeriodoDto filtro);
+    // Flujo de trazabilidad: entrada (en espera), tránsito (faenado), salida
+    Task<IEnumerable<ReporteEntradaDto>> ReporteEntradaAsync(FiltroPeriodoDto filtro);
+    Task<IEnumerable<ReporteTransitoDto>> ReporteTransitoAsync(FiltroPeriodoDto filtro);
+    Task<IEnumerable<ReporteSalidaDto>> ReporteSalidaAsync(FiltroPeriodoDto filtro);
+    Task<byte[]> ExportarExcelEntradaAsync(FiltroPeriodoDto filtro);
+    Task<byte[]> ExportarExcelTransitoAsync(FiltroPeriodoDto filtro);
+    Task<byte[]> ExportarExcelSalidaAsync(FiltroPeriodoDto filtro);
+    Task<byte[]> ExportarExcelGeneralAsync(FiltroPeriodoDto filtro);
     Task<byte[]> ExportarPDFLoteAsync(string codigoLote);
     Task<IEnumerable<ReporteCuyDto>> ReporteCuyesAsync(FiltroPeriodoDto filtro);
     Task<byte[]> ExportarExcelCuyesAsync(FiltroPeriodoDto filtro);
@@ -125,7 +134,7 @@ public class ReportesService(AppDbContext db) : IReportesService
                 return new ReporteProductoraDto(
                     ProductoraId: p.Id,
                     NombreProductora: p.NombreCompleto,
-                    Comunidad: p.Comunidad,
+                    Comunidad: p.Comunidad.Nombre,
                     CentroAcopio: p.CatAsignado.ToString(),
                     TotalLotes: g.Select(c => c.LoteId).Distinct().Count(),
                     TotalAnimales: g.Count(),
@@ -198,7 +207,7 @@ public class ReportesService(AppDbContext db) : IReportesService
                 n.Lote.Productora != null
                     ? n.Lote.Productora.NombreCompleto : "Varias productoras",
                 n.Lote.Productora != null
-                    ? n.Lote.Productora.Comunidad : "-",
+                    ? n.Lote.Productora.Comunidad.Nombre : "-",
                 n.Lote.CentroAcopio.ToString(),
                 n.Tipo.ToString(),
                 n.Descripcion,
@@ -337,9 +346,9 @@ public class ReportesService(AppDbContext db) : IReportesService
                     : c.Lote.Productora != null
                         ? c.Lote.Productora.NombreCompleto : string.Empty,
                 c.Productora != null
-                    ? c.Productora.Comunidad
+                    ? c.Productora.Comunidad.Nombre
                     : c.Lote.Productora != null
-                        ? c.Lote.Productora.Comunidad : string.Empty,
+                        ? c.Lote.Productora.Comunidad.Nombre : string.Empty,
                 c.Lote.CentroAcopio.ToString(),
                 c.NumeroEnLote,
                 c.PesoGramos,
@@ -566,7 +575,7 @@ public class ReportesService(AppDbContext db) : IReportesService
                 d.Lote != null && d.Lote.Productora != null
                     ? d.Lote.Productora.NombreCompleto : "Varias productoras",
                 d.Lote != null && d.Lote.Productora != null
-                    ? d.Lote.Productora.Comunidad : "-",
+                    ? d.Lote.Productora.Comunidad.Nombre : "-",
                 d.ClienteDevuelve, d.FechaDevolucion,
                 d.CantidadUnidades, d.Motivo))
             .ToListAsync();
@@ -575,7 +584,7 @@ public class ReportesService(AppDbContext db) : IReportesService
             .OrderByDescending(r => r.FechaRetorno)
             .Select(r => new RetornoItemDto(
                 r.Id, r.Lote.CodigoLote,
-                r.Productora.NombreCompleto, r.Productora.Comunidad,
+                r.Productora.NombreCompleto, r.Productora.Comunidad.Nombre,
                 r.NumeroEnLote, r.Motivo, r.FechaRetorno, r.Responsable))
             .ToListAsync();
 
@@ -586,6 +595,289 @@ public class ReportesService(AppDbContext db) : IReportesService
             DevolucionesClientes: devoluciones,
             RetornosProductora: retornos
         );
+    }
+
+    // ── Flujo de trazabilidad: Entrada / Tránsito / Salida ────────────
+
+    // Entrada: lotes con llegada a planta confirmada y animales vivos que
+    // aún no pasan al faenamiento (en espera).
+    public async Task<IEnumerable<ReporteEntradaDto>> ReporteEntradaAsync(
+        FiltroPeriodoDto filtro)
+    {
+        var (desdeUtc, hastaUtc) = RangoUtc(filtro);
+
+        var lotes = await db.Lotes
+            .Include(l => l.Productora)
+            .Include(l => l.Cuyes).ThenInclude(c => c.Productora)
+            .Include(l => l.Faenamientos).ThenInclude(f => f.Cuyes)
+            .Include(l => l.Movilizacion)
+            .Where(l => l.Movilizacion != null
+                     && l.Movilizacion.FechaRecepcionPlanta != null
+                     && l.Movilizacion.FechaRecepcionPlanta >= desdeUtc
+                     && l.Movilizacion.FechaRecepcionPlanta < hastaUtc)
+            .AsNoTracking()
+            .AsSplitQuery()
+            .ToListAsync();
+
+        if (!string.IsNullOrEmpty(filtro.CentroAcopio) &&
+            Enum.TryParse<CentroAcopio>(filtro.CentroAcopio, out var cat))
+            lotes = lotes.Where(l => l.CentroAcopio == cat).ToList();
+
+        return lotes
+            .Select(l =>
+            {
+                var usados = l.Faenamientos.Sum(f =>
+                    f.Cuyes.Count > 0 ? f.Cuyes.Count
+                        : f.UnidadesFaenadas + f.UnidadesDecomisadas);
+                var enEspera = Math.Max(0, l.CantidadAnimales - usados);
+                var (prod, com) = ResumenProductoras(l);
+                return new ReporteEntradaDto(
+                    l.CodigoLote, l.CentroAcopio.ToString(), prod, com,
+                    enEspera, l.Movilizacion!.FechaRecepcionPlanta!.Value);
+            })
+            .Where(r => r.CantidadEnEspera > 0)
+            .OrderBy(r => r.FechaLlegada)
+            .ToList();
+    }
+
+    // Tránsito: lotes faenados completos en el período.
+    public async Task<IEnumerable<ReporteTransitoDto>> ReporteTransitoAsync(
+        FiltroPeriodoDto filtro)
+    {
+        var (desdeUtc, hastaUtc) = RangoUtc(filtro);
+
+        var faes = await db.LotesFaenados
+            .Include(lf => lf.Sesiones).ThenInclude(f => f.Cuyes)
+            .Include(lf => lf.Sesiones).ThenInclude(f => f.Lote)
+                .ThenInclude(l => l.Productora)
+            .Include(lf => lf.Sesiones).ThenInclude(f => f.Lote)
+                .ThenInclude(l => l.Cuyes).ThenInclude(c => c.Productora)
+            .Where(lf => lf.FechaFaenamiento >= desdeUtc
+                      && lf.FechaFaenamiento < hastaUtc)
+            .AsNoTracking()
+            .AsSplitQuery()
+            .ToListAsync();
+
+        if (!string.IsNullOrEmpty(filtro.CentroAcopio) &&
+            Enum.TryParse<CentroAcopio>(filtro.CentroAcopio, out var cat))
+            faes = faes.Where(lf =>
+                lf.Sesiones.Any(s => s.Lote.CentroAcopio == cat)).ToList();
+
+        return faes
+            .Select(lf =>
+            {
+                var jaulas = string.Join(", ", lf.Sesiones
+                    .Select(s => s.Lote.CodigoLote).Distinct());
+                var comunidades = string.Join(" y ", lf.Sesiones
+                    .SelectMany(s => s.Cuyes
+                        .Where(c => c.Estado != EstadoCanal.Rechazado)
+                        .Select(c => s.Lote.Cuyes
+                            .FirstOrDefault(x => x.NumeroEnLote == c.NumeroEnLote)
+                            ?.Productora?.Comunidad.Nombre
+                            ?? s.Lote.Productora?.Comunidad.Nombre ?? "—"))
+                    .Distinct());
+                var unidades = lf.Sesiones.Sum(s => s.UnidadesFaenadas);
+                var pesoTotal = lf.Sesiones.Sum(s => s.PesoTotalCanalGramos);
+                var promedio = unidades > 0
+                    ? Math.Round(pesoTotal / unidades, 0) : 0;
+
+                var cuyes = lf.Sesiones.SelectMany(s => s.Cuyes).ToList();
+                var estado = cuyes.Count == 0 ? "—"
+                    : cuyes.All(c => c.Estado == EstadoCanal.Rechazado) ? "Rechazado"
+                    : cuyes.Any(c => c.Estado == EstadoCanal.ConNovedad) ? "Con novedad"
+                    : "Apto";
+
+                return new ReporteTransitoDto(
+                    lf.Codigo, lf.FechaFaenamiento, lf.OperarioResponsable,
+                    jaulas, comunidades, unidades, pesoTotal, promedio, estado);
+            })
+            .OrderByDescending(r => r.FechaFaenamiento)
+            .ToList();
+    }
+
+    // Salida: despachos comerciales con datos de transporte.
+    public async Task<IEnumerable<ReporteSalidaDto>> ReporteSalidaAsync(
+        FiltroPeriodoDto filtro)
+    {
+        var (desdeUtc, hastaUtc) = RangoUtc(filtro);
+
+        var despachos = await db.Despachos
+            .Include(d => d.LoteFaenado)
+            .Include(d => d.Lote)
+            .Where(d => d.FechaDespacho >= desdeUtc && d.FechaDespacho < hastaUtc)
+            .OrderByDescending(d => d.FechaDespacho)
+            .AsNoTracking()
+            .ToListAsync();
+
+        return despachos.Select(d => new ReporteSalidaDto(
+            d.LoteFaenado != null ? d.LoteFaenado.Codigo
+                : d.Lote != null ? d.Lote.CodigoLote : "—",
+            d.FechaDespacho, d.ClienteDestino,
+            string.IsNullOrWhiteSpace(d.Chofer) ? "—" : d.Chofer,
+            string.IsNullOrWhiteSpace(d.Ruta) ? "—" : d.Ruta,
+            string.IsNullOrWhiteSpace(d.TipoMercado) ? "Local" : d.TipoMercado,
+            string.Join(", ", new[] { d.Ciudad, d.Pais }
+                .Where(x => !string.IsNullOrWhiteSpace(x))) is { Length: > 0 } u
+                ? u : "—",
+            d.CantidadUnidades, d.Responsable)).ToList();
+    }
+
+    // Resumen de productoras de una jaula, agrupando por Id (nunca por
+    // instancia: con AsNoTracking cada fila trae su propio objeto)
+    private static (string Productora, string Comunidad) ResumenProductoras(Lote lote)
+    {
+        var grupos = lote.Cuyes
+            .Where(c => c.Productora != null)
+            .GroupBy(c => c.ProductoraId)
+            .Select(g => g.First().Productora!)
+            .ToList();
+
+        if (grupos.Count == 0 && lote.Productora != null)
+            grupos.Add(lote.Productora);
+
+        if (grupos.Count == 0) return ("—", "—");
+        if (grupos.Count == 1)
+            return (grupos[0].NombreCompleto, grupos[0].Comunidad.Nombre);
+
+        var comunidades = string.Join(" y ",
+            grupos.Select(p => p.Comunidad.Nombre).Distinct());
+        return ($"Varias productoras ({grupos.Count})", comunidades);
+    }
+
+    // ── Exportaciones Excel del flujo ─────────────────────────────────
+
+    private static void EncabezadoExcel(IXLWorksheet hoja, string[] titulos)
+    {
+        for (int i = 0; i < titulos.Length; i++)
+        {
+            var celda = hoja.Cell(1, i + 1);
+            celda.Value = titulos[i];
+            celda.Style.Font.Bold = true;
+            celda.Style.Fill.BackgroundColor = XLColor.FromHtml("#2E7D32");
+            celda.Style.Font.FontColor = XLColor.White;
+        }
+    }
+
+    public async Task<byte[]> ExportarExcelEntradaAsync(FiltroPeriodoDto filtro)
+    {
+        var datos = await ReporteEntradaAsync(filtro);
+        using var libro = new XLWorkbook();
+        var hoja = libro.Worksheets.Add("Entrada");
+        EncabezadoExcel(hoja, ["Código lote", "CAT", "Productora",
+            "Comunidad", "En espera", "Fecha de llegada"]);
+        int fila = 2;
+        foreach (var r in datos)
+        {
+            hoja.Cell(fila, 1).Value = r.CodigoLote;
+            hoja.Cell(fila, 2).Value = r.CentroAcopio;
+            hoja.Cell(fila, 3).Value = r.Productora;
+            hoja.Cell(fila, 4).Value = r.Comunidad;
+            hoja.Cell(fila, 5).Value = r.CantidadEnEspera;
+            hoja.Cell(fila, 6).Value = r.FechaLlegada.ToString("dd/MM/yyyy");
+            fila++;
+        }
+        hoja.Columns().AdjustToContents();
+        using var stream = new MemoryStream();
+        libro.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    public async Task<byte[]> ExportarExcelTransitoAsync(FiltroPeriodoDto filtro)
+    {
+        var datos = await ReporteTransitoAsync(filtro);
+        using var libro = new XLWorkbook();
+        var hoja = libro.Worksheets.Add("Tránsito");
+        EncabezadoExcel(hoja, ["Lote faenado", "Fecha", "Operario",
+            "Jaulas de origen", "Comunidades", "Unidades",
+            "Peso total (g)", "Peso prom. (g)", "Estado"]);
+        int fila = 2;
+        foreach (var r in datos)
+        {
+            hoja.Cell(fila, 1).Value = r.CodigoLoteFaenado;
+            hoja.Cell(fila, 2).Value = r.FechaFaenamiento.ToString("dd/MM/yyyy");
+            hoja.Cell(fila, 3).Value = r.Operario;
+            hoja.Cell(fila, 4).Value = r.JaulasOrigen;
+            hoja.Cell(fila, 5).Value = r.Comunidades;
+            hoja.Cell(fila, 6).Value = r.Unidades;
+            hoja.Cell(fila, 7).Value = r.PesoTotalGramos;
+            hoja.Cell(fila, 8).Value = r.PesoPromedioGramos;
+            hoja.Cell(fila, 9).Value = r.Estado;
+            fila++;
+        }
+        hoja.Columns().AdjustToContents();
+        using var stream = new MemoryStream();
+        libro.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    public async Task<byte[]> ExportarExcelSalidaAsync(FiltroPeriodoDto filtro)
+    {
+        var datos = await ReporteSalidaAsync(filtro);
+        using var libro = new XLWorkbook();
+        var hoja = libro.Worksheets.Add("Salida");
+        EncabezadoExcel(hoja, ["Lote faenado", "Fecha", "Cliente",
+            "Chofer", "Ruta", "Mercado", "Ubicación", "Unidades", "Responsable"]);
+        int fila = 2;
+        foreach (var r in datos)
+        {
+            hoja.Cell(fila, 1).Value = r.CodigoLoteFaenado;
+            hoja.Cell(fila, 2).Value = r.FechaDespacho.ToString("dd/MM/yyyy");
+            hoja.Cell(fila, 3).Value = r.Cliente;
+            hoja.Cell(fila, 4).Value = r.Chofer;
+            hoja.Cell(fila, 5).Value = r.Ruta;
+            hoja.Cell(fila, 6).Value = r.TipoMercado;
+            hoja.Cell(fila, 7).Value = r.Ubicacion;
+            hoja.Cell(fila, 8).Value = r.Unidades;
+            hoja.Cell(fila, 9).Value = r.Responsable;
+            fila++;
+        }
+        hoja.Columns().AdjustToContents();
+        using var stream = new MemoryStream();
+        libro.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    // ── Exportar Excel general: todos los dashboards en un libro ───────
+
+    /// <summary>
+    /// Un solo archivo con una hoja por dashboard, para no ir descargando
+    /// siete por separado.
+    ///
+    /// Compone el libro copiando las hojas que ya generan los exportadores
+    /// individuales, en vez de volver a maquetarlas aquí: así cada hoja tiene
+    /// una única fuente de verdad y no se desincroniza de su versión suelta.
+    /// El precio es serializar y releer cada libro, irrelevante con el volumen
+    /// del piloto y a cambio de no duplicar siete maquetaciones.
+    /// </summary>
+    public async Task<byte[]> ExportarExcelGeneralAsync(FiltroPeriodoDto filtro)
+    {
+        // El orden sigue el flujo de la cadena: primero los tres eslabones
+        // de trazabilidad, después los desgloses y las devoluciones
+        var partes = new[]
+        {
+            await ExportarExcelEntradaAsync(filtro),
+            await ExportarExcelTransitoAsync(filtro),
+            await ExportarExcelSalidaAsync(filtro),
+            await ExportarExcelProductorasAsync(filtro),
+            await ExportarExcelCATAsync(filtro),
+            await ExportarExcelNovedadesAsync(filtro),
+            await ExportarExcelCuyesAsync(filtro),
+            // Aporta dos hojas: devoluciones de clientes y retornos
+            await ExportarExcelDevolucionesAsync(filtro),
+        };
+
+        using var libro = new XLWorkbook();
+        foreach (var bytes in partes)
+        {
+            using var origen = new MemoryStream(bytes);
+            using var libroOrigen = new XLWorkbook(origen);
+            foreach (var hoja in libroOrigen.Worksheets)
+                hoja.CopyTo(libro, hoja.Name);
+        }
+
+        using var stream = new MemoryStream();
+        libro.SaveAs(stream);
+        return stream.ToArray();
     }
 
     // Ficha del lote de producto terminado: agrupa toda la sesión de
@@ -616,8 +908,8 @@ public class ReportesService(AppDbContext db) : IReportesService
                 return (
                     Faenado: cf,
                     Jaula: f.Lote,
-                    Comunidad: origen?.Comunidad
-                        ?? f.Lote.Productora?.Comunidad ?? "—",
+                    Comunidad: origen?.Comunidad.Nombre
+                        ?? f.Lote.Productora?.Comunidad.Nombre ?? "—",
                     Productora: origen?.NombreCompleto
                         ?? f.Lote.Productora?.NombreCompleto ?? "—");
             }))
@@ -945,12 +1237,12 @@ public class ReportesService(AppDbContext db) : IReportesService
                             r.RelativeItem().Text(
                                 $"Productora: {NombreOrigenLote(lote)}");
                             r.RelativeItem().Text(
-                                $"Comunidad: {lote.Productora?.Comunidad ?? "-"}");
+                                $"Comunidad: {lote.Productora?.Comunidad.Nombre ?? "-"}");
                         });
                         c.Item().Row(r =>
                         {
                             r.RelativeItem().Text(
-                                $"Cantón: {lote.Productora?.Canton ?? "-"}");
+                                $"Cantón: {lote.Productora?.Comunidad.Canton ?? "-"}");
                             r.RelativeItem().Text(
                                 $"CAT: {lote.CentroAcopio}");
                         });
@@ -1020,8 +1312,8 @@ public class ReportesService(AppDbContext db) : IReportesService
                                         _ => "#2E7D32"
                                     };
 
-                                    var comunidad = animal.Recepcion?.Productora?.Comunidad
-                                        ?? lote.Productora?.Comunidad ?? "—";
+                                    var comunidad = animal.Recepcion?.Productora?.Comunidad.Nombre
+                                        ?? lote.Productora?.Comunidad.Nombre ?? "—";
 
                                     tabla.Cell().PaddingVertical(1)
                                         .Text($"{animal.Faenado.NumeroEnLote}").FontSize(7);

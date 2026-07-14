@@ -29,10 +29,53 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
     // se consulta con los filtros de fecha (evita degradar con la historia)
     private const int MaxLotesListado = 300;
 
+    // El acopio se reúne cada ~15 días y puede tardar en encontrar señal:
+    // una captura de hace semanas es legítima. Más allá de esta ventana, o
+    // en el futuro, lo que hay es un reloj desajustado — y esa fecha sería
+    // el origen de toda la trazabilidad del animal, así que se rechaza.
+    private static readonly TimeSpan AntiguedadMaximaOffline = TimeSpan.FromDays(30);
+    private static readonly TimeSpan DesfaseRelojTolerado = TimeSpan.FromMinutes(5);
+
     // ── Entregas por productora: la jaula se arma acumulando ─────────
     // Cada productora entrega los cuyes que quiera; se suman a la jaula
     // abierta del CAT hasta completar 20. Al llenarse, la jaula se cierra
     // y el remanente de la entrega abre una jaula nueva.
+
+    /// <summary>
+    /// Fecha de recepción del lote. En línea la sella el servidor; nunca se
+    /// acepta del cliente. Offline se conserva el momento de captura del
+    /// dispositivo: si se sellara al sincronizar, una entrega del lunes en
+    /// Patococha aparecería como del miércoles y la trazabilidad mentiría.
+    /// </summary>
+    private static DateTime ResolverFechaRecepcion(RegistrarEntregaDto dto)
+    {
+        var ahora = DateTime.UtcNow;
+
+        if (!dto.SincronizadoOffline)
+            return ahora;
+
+        if (dto.FechaCapturaOffline is not DateTime capturada)
+            throw new InvalidOperationException(
+                "La entrega offline debe traer la fecha de captura del dispositivo.");
+
+        var captura = DateTime.SpecifyKind(capturada, DateTimeKind.Utc);
+
+        // Reloj apenas adelantado: se ajusta en silencio en vez de perder la entrega
+        if (captura > ahora)
+            return captura - ahora <= DesfaseRelojTolerado
+                ? ahora
+                : throw new InvalidOperationException(
+                    $"La fecha de captura ({captura:dd/MM/yyyy HH:mm} UTC) está en " +
+                    "el futuro. Revisa la fecha y hora del dispositivo.");
+
+        if (ahora - captura > AntiguedadMaximaOffline)
+            throw new InvalidOperationException(
+                $"La fecha de captura ({captura:dd/MM/yyyy}) supera los " +
+                $"{AntiguedadMaximaOffline.Days} días de antigüedad. Revisa la " +
+                "fecha y hora del dispositivo.");
+
+        return captura;
+    }
 
     public async Task<EntregaResultadoDto> RegistrarEntregaAsync(RegistrarEntregaDto dto)
     {
@@ -78,7 +121,7 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
                 ?? throw new KeyNotFoundException(
                     $"Productora con Id {dto.ProductoraId} no encontrada.");
 
-            var fechaUtc = DateTime.SpecifyKind(dto.FechaEntrega, DateTimeKind.Utc);
+            var fechaUtc = ResolverFechaRecepcion(dto);
             var pendientes = new Queue<CuyRegistroDto>(dto.Cuyes);
             var lotesAfectados = new List<Lote>();
             var seCompletoJaula = false;
@@ -488,7 +531,7 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
             {
                 var p = g.First().Productora!;
                 return new ProductoraEnLoteDto(
-                    p.Id, p.NombreCompleto, p.Comunidad, g.Count());
+                    p.Id, p.NombreCompleto, p.Comunidad.Nombre, g.Count());
             })
             .OrderByDescending(p => p.Cantidad)
             .ToList();
@@ -497,7 +540,7 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
         {
             productoras.Add(new ProductoraEnLoteDto(
                 lote.Productora.Id, lote.Productora.NombreCompleto,
-                lote.Productora.Comunidad, lote.CantidadAnimales));
+                lote.Productora.Comunidad.Nombre, lote.CantidadAnimales));
         }
 
         var nombreProductora = productoras.Count switch

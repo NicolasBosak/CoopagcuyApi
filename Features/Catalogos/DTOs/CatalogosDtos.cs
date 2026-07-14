@@ -19,3 +19,6 @@ public record ComunidadResponseDto(
 
 // Catálogo de centros de acopio (fijo, derivado del enum)
 public record CentroAcopioDto(string Codigo, string Nombre);
+
+// Condición verificable del checklist de transporte CAT → planta
+public record CondicionTransporteDto(string Clave, string Etiqueta);

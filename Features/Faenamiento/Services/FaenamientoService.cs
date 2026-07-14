@@ -76,7 +76,7 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
                     .Select(c => new CuyDisponibleDto(
                         c.NumeroEnLote, c.PesoGramos,
                         c.Estado.ToString(), c.MotivoNovedad,
-                        c.Productora?.NombreCompleto, c.Productora?.Comunidad))
+                        c.Productora?.NombreCompleto, c.Productora?.Comunidad.Nombre))
                     .ToList();
 
                 return new LoteDisponibleDto(
@@ -97,6 +97,12 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
             throw new InvalidOperationException(
                 "Selecciona al menos un cuy para faenar.");
 
+        // La sesión de planta se fecha al registrarse. Se sella una sola vez
+        // y fuera de la estrategia de reintentos: el código FAE y la clave del
+        // lock derivan de ella, y un reintento pasada la medianoche cambiaría
+        // ambos a mitad de operación.
+        var fechaFaenamiento = DateTime.UtcNow;
+
         // La transacción explícita debe correr dentro de la estrategia de
         // reintentos de Npgsql; si un intento falla a medias, se limpia el
         // change tracker para que el reintento parta de cero
@@ -113,7 +119,7 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
 
             // Serializa las sesiones del mismo día: el código FAE-…-SEC se
             // calcula contando registros y dos sesiones simultáneas chocarían
-            var claveLock = $"fae-{dto.FechaFaenamiento:yyyyMMdd}";
+            var claveLock = $"fae-{fechaFaenamiento:yyyyMMdd}";
             await db.Database.ExecuteSqlAsync(
                 $"SELECT pg_advisory_xact_lock(hashtext({claveLock}))");
 
@@ -121,9 +127,8 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
             // y comunidades— se agrupa bajo un solo lote de producto terminado
             var loteFaenado = new LoteFaenado
             {
-                Codigo = await GenerarCodigoFaenadoAsync(dto.FechaFaenamiento),
-                FechaFaenamiento = DateTime.SpecifyKind(
-                    dto.FechaFaenamiento, DateTimeKind.Utc),
+                Codigo = await GenerarCodigoFaenadoAsync(fechaFaenamiento),
+                FechaFaenamiento = fechaFaenamiento,
                 OperarioResponsable = dto.OperarioResponsable,
                 TemperaturaAlmacenamiento = dto.TemperaturaAlmacenamiento,
                 Observaciones = dto.Observaciones
@@ -214,8 +219,8 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
             LoteFaenado = loteFaenado,
             // Distintivo secuencial de la sesión dentro del lote (F1, F2…)
             NumeroSesion = lote.Faenamientos.Count + 1,
-            FechaFaenamiento = DateTime.SpecifyKind(
-                dto.FechaFaenamiento, DateTimeKind.Utc),
+            // La sesión comparte la fecha de su lote de producto terminado
+            FechaFaenamiento = loteFaenado.FechaFaenamiento,
             OperarioResponsable = dto.OperarioResponsable,
             UnidadesFaenadas = unidadesFaenadas,
             PesoTotalCanalGramos = pesoTotal,
@@ -263,7 +268,7 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
                     c.NumeroEnLote,
                     cuyRecepcion.MotivoNovedad,
                     productoraCuy?.NombreCompleto,
-                    productoraCuy?.Comunidad));
+                    productoraCuy?.Comunidad.Nombre));
             }
 
             if (c.Estado == EstadoCanal.Rechazado && c.RetornarAProductora)
@@ -464,11 +469,15 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
             {
                 LoteFaenadoId = loteFaenado.Id,
                 ClienteDestino = dto.ClienteDestino,
-                FechaDespacho = DateTime.SpecifyKind(
-                    dto.FechaDespacho, DateTimeKind.Utc),
+                FechaDespacho = FechaUtc.Normalizar(dto.FechaDespacho),
                 CantidadUnidades = detalle.Count,
                 Responsable = dto.Responsable,
-                Transporte = dto.Transporte,
+                Chofer = dto.Chofer,
+                Ruta = dto.Ruta,
+                TipoMercado = string.IsNullOrWhiteSpace(dto.TipoMercado)
+                    ? "Local" : dto.TipoMercado.Trim(),
+                Ciudad = dto.Ciudad,
+                Pais = dto.Pais,
                 Observaciones = dto.Observaciones,
                 Cuyes = idsSolicitados
                     .Select(id => new DespachoCuy { CuyFaenamientoId = id })
@@ -488,7 +497,11 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
                 CantidadUnidades: despacho.CantidadUnidades,
                 UnidadesDevueltas: 0,
                 Responsable: despacho.Responsable,
-                Transporte: despacho.Transporte,
+                Chofer: despacho.Chofer,
+                Ruta: despacho.Ruta,
+                TipoMercado: despacho.TipoMercado,
+                Ciudad: despacho.Ciudad,
+                Pais: despacho.Pais,
                 Observaciones: despacho.Observaciones,
                 Cuyes: detalle
             );
@@ -537,7 +550,8 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
             d.Lote?.CodigoLote,
             d.ClienteDestino, d.FechaDespacho, d.CantidadUnidades,
             devueltas.GetValueOrDefault(d.Id),
-            d.Responsable, d.Transporte, d.Observaciones,
+            d.Responsable, d.Chofer, d.Ruta,
+            d.TipoMercado, d.Ciudad, d.Pais, d.Observaciones,
             d.Cuyes
                 .OrderBy(dc => dc.CuyFaenamiento.Registro.Lote.CodigoLote)
                 .ThenBy(dc => dc.CuyFaenamiento.NumeroEnLote)
@@ -596,8 +610,7 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
                 LoteId = despacho.LoteId,
                 // El cliente se copia del despacho: no se vuelve a digitar
                 ClienteDevuelve = despacho.ClienteDestino,
-                FechaDevolucion = DateTime.SpecifyKind(
-                    dto.FechaDevolucion, DateTimeKind.Utc),
+                FechaDevolucion = DateTime.UtcNow,
                 CantidadUnidades = dto.CantidadUnidades,
                 Motivo = dto.Motivo,
                 Responsable = dto.Responsable,
@@ -656,7 +669,7 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
         // Un lote faenado puede reunir varias productoras: el nombre
         // individual solo existe en devoluciones legadas por jaula
         NombreProductora: lote?.Productora?.NombreCompleto ?? "Varias productoras",
-        Comunidad: lote?.Productora?.Comunidad ?? "—",
+        Comunidad: lote?.Productora?.Comunidad.Nombre ?? "—",
         ClienteDevuelve: d.ClienteDevuelve,
         FechaDevolucion: d.FechaDevolucion,
         CantidadUnidades: d.CantidadUnidades,
@@ -691,7 +704,7 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
             .Select(r => new RetornoProductoraResponseDto(
                 r.Id, r.LoteId, r.Lote.CodigoLote,
                 r.ProductoraId, r.Productora.NombreCompleto,
-                r.Productora.Comunidad, r.NumeroEnLote,
+                r.Productora.Comunidad.Nombre, r.NumeroEnLote,
                 r.Motivo, r.FechaRetorno, r.Responsable))
             .ToListAsync();
     }
@@ -719,7 +732,7 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
                     .Where(c => c.Estado != EstadoCanal.Rechazado)
                     .Select(c => f.Lote.Cuyes
                         .FirstOrDefault(x => x.NumeroEnLote == c.NumeroEnLote)
-                        ?.Productora?.Comunidad))
+                        ?.Productora?.Comunidad.Nombre))
                 .Where(c => !string.IsNullOrEmpty(c))
                 .Select(c => c!)
                 .Distinct()
@@ -766,7 +779,7 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
 
         var comunidades = faenamiento.Lote.Cuyes
             .Where(c => numerosFaenados.Contains(c.NumeroEnLote))
-            .Select(c => c.Productora?.Comunidad)
+            .Select(c => c.Productora?.Comunidad.Nombre)
             .Where(c => !string.IsNullOrEmpty(c))
             .Select(c => c!)
             .Distinct()
@@ -774,7 +787,7 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
 
         var comunidadOrigen = comunidades.Count > 0
             ? string.Join(" y ", comunidades)
-            : faenamiento.Lote.Productora?.Comunidad ?? "Azuay";
+            : faenamiento.Lote.Productora?.Comunidad.Nombre ?? "Azuay";
 
         return new InkJetCodigoDto(
             CodigoLote: faenamiento.Lote.CodigoLote,
@@ -806,7 +819,7 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
             LoteId: f.LoteId,
             CodigoLote: lote.CodigoLote,
             NombreProductora: lote.Productora?.NombreCompleto ?? string.Empty,
-            ComunidadOrigen: lote.Productora?.Comunidad ?? string.Empty,
+            ComunidadOrigen: lote.Productora?.Comunidad.Nombre ?? string.Empty,
             FechaFaenamiento: f.FechaFaenamiento,
             OperarioResponsable: f.OperarioResponsable,
             UnidadesFaenadas: f.UnidadesFaenadas,

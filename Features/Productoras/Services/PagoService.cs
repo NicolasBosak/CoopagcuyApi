@@ -10,6 +10,8 @@ public interface IPagoService
     Task<PagoResponseDto> RegistrarAsync(RegistrarPagoDto dto);
     Task<IEnumerable<PagoResponseDto>> ListarAsync(
         int? productoraId, DateTime? desde, DateTime? hasta);
+    Task<IEnumerable<LotePendientePagoDto>> ListarLotesPendientesAsync(
+        int productoraId);
 }
 
 /// <summary>
@@ -47,13 +49,31 @@ public class PagoService(AppDbContext db) : IPagoService
             throw new InvalidOperationException(
                 "El monto del pago debe ser mayor a cero.");
 
+        // A crédito: se difiere en N días (mínimo 2) y el valor de cada uno
+        // lo calcula el servidor. Al contado no lleva días.
+        var esCredito = dto.MetodoPago.Trim()
+            .Equals("Credito", StringComparison.OrdinalIgnoreCase);
+        int? numeroDias = null;
+        decimal? valorPorDia = null;
+
+        if (esCredito)
+        {
+            if (dto.NumeroDias is not int n || n < 2)
+                throw new InvalidOperationException(
+                    "Un pago a crédito debe diferirse en al menos 2 días.");
+            numeroDias = n;
+            valorPorDia = Math.Round(dto.MontoUsd / n, 2);
+        }
+
         var pago = new Pago
         {
             ProductoraId = dto.ProductoraId,
             LoteId = dto.LoteId,
             MontoUsd = dto.MontoUsd,
-            FechaPago = DateTime.SpecifyKind(dto.FechaPago, DateTimeKind.Utc),
+            FechaPago = DateTime.UtcNow,
             MetodoPago = dto.MetodoPago.Trim(),
+            NumeroDias = numeroDias,
+            ValorPorDia = valorPorDia,
             Responsable = dto.Responsable.Trim(),
             Observaciones = dto.Observaciones
         };
@@ -93,6 +113,47 @@ public class PagoService(AppDbContext db) : IPagoService
             p, p.Productora.NombreCompleto, p.Lote?.CodigoLote));
     }
 
+    /// <summary>
+    /// Lotes por los que aún se le debe pagar a esta productora.
+    ///
+    /// El pago es por par (productora, lote): una jaula reúne cuyes de varias
+    /// productoras, así que pagarle a una no salda a las demás. Por eso el
+    /// lote se excluye solo si YA existe un pago de ESA productora por ESE
+    /// lote, y no en cuanto alguien cobre la jaula.
+    ///
+    /// La pertenencia se resuelve con la misma regla que valida RegistrarAsync
+    /// (entregó cuyes, o abrió la jaula): si la lista mostrara otra cosa,
+    /// ofrecería lotes que el servidor luego rechaza, o escondería lotes que sí
+    /// acepta.
+    /// </summary>
+    public async Task<IEnumerable<LotePendientePagoDto>> ListarLotesPendientesAsync(
+        int productoraId)
+    {
+        var pagados = db.Pagos
+            .Where(p => p.ProductoraId == productoraId && p.LoteId != null)
+            .Select(p => p.LoteId!.Value);
+
+        return await db.Lotes
+            .Where(l =>
+                (l.ProductoraId == productoraId
+                 || l.Cuyes.Any(c => c.ProductoraId == productoraId))
+                && !pagados.Contains(l.Id))
+            .OrderByDescending(l => l.FechaRecepcion)
+            .Select(l => new LotePendientePagoDto(
+                l.Id,
+                l.CodigoLote,
+                l.CentroAcopio.ToString(),
+                l.FechaRecepcion,
+                // Lo que aportó ESTA productora, no el total de la jaula:
+                // es la base sobre la que se le paga
+                l.Cuyes.Count(c => c.ProductoraId == productoraId),
+                l.Cuyes
+                    .Where(c => c.ProductoraId == productoraId)
+                    .Sum(c => (decimal?)c.PesoGramos) ?? 0))
+            .AsNoTracking()
+            .ToListAsync();
+    }
+
     private static PagoResponseDto Mapear(
         Pago p, string nombreProductora, string? codigoLote) => new(
         Id: p.Id,
@@ -103,6 +164,8 @@ public class PagoService(AppDbContext db) : IPagoService
         MontoUsd: p.MontoUsd,
         FechaPago: p.FechaPago,
         MetodoPago: p.MetodoPago,
+        NumeroDias: p.NumeroDias,
+        ValorPorDia: p.ValorPorDia,
         Responsable: p.Responsable,
         Observaciones: p.Observaciones
     );

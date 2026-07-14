@@ -176,8 +176,8 @@ public class QRService(
                     Jaula: f.Lote,
                     Comunidad: f.Lote.Cuyes
                         .FirstOrDefault(c => c.NumeroEnLote == cf.NumeroEnLote)
-                        ?.Productora?.Comunidad
-                        ?? f.Lote.Productora?.Comunidad
+                        ?.Productora?.Comunidad.Nombre
+                        ?? f.Lote.Productora?.Comunidad.Nombre
                         ?? "Azuay")))
             .ToList();
 
@@ -234,7 +234,7 @@ public class QRService(
             .FirstOrDefault();
 
         var cantones = sesiones
-            .Select(s => s.Lote.Productora?.Canton)
+            .Select(s => s.Lote.Productora?.Comunidad.Canton)
             .Where(c => !string.IsNullOrEmpty(c))
             .Select(c => c!)
             .Distinct()
@@ -249,6 +249,19 @@ public class QRService(
             .OrderByDescending(d => d.FechaDespacho)
             .AsNoTracking()
             .FirstOrDefaultAsync();
+
+        // Eslabón de transporte CAT → planta: primera salida y llegada
+        // confirmada de las jaulas de origen (para mostrarlo al consumidor)
+        var movilizacion = await db.Movilizaciones
+            .Where(m => lotesOrigen.Contains(m.LoteId))
+            .OrderBy(m => m.FechaDespacho)
+            .AsNoTracking()
+            .FirstOrDefaultAsync();
+
+        var ubicacionMercado = ultimoDespacho is null
+            ? null
+            : string.Join(", ", new[] { ultimoDespacho.Ciudad, ultimoDespacho.Pais }
+                .Where(x => !string.IsNullOrWhiteSpace(x)));
 
         var conNovedad = detalleCuyes.Any(c => c.Estado != "Apto");
 
@@ -271,8 +284,13 @@ public class QRService(
             PesoPromedioCanalGramos: Math.Round(promedio, 0),
             EstadoCanal: conNovedad ? "ConNovedad" : "Apto",
             Marca: "Cuy Azuayito — COOPAGCUY",
+            FechaSalidaCat: movilizacion?.FechaDespacho,
+            FechaLlegadaPlanta: movilizacion?.FechaRecepcionPlanta,
             FechaComercializacion: ultimoDespacho?.FechaDespacho,
             DestinoComercial: ultimoDespacho?.ClienteDestino,
+            TipoMercado: ultimoDespacho?.TipoMercado,
+            UbicacionMercado: string.IsNullOrWhiteSpace(ubicacionMercado)
+                ? null : ubicacionMercado,
             ObservacionesProceso: observacionesProceso,
             ComunidadesAporte: comunidadesAporte,
             DetalleCuyes: detalleCuyes

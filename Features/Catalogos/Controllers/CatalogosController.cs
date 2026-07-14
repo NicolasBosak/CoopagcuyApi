@@ -1,5 +1,6 @@
 using CoopagcuyApi.Features.Catalogos.DTOs;
 using CoopagcuyApi.Features.Catalogos.Services;
+using CoopagcuyApi.Features.Recepcion.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -63,6 +64,16 @@ public class CatalogosController(ICatalogosService service) : ControllerBase
     [HttpGet("centros-acopio")]
     public IActionResult ListarCentrosAcopio() =>
         Ok(service.ListarCentrosAcopio());
+
+    /// <summary>
+    /// Condiciones verificables antes de enviar una jaula a planta. El front
+    /// las pinta como checklist; se sirven desde aquí para que las etiquetas
+    /// no queden duplicadas (y desincronizadas) entre API y front.
+    /// </summary>
+    [HttpGet("condiciones-transporte")]
+    public IActionResult ListarCondicionesTransporte() =>
+        Ok(CondicionTransporte.Catalogo
+            .Select(kv => new CondicionTransporteDto(kv.Key, kv.Value)));
 }
 
 public record CambiarEstadoComunidadDto(bool Activa);
