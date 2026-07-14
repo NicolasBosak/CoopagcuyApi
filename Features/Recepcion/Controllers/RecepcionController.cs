@@ -53,6 +53,12 @@ public class RecepcionController(
         if (CatNoAutorizado(dto.CentroAcopio) is string motivo)
             return StatusCode(StatusCodes.Status403Forbidden, new { mensaje = motivo });
 
+        // La ruta en línea sella la fecha en el servidor. Se fuerzan aquí para
+        // que un cliente no pueda declararse offline y elegir su propia fecha:
+        // solo /sync-entregas puede aportar el momento de captura.
+        dto.SincronizadoOffline = false;
+        dto.FechaCapturaOffline = null;
+
         try
         {
             var resultado = await service.RegistrarEntregaAsync(dto);

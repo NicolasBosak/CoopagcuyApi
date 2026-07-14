@@ -30,7 +30,11 @@ public class RegistrarEntregaDto
 {
     public CentroAcopio CentroAcopio { get; set; }
     public int ProductoraId { get; set; }
-    public DateTime FechaEntrega { get; set; }
+    // Momento de captura sellado por la tablet, no editable por la operadora.
+    // Solo se usa en el sync offline —donde es obligatorio— porque la entrega
+    // pudo capturarse días antes de recuperar señal. En línea lo sella el
+    // servidor y este campo se ignora.
+    public DateTime? FechaCapturaOffline { get; set; }
     public List<CuyRegistroDto> Cuyes { get; set; } = [];
     public bool EnAyunas { get; set; } = true;
     public string ResponsableRecepcion { get; set; } = string.Empty;
@@ -117,12 +121,15 @@ public record SyncItemResultadoDto(
 
 // ── Movilización CAT → planta (eslabón transporte) ────────────────────
 
+// La fecha de salida y la de llegada a planta las sella el servidor: son el
+// momento en que ocurre el registro, no un dato que el operador elija.
 public class RegistrarMovilizacionDto
 {
-    public DateTime FechaDespacho { get; set; }
     public string Conductor { get; set; } = string.Empty;
     public int CantidadMovilizada { get; set; }
-    public string? CondicionesTransporte { get; set; }
+    // Claves del catálogo CondicionTransporte que el operador verificó.
+    // Ya no es texto libre: el servidor arma la descripción canónica.
+    public List<string> CondicionesTransporte { get; set; } = [];
     public string? TipoForraje { get; set; }
     public int? DiasRetiroMedicamentos { get; set; }
     public string ResponsableDespacho { get; set; } = string.Empty;
@@ -131,7 +138,6 @@ public class RegistrarMovilizacionDto
 
 public class ConfirmarRecepcionPlantaDto
 {
-    public DateTime FechaRecepcionPlanta { get; set; }
     public string RecibidoPor { get; set; } = string.Empty;
     public string? CondicionLlegada { get; set; }
 }

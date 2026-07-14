@@ -176,8 +176,8 @@ public class QRService(
                     Jaula: f.Lote,
                     Comunidad: f.Lote.Cuyes
                         .FirstOrDefault(c => c.NumeroEnLote == cf.NumeroEnLote)
-                        ?.Productora?.Comunidad
-                        ?? f.Lote.Productora?.Comunidad
+                        ?.Productora?.Comunidad.Nombre
+                        ?? f.Lote.Productora?.Comunidad.Nombre
                         ?? "Azuay")))
             .ToList();
 
@@ -234,7 +234,7 @@ public class QRService(
             .FirstOrDefault();
 
         var cantones = sesiones
-            .Select(s => s.Lote.Productora?.Canton)
+            .Select(s => s.Lote.Productora?.Comunidad.Canton)
             .Where(c => !string.IsNullOrEmpty(c))
             .Select(c => c!)
             .Distinct()

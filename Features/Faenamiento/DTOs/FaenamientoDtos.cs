@@ -23,9 +23,9 @@ public record CuyFaenamientoResponseDto(
 
 // ── Faenamiento por cuota: puede tomar animales de varios lotes ──────
 
+// La fecha de la sesión la sella el servidor al registrarla
 public class RegistrarFaenamientoBatchDto
 {
-    public DateTime FechaFaenamiento { get; set; }
     public string OperarioResponsable { get; set; } = string.Empty;
     public decimal? TemperaturaAlmacenamiento { get; set; }
     public string? Observaciones { get; set; }
@@ -185,7 +185,6 @@ public class RegistrarDevolucionDto
     // Despacho del que el cliente devuelve producto: el cliente y el
     // lote faenado se derivan de él (no se piden de nuevo)
     public int DespachoId { get; set; }
-    public DateTime FechaDevolucion { get; set; }
     public int CantidadUnidades { get; set; }
     public string Motivo { get; set; } = string.Empty;
     public string Responsable { get; set; } = string.Empty;

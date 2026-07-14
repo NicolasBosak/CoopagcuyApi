@@ -41,9 +41,21 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasIndex(p => p.Cedula).IsUnique();
             e.Property(p => p.NombreCompleto).HasMaxLength(150).IsRequired();
             e.Property(p => p.Cedula).HasMaxLength(13).IsRequired();
-            e.Property(p => p.Comunidad).HasMaxLength(100).IsRequired();
-            e.Property(p => p.Canton).HasMaxLength(100).IsRequired();
             e.Property(p => p.CatAsignado).HasConversion<string>();
+
+            // Restrict: una comunidad con productoras registradas no puede
+            // borrarse. La baja se hace con Activa = false en el catálogo.
+            e.HasOne(p => p.Comunidad)
+             .WithMany()
+             .HasForeignKey(p => p.ComunidadId)
+             .OnDelete(DeleteBehavior.Restrict);
+
+            // La comunidad viaja siempre con la productora. Son 5 filas y
+            // prácticamente todo lector de Productora necesita su nombre;
+            // sin esto, un Include olvidado en cualquiera de los ~17 sitios
+            // que materializan productoras reventaría en tiempo de ejecución
+            // al armar la ficha del QR o un PDF.
+            e.Navigation(p => p.Comunidad).AutoInclude();
         });
 
         // Lote (jaula multi-productora)
@@ -263,7 +275,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         {
             e.HasKey(p => p.Id);
             e.Property(p => p.MontoUsd).HasPrecision(10, 2);
-            e.Property(p => p.ValorPorLetra).HasPrecision(10, 2);
+            e.Property(p => p.ValorPorDia).HasPrecision(10, 2);
             e.Property(p => p.MetodoPago).HasMaxLength(50).IsRequired();
             e.Property(p => p.Responsable).HasMaxLength(150).IsRequired();
             e.Property(p => p.Observaciones).HasMaxLength(500);

@@ -21,10 +21,10 @@ public class Pago
     // Modalidad de pago: "Contado" | "Credito". (Los pagos antiguos
     // guardan "Efectivo"/"Transferencia" como valores legados.)
     public string MetodoPago { get; set; } = string.Empty;
-    // Solo para crédito: en cuántas letras se difiere el pago y cuánto
-    // corresponde a cada una (monto ÷ número de letras)
-    public int? NumeroLetras { get; set; }
-    public decimal? ValorPorLetra { get; set; }
+    // Solo para crédito: en cuántos días se difiere el pago y cuánto
+    // corresponde a cada uno (monto ÷ número de días)
+    public int? NumeroDias { get; set; }
+    public decimal? ValorPorDia { get; set; }
     public string Responsable { get; set; } = string.Empty;
     public string? Observaciones { get; set; }
     public DateTime FechaRegistro { get; set; } = DateTime.UtcNow;

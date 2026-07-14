@@ -42,13 +42,23 @@ public class MovilizacionService(AppDbContext db) : IMovilizacionService
                 $"La cantidad movilizada ({dto.CantidadMovilizada}) supera la " +
                 $"cantidad recibida en el lote ({lote.CantidadAnimales}).");
 
+        // Solo entran claves del catálogo: si el front manda cualquier otra
+        // cosa se rechaza en vez de guardarla, que es justo lo que hacía el
+        // texto libre que este checklist viene a reemplazar.
+        var desconocidas = dto.CondicionesTransporte
+            .Where(c => !CondicionTransporte.EsValida(c))
+            .ToList();
+        if (desconocidas.Count > 0)
+            throw new InvalidOperationException(
+                $"Condición de transporte no reconocida: {string.Join(", ", desconocidas)}.");
+
         var movilizacion = new Movilizacion
         {
             LoteId = lote.Id,
-            FechaDespacho = DateTime.SpecifyKind(dto.FechaDespacho, DateTimeKind.Utc),
+            FechaDespacho = DateTime.UtcNow,
             Conductor = dto.Conductor.Trim(),
             CantidadMovilizada = dto.CantidadMovilizada,
-            CondicionesTransporte = dto.CondicionesTransporte,
+            CondicionesTransporte = CondicionTransporte.Describir(dto.CondicionesTransporte),
             TipoForraje = dto.TipoForraje,
             DiasRetiroMedicamentos = dto.DiasRetiroMedicamentos,
             ResponsableDespacho = dto.ResponsableDespacho.Trim(),
@@ -74,8 +84,7 @@ public class MovilizacionService(AppDbContext db) : IMovilizacionService
             throw new InvalidOperationException(
                 "Esta movilización ya tiene la recepción en planta confirmada.");
 
-        movilizacion.FechaRecepcionPlanta =
-            DateTime.SpecifyKind(dto.FechaRecepcionPlanta, DateTimeKind.Utc);
+        movilizacion.FechaRecepcionPlanta = DateTime.UtcNow;
         movilizacion.RecibidoPor = dto.RecibidoPor.Trim();
         movilizacion.CondicionLlegada = dto.CondicionLlegada;
 

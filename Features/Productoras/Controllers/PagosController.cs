@@ -41,4 +41,17 @@ public class PagosController(IPagoService service) : ControllerBase
         var resultado = await service.ListarAsync(productoraId, desde, hasta);
         return Ok(resultado);
     }
+
+    /// <summary>
+    /// Lotes por los que aún se le debe pagar a la productora: los que tienen
+    /// entregas suyas y todavía no registran un pago suyo. Alimenta el
+    /// selector del formulario de pago, para que un lote ya pagado no vuelva
+    /// a ofrecerse.
+    /// </summary>
+    [HttpGet("lotes-pendientes/{productoraId:int}")]
+    public async Task<IActionResult> LotesPendientes(int productoraId)
+    {
+        var resultado = await service.ListarLotesPendientesAsync(productoraId);
+        return Ok(resultado);
+    }
 }

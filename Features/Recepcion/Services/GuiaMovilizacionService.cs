@@ -94,7 +94,7 @@ public class GuiaMovilizacionService(AppDbContext db) : IGuiaMovilizacionService
                             {
                                 r.RelativeItem(3).Text(
                                     $"• {productora.NombreCompleto} " +
-                                    $"({productora.Comunidad}, {productora.Canton})");
+                                    $"({productora.Comunidad.Nombre}, {productora.Comunidad.Canton})");
                                 r.RelativeItem(1).AlignRight().Text(
                                     $"{cantidad} {(cantidad == 1 ? "cuy" : "cuyes")}")
                                     .Bold();

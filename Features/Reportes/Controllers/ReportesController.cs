@@ -211,6 +211,23 @@ public class ReportesController(IReportesService service) : ControllerBase
             $"Reporte-Entrada-{desde:yyyyMMdd}-{hasta:yyyyMMdd}.xlsx");
     }
 
+    /// <summary>
+    /// Todos los dashboards del período en un solo libro, una hoja por cada
+    /// uno. Complementa —no reemplaza— las descargas individuales.
+    /// </summary>
+    [HttpGet("exportar/excel/general")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
+    public async Task<IActionResult> ExcelGeneral(
+        [FromQuery] DateTime desde, [FromQuery] DateTime hasta,
+        [FromQuery] string? cat)
+    {
+        var bytes = await service.ExportarExcelGeneralAsync(
+            new FiltroPeriodoDto(desde, hasta, cat));
+        return File(bytes,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            $"Reporte-General-{desde:yyyyMMdd}-{hasta:yyyyMMdd}.xlsx");
+    }
+
     [HttpGet("exportar/excel/transito")]
     [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
     public async Task<IActionResult> ExcelTransito(
