@@ -77,28 +77,51 @@ public class ReportesService(AppDbContext db) : IReportesService
             query = query.Where(l => l.CentroAcopio == cat.Value);
 
         var lotes = await query
+            .Include(l => l.Cuyes)
             .AsNoTracking()
             .ToListAsync();
 
-        var total = lotes.Count;
+        // Las tasas se cuentan por animal, no por jaula. Lote.Estado marca la
+        // jaula entera con novedad si UN solo cuy la tiene, así que por jaula
+        // la aceptación daba 0% con 19 de 20 animales perfectos: un número que
+        // no describía nada de lo que pasaba en el CAT.
+        var cuyes = lotes.SelectMany(l => l.Cuyes).ToList();
+        var totalCuyes = cuyes.Count;
+        var aceptados = cuyes.Count(c => c.Estado == EstadoLote.Aceptado);
+        var conNovedad = cuyes.Count(c => c.Estado == EstadoLote.ConNovedad);
+        var rechazados = cuyes.Count(c => c.Estado == EstadoLote.Rechazado);
+
+        decimal Tasa(int parte) => totalCuyes == 0
+            ? 0
+            : Math.Round((decimal)parte / totalCuyes * 100, 1);
+
+        // Etapas posteriores a la recepción, contadas aparte: aquí el animal
+        // ya fue aceptado y entró a la cadena
+        var retornos = await db.RetornosProductora.CountAsync(r =>
+            r.FechaRetorno >= desdeUtc && r.FechaRetorno < hastaUtc);
+        var devoluciones = await db.Devoluciones
+            .Where(d => d.FechaDevolucion >= desdeUtc && d.FechaDevolucion < hastaUtc)
+            .ToListAsync();
 
         return new DashboardDto(
-            LotesActivos: total,
-            AnimalesRecibidosPeriodo: lotes.Sum(l => l.CantidadAnimales),
-            TasaAceptacion: total == 0 ? 0 : Math.Round(
-                (decimal)lotes.Count(l => l.Estado == EstadoLote.Aceptado)
-                / total * 100, 1),
-            TasaConNovedad: total == 0 ? 0 : Math.Round(
-                (decimal)lotes.Count(l => l.Estado == EstadoLote.ConNovedad)
-                / total * 100, 1),
-            TasaRechazado: total == 0 ? 0 : Math.Round(
-                (decimal)lotes.Count(l => l.Estado == EstadoLote.Rechazado)
-                / total * 100, 1),
+            LotesActivos: lotes.Count,
+            // Cuenta los animales realmente registrados; CantidadAnimales es
+            // el contador de la jaula y puede ir por delante del detalle
+            AnimalesRecibidosPeriodo: totalCuyes,
+            TasaAceptacion: Tasa(aceptados),
+            TasaConNovedad: Tasa(conNovedad),
+            TasaRechazado: Tasa(rechazados),
+            AnimalesAceptados: aceptados,
+            AnimalesConNovedad: conNovedad,
+            AnimalesRechazados: rechazados,
             LotesConQR: await db.CodigosQR.CountAsync(q => q.Activo),
             TotalProductoras: await db.Productoras.CountAsync(p =>
                 p.Activa && (cat == null || p.CatAsignado == cat.Value)),
             TotalFaenamientos: await db.Faenamientos.CountAsync(),
-            FechaCorte: hastaUtc
+            FechaCorte: hastaUtc,
+            RetornosDesdePlanta: retornos,
+            DevolucionesClientes: devoluciones.Count,
+            UnidadesDevueltas: devoluciones.Sum(d => d.CantidadUnidades)
         );
     }
 

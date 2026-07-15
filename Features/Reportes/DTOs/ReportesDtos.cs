@@ -5,13 +5,25 @@
 public record DashboardDto(
     int LotesActivos,
     int AnimalesRecibidosPeriodo,
+    // Tasas sobre ANIMALES, no sobre jaulas: una jaula se marca con novedad
+    // en cuanto un solo cuy la tiene, así que por jaula la aceptación caía a
+    // 0% aunque 19 de 20 animales estuvieran perfectos.
     decimal TasaAceptacion,
     decimal TasaConNovedad,
     decimal TasaRechazado,
+    // Desglose en números absolutos: el porcentaje solo no dice sobre cuántos
+    int AnimalesAceptados,
+    int AnimalesConNovedad,
+    int AnimalesRechazados,
     int LotesConQR,
     int TotalProductoras,
     int TotalFaenamientos,
-    DateTime FechaCorte
+    DateTime FechaCorte,
+    // Lo que ocurre DESPUÉS de la recepción. Son etapas distintas y no deben
+    // mezclarse con el rechazo del CAT: aquí el animal ya entró a la cadena.
+    int RetornosDesdePlanta,
+    int DevolucionesClientes,
+    int UnidadesDevueltas
 );
 
 // ── Reporte por productora — RF-501 ──────────────────────────────────
