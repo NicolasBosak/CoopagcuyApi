@@ -1,3 +1,4 @@
+using CoopagcuyApi.Common;
 using CoopagcuyApi.Features.Productoras.DTOs;
 using CoopagcuyApi.Features.Productoras.Models;
 using CoopagcuyApi.Infrastructure.Data;
@@ -7,11 +8,13 @@ namespace CoopagcuyApi.Features.Productoras.Services;
 
 public interface IPagoService
 {
-    Task<PagoResponseDto> RegistrarAsync(RegistrarPagoDto dto);
+    // filtroCat: si viene un CAT (operador acotado), el servicio solo opera
+    // sobre productoras de ese centro. null = sin restricción (administrador).
+    Task<PagoResponseDto> RegistrarAsync(RegistrarPagoDto dto, CentroAcopio? filtroCat);
     Task<IEnumerable<PagoResponseDto>> ListarAsync(
-        int? productoraId, DateTime? desde, DateTime? hasta);
+        int? productoraId, DateTime? desde, DateTime? hasta, CentroAcopio? filtroCat);
     Task<IEnumerable<LotePendientePagoDto>> ListarLotesPendientesAsync(
-        int productoraId);
+        int productoraId, CentroAcopio? filtroCat);
 }
 
 /// <summary>
@@ -20,11 +23,17 @@ public interface IPagoService
 /// </summary>
 public class PagoService(AppDbContext db) : IPagoService
 {
-    public async Task<PagoResponseDto> RegistrarAsync(RegistrarPagoDto dto)
+    public async Task<PagoResponseDto> RegistrarAsync(
+        RegistrarPagoDto dto, CentroAcopio? filtroCat)
     {
         var productora = await db.Productoras.FindAsync(dto.ProductoraId)
             ?? throw new KeyNotFoundException(
                 $"Productora con Id {dto.ProductoraId} no encontrada.");
+
+        // Un operador solo paga a productoras de su propio centro
+        if (filtroCat is CentroAcopio cat && productora.CatAsignado != cat)
+            throw new UnauthorizedAccessException(
+                "Tu usuario solo puede registrar pagos de productoras de su centro.");
 
         Lote? lote = null;
         if (dto.LoteId is int loteId)
@@ -85,12 +94,16 @@ public class PagoService(AppDbContext db) : IPagoService
     }
 
     public async Task<IEnumerable<PagoResponseDto>> ListarAsync(
-        int? productoraId, DateTime? desde, DateTime? hasta)
+        int? productoraId, DateTime? desde, DateTime? hasta, CentroAcopio? filtroCat)
     {
         var query = db.Pagos
             .Include(p => p.Productora)
             .Include(p => p.Lote)
             .AsQueryable();
+
+        // Operador acotado: solo pagos de productoras de su centro
+        if (filtroCat is CentroAcopio cat)
+            query = query.Where(p => p.Productora.CatAsignado == cat);
 
         if (productoraId.HasValue)
             query = query.Where(p => p.ProductoraId == productoraId.Value);
@@ -127,8 +140,18 @@ public class PagoService(AppDbContext db) : IPagoService
     /// acepta.
     /// </summary>
     public async Task<IEnumerable<LotePendientePagoDto>> ListarLotesPendientesAsync(
-        int productoraId)
+        int productoraId, CentroAcopio? filtroCat)
     {
+        // Un operador no puede sondear los lotes pendientes de productoras de
+        // otro centro pasando su Id a mano
+        if (filtroCat is CentroAcopio cat)
+        {
+            var productora = await db.Productoras.FindAsync(productoraId);
+            if (productora is null || productora.CatAsignado != cat)
+                throw new UnauthorizedAccessException(
+                    "Tu usuario solo puede consultar productoras de su centro.");
+        }
+
         var pagados = db.Pagos
             .Where(p => p.ProductoraId == productoraId && p.LoteId != null)
             .Select(p => p.LoteId!.Value);

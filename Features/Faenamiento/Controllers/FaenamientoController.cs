@@ -8,7 +8,10 @@ namespace CoopagcuyApi.Features.Faenamiento.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
+// El módulo de faenamiento es de la planta: ningún OperadorCAT debe leerlo.
+// La restricción a nivel de clase cubre también las lecturas que antes
+// quedaban con [Authorize] a secas (lote, devoluciones, retornos, despachos).
+[Authorize(Roles = "OperadorFaenamiento,AdminCooperativa,AdminTecnico")]
 public class FaenamientoController(
     IFaenamientoService service,
     IValidator<RegistrarFaenamientoBatchDto> batchValidator,

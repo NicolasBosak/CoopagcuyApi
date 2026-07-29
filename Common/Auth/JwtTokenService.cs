@@ -38,7 +38,9 @@ public class JwtTokenService(IConfiguration configuration) : IJwtTokenService
             issuer: configuration["Jwt:Issuer"],
             audience: configuration["Jwt:Audience"],
             claims: claims,
-            expires: DateTime.UtcNow.AddHours(10),
+            // Vida corta: la sesión de 7 días la sostiene el refresh token
+            // (cookie httpOnly). Un access token filtrado caduca solo.
+            expires: DateTime.UtcNow.AddHours(4),
             signingCredentials: credenciales);
 
         return new JwtSecurityTokenHandler().WriteToken(token);

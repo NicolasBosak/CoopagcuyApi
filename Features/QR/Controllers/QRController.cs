@@ -36,7 +36,7 @@ public class QRController(IQRService service) : ControllerBase
     /// Consulta el QR registrado de un lote.
     /// </summary>
     [HttpGet("{codigoLote}")]
-    [Authorize]
+    [Authorize(Roles = "OperadorFaenamiento,AdminCooperativa,AdminTecnico")]
     public async Task<IActionResult> Obtener(string codigoLote)
     {
         var resultado = await service.ObtenerPorCodigoLoteAsync(codigoLote);
@@ -47,7 +47,7 @@ public class QRController(IQRService service) : ControllerBase
     /// Descarga el PNG del QR para impresión en etiqueta — RF-405.
     /// </summary>
     [HttpGet("{codigoLote}/png")]
-    [Authorize]
+    [Authorize(Roles = "OperadorFaenamiento,AdminCooperativa,AdminTecnico")]
     public async Task<IActionResult> DescargarPng(string codigoLote)
     {
         var bytes = await service.DescargarQRPngAsync(codigoLote);

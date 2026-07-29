@@ -1,3 +1,5 @@
+using CoopagcuyApi.Common;
+using CoopagcuyApi.Common.Auth;
 using CoopagcuyApi.Features.Productoras.DTOs;
 using CoopagcuyApi.Features.Productoras.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -14,13 +16,21 @@ namespace CoopagcuyApi.Features.Productoras.Controllers;
 [Authorize(Roles = "OperadorCAT,AdminCooperativa,AdminTecnico")]
 public class PagosController(IPagoService service) : ControllerBase
 {
+    // CAT al que está acotado el operador (null = admin, sin restricción)
+    private CentroAcopio? FiltroCat() =>
+        Enum.TryParse<CentroAcopio>(User.CatRestringido(), out var c) ? c : null;
+
     [HttpPost]
     public async Task<IActionResult> Registrar([FromBody] RegistrarPagoDto dto)
     {
         try
         {
-            var resultado = await service.RegistrarAsync(dto);
+            var resultado = await service.RegistrarAsync(dto, FiltroCat());
             return CreatedAtAction(nameof(Listar), null, resultado);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { mensaje = ex.Message });
         }
         catch (KeyNotFoundException ex)
         {
@@ -38,7 +48,7 @@ public class PagosController(IPagoService service) : ControllerBase
         [FromQuery] DateTime? desde,
         [FromQuery] DateTime? hasta)
     {
-        var resultado = await service.ListarAsync(productoraId, desde, hasta);
+        var resultado = await service.ListarAsync(productoraId, desde, hasta, FiltroCat());
         return Ok(resultado);
     }
 
@@ -51,7 +61,14 @@ public class PagosController(IPagoService service) : ControllerBase
     [HttpGet("lotes-pendientes/{productoraId:int}")]
     public async Task<IActionResult> LotesPendientes(int productoraId)
     {
-        var resultado = await service.ListarLotesPendientesAsync(productoraId);
-        return Ok(resultado);
+        try
+        {
+            var resultado = await service.ListarLotesPendientesAsync(productoraId, FiltroCat());
+            return Ok(resultado);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { mensaje = ex.Message });
+        }
     }
 }

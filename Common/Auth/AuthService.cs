@@ -5,7 +5,10 @@ namespace CoopagcuyApi.Common.Auth;
 
 public interface IAuthService
 {
-    Task<LoginResponseDto?> LoginAsync(LoginRequestDto dto);
+    // Devuelve el par de tokens (access + refresh) o null si las
+    // credenciales no son válidas. El controlador coloca el refresh en cookie.
+    Task<AuthTokensResultado?> LoginAsync(
+        LoginRequestDto dto, string? userAgent, string? ip);
     Task<bool> ExistenUsuariosAsync();
     Task<Usuario> CrearUsuarioInicialAsync(
         string nombre, string cedula, string? email, string password, RolUsuario rol);
@@ -13,7 +16,7 @@ public interface IAuthService
 
 public class AuthService(
     AppDbContext db,
-    IJwtTokenService tokenService) : IAuthService
+    ISesionService sesionService) : IAuthService
 {
     // Hash señuelo generado al arrancar: la verificación se ejecuta aunque
     // la cédula no exista, para no revelar qué cédulas están registradas
@@ -21,7 +24,8 @@ public class AuthService(
     private static readonly string HashSenuelo =
         BCrypt.Net.BCrypt.HashPassword(Guid.NewGuid().ToString());
 
-    public async Task<LoginResponseDto?> LoginAsync(LoginRequestDto dto)
+    public async Task<AuthTokensResultado?> LoginAsync(
+        LoginRequestDto dto, string? userAgent, string? ip)
     {
         // No se valida el formato aquí: el identificador es lo que esté
         // almacenado, para nunca dejar fuera a un usuario existente
@@ -36,16 +40,8 @@ public class AuthService(
         if (usuario is null || !passwordValida)
             return null;
 
-        var token = tokenService.GenerarToken(usuario);
-
-        return new LoginResponseDto(
-            Token: token,
-            NombreCompleto: usuario.NombreCompleto,
-            Cedula: usuario.Cedula,
-            Rol: usuario.Rol.ToString(),
-            CatAsignado: usuario.CatAsignado?.ToString(),
-            Expira: DateTime.UtcNow.AddHours(10)
-        );
+        return await sesionService.EmitirAsync(
+            usuario, dto.DispositivoId, userAgent, ip);
     }
 
     public Task<bool> ExistenUsuariosAsync() => db.Usuarios.AnyAsync();

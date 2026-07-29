@@ -30,6 +30,11 @@ public class RegistrarEntregaDto
 {
     public CentroAcopio CentroAcopio { get; set; }
     public int ProductoraId { get; set; }
+    // Captura offline sin catálogo: cuando el dispositivo no tiene el Id de
+    // la productora, envía su cédula y el servidor la resuelve al sincronizar.
+    // Si la cédula es válida pero no coincide con ninguna productora del
+    // centro, la entrega va a la bandeja de vinculación.
+    public string? CedulaProductora { get; set; }
     // Momento de captura sellado por la tablet, no editable por la operadora.
     // Solo se usa en el sync offline —donde es obligatorio— porque la entrega
     // pudo capturarse días antes de recuperar señal. En línea lo sella el
@@ -107,6 +112,8 @@ public record SyncResultadoDto(
     int TotalGuardados,
     int TotalDuplicados,
     int TotalConError,
+    // Entregas con cédula válida sin productora: encoladas en la bandeja
+    int TotalPendientesVinculacion,
     List<SyncItemResultadoDto> Resultados
 );
 
@@ -116,8 +123,30 @@ public record SyncItemResultadoDto(
     // La entrega ya se había sincronizado en un intento anterior:
     // se ignora sin duplicar animales y el cliente la marca como lista
     bool Duplicada,
+    // Cédula válida sin productora en el centro: la entrega quedó en la
+    // bandeja de vinculación. El cliente la marca "en revisión" y no la
+    // reenvía; un administrador la asigna a la productora correcta.
+    bool PendienteVinculacion,
     string? Motivo
 );
+
+// ── Bandeja de vinculación (admin) ────────────────────────────────────
+
+public record VinculacionPendienteDto(
+    int Id,
+    string Cedula,
+    string CentroAcopio,
+    DateTime FechaCaptura,
+    bool EnAyunas,
+    string ResponsableRecepcion,
+    string? Observaciones,
+    int CantidadCuyes,
+    decimal PesoTotalGramos,
+    string DispositivoId,
+    DateTime FechaCreacion
+);
+
+public record ResolverVinculacionDto(int ProductoraId);
 
 // ── Movilización CAT → planta (eslabón transporte) ────────────────────
 

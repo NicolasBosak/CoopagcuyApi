@@ -29,6 +29,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<LoteFaenado> LotesFaenados => Set<LoteFaenado>();
     public DbSet<SyncEntregaProcesada> SyncEntregasProcesadas => Set<SyncEntregaProcesada>();
     public DbSet<DespachoCuy> DespachoCuys => Set<DespachoCuy>();
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+    public DbSet<EntregaPendienteVinculacion> EntregasPendientesVinculacion =>
+        Set<EntregaPendienteVinculacion>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -295,6 +298,45 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasIndex(s => new { s.DispositivoId, s.IdCliente }).IsUnique();
             e.Property(s => s.DispositivoId).HasMaxLength(100).IsRequired();
             e.Property(s => s.IdCliente).HasMaxLength(100).IsRequired();
+        });
+
+        // Refresh token / sesión persistente. Solo se guarda el HASH del
+        // token (nunca el valor en claro), con índice único para la búsqueda
+        // por hash en cada refresh.
+        modelBuilder.Entity<RefreshToken>(e =>
+        {
+            e.HasKey(t => t.Id);
+            e.HasIndex(t => t.TokenHash).IsUnique();
+            e.HasIndex(t => t.UsuarioId);
+            e.Property(t => t.TokenHash).HasMaxLength(64).IsRequired();
+            e.Property(t => t.DispositivoId).HasMaxLength(100);
+            e.Property(t => t.UserAgent).HasMaxLength(300);
+            e.Property(t => t.IpCreacion).HasMaxLength(60);
+            e.Property(t => t.ReemplazadoPorHash).HasMaxLength(64);
+            e.Ignore(t => t.EstaActivo);
+            e.HasOne(t => t.Usuario)
+             .WithMany()
+             .HasForeignKey(t => t.UsuarioId)
+             .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Entrega capturada offline cuya cédula es válida pero no coincide
+        // con ninguna productora: queda en cuarentena hasta que un admin la
+        // vincule desde la bandeja. El detalle de cuyes viaja como JSON.
+        modelBuilder.Entity<EntregaPendienteVinculacion>(e =>
+        {
+            e.HasKey(v => v.Id);
+            // La misma pareja (dispositivo, idCliente) no puede encolarse dos
+            // veces: idempotencia del sync también para las pendientes.
+            e.HasIndex(v => new { v.DispositivoId, v.IdCliente }).IsUnique();
+            e.Property(v => v.Cedula).HasMaxLength(10).IsRequired();
+            e.Property(v => v.CentroAcopio).HasConversion<string>();
+            e.Property(v => v.ResponsableRecepcion).HasMaxLength(150).IsRequired();
+            e.Property(v => v.Observaciones).HasMaxLength(500);
+            e.Property(v => v.DispositivoId).HasMaxLength(100).IsRequired();
+            e.Property(v => v.IdCliente).HasMaxLength(100).IsRequired();
+            e.Property(v => v.CuyesJson).IsRequired();
+            e.Property(v => v.Estado).HasConversion<string>();
         });
 
         // Comunidad — catálogo gestionable RF-102 / RF-506
