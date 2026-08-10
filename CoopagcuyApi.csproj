@@ -12,6 +12,13 @@
     <Content Remove="Controllers\**" />
     <EmbeddedResource Remove="Controllers\**" />
     <None Remove="Controllers\**" />
+    <!-- El proyecto de pruebas vive dentro del árbol de este proyecto; sin
+         esta exclusión el glob implícito del SDK ("**/*.cs") compilaría
+         también sus archivos aquí, duplicando símbolos -->
+    <Compile Remove="tests\**" />
+    <Content Remove="tests\**" />
+    <EmbeddedResource Remove="tests\**" />
+    <None Remove="tests\**" />
   </ItemGroup>
 
   <ItemGroup>
