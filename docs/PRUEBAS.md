@@ -30,12 +30,13 @@ compilar nada.
 
     docker compose -f docker-compose.tests.yml down
 
-Basta con `down` a secas. El `-v` borraría también el volumen
-`nuget-cache` (no solo el de Postgres), y la próxima corrida volvería a
-tardar minutos descargando paquetes — los datos de Postgres ya son
-efímeros (`tmpfs`), así que `-v` no protege nada que no se pierda solo al
-apagar el contenedor. Si alguna vez hace falta forzar un caché de NuGet
-limpio (por ejemplo, tras un cambio de versión de paquetes), ahí sí:
+Basta con `down` a secas. Postgres no tiene volumen propio que perder: usa
+`tmpfs`, así que sus datos ya desaparecen al apagar el contenedor, con o
+sin `-v`. El único volumen nombrado que existe en este compose es
+`nuget-cache`, y ese sí lo borraría el `-v` — obligando a la próxima
+corrida a volver a descargar los paquetes NuGet desde cero. Si alguna vez
+hace falta forzar ese caché limpio (por ejemplo, tras un cambio de versión
+de paquetes), ahí sí:
 
     docker compose -f docker-compose.tests.yml down -v
 
@@ -46,6 +47,13 @@ limpio (por ejemplo, tras un cambio de versión de paquetes), ahí sí:
 - Las migraciones se aplican una vez por corrida (al arrancar la primera
   clase de prueba); entre pruebas se truncan las tablas con Respawn,
   excepto `__EFMigrationsHistory`.
+- Se usa Respawn (truncar tablas) y no el patrón habitual de envolver cada
+  prueba en una transacción con rollback. La razón está en
+  `BaseDatosFixture.cs`: el código de producción abre sus propias
+  transacciones dentro de `CreateExecutionStrategy`, y anidar una
+  transacción de prueba alrededor de esas no funciona — el rollback de
+  afuera no deshace lo que la aplicación ya confirmó por dentro. Por eso
+  Respawn, que trunca en vez de hacer rollback.
 - Las clases de prueba comparten una sola `ApiFactory` (ver
   `ColeccionApi`) y por tanto **no corren en paralelo**: al compartir una
   única base de datos, la limpieza de una prueba borraría los datos de
