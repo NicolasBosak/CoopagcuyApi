@@ -1,0 +1,127 @@
+name: Seguridad
+
+# En Pull Request los hallazgos bloquean; en push a main o develop solo
+# informan, para no dejar al proyecto sin poder desplegar un arreglo urgente.
+# Excepción: el escaneo de secretos bloquea siempre (ver más abajo).
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+    branches: [develop, main]
+  schedule:
+    - cron: "0 7 * * 1"   # lunes 07:00 UTC
+  workflow_dispatch:
+
+jobs:
+  escaneo:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Dependencias vulnerables (NuGet, vía Trivy) ────────────────────
+      # `--ignore-unfixed`: no tiene sentido bloquear por una CVE sin parche
+      # disponible. Falla solo en PR: en push a main/develop queremos
+      # enterarnos, no quedarnos sin poder desplegar un arreglo urgente.
+      # Necesita los packages.lock.json de la Tarea 8 (raíz y tests/) para
+      # ver el árbol transitivo; sin ellos este paso no encontraría nada.
+      - name: Trivy sobre el sistema de archivos
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          format: sarif
+          output: trivy-fs.sarif
+          exit-code: ${{ github.event_name == 'pull_request' && '1' || '0' }}
+
+      # ── Secretos commiteados ────────────────────────────────────────────
+      # Cualquier hallazgo bloquea, incluso en push: una cadena de conexión
+      # de Neon o una Jwt:Key en el historial es una emergencia, no un aviso.
+      - name: Trivy sobre secretos
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: secret
+          format: table
+          exit-code: "1"
+
+      # ── Malas prácticas del Dockerfile ──────────────────────────────────
+      # Puramente informativo: no bloquea en ningún evento.
+      - name: Trivy sobre configuración
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: config
+          scan-ref: .
+          format: table
+          exit-code: "0"
+
+      # Se sube siempre, también si el paso de fs falló: el reporte es
+      # justamente lo que hace falta para diagnosticar. El repositorio es
+      # público, así que subir SARIF a la pestaña Security no tiene coste.
+      - name: Publicar hallazgos
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-fs.sarif
+          category: trivy-fs
+
+      # ── Segunda opinión con la herramienta nativa de .NET ───────────────
+      # Nada de CoopagcuyApi.slnx: ese formato exige SDK 9.0.200+ y aquí se
+      # usa 8.0.x, falla con MSB4068 (ya tropezamos con esto en las Tareas 3,
+      # 7, 8 y 10). Se usan rutas de proyecto explícitas.
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      # `dotnet list package --vulnerable` opera sobre un proyecto, y los dos
+      # proyectos del repo no son equivalentes: CoopagcuyApi.csproj es lo que
+      # se despliega, así que sus vulnerabilidades sí bloquean en Pull
+      # Request. Mismo criterio que se aplicará en el front con
+      # `pnpm audit --prod`: se bloquea por lo que se sirve, no por las
+      # herramientas de desarrollo.
+      #
+      # `if` explícito y no `[ ... ] && exit 1`: el shell de Actions corre
+      # con `bash -e` y una comparación falsa en una lista `&&` es una fuente
+      # clásica de gates que fallan (o no) por accidente.
+      - name: Auditoría de paquetes NuGet (API)
+        run: |
+          dotnet restore CoopagcuyApi.csproj
+          salida=$(dotnet list CoopagcuyApi.csproj package --vulnerable --include-transitive)
+          echo "$salida"
+          {
+            echo '### Paquetes NuGet vulnerables — API (CoopagcuyApi.csproj)'
+            echo '```'
+            echo "$salida"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if echo "$salida" | grep -q "has the following vulnerable packages"; then
+            echo "Se encontraron paquetes vulnerables en la API."
+            if [ "${{ github.event_name }}" = "pull_request" ]; then
+              exit 1
+            fi
+          fi
+
+      # tests/CoopagcuyApi.Tests.csproj nunca llega a producción: se audita
+      # igual (para tener visibilidad de su árbol de dependencias), pero el
+      # resultado es puramente informativo y nunca bloquea. `if: always()`
+      # para que el resumen se publique aunque el paso anterior haya fallado.
+      - name: Auditoría de paquetes NuGet (pruebas, informativo)
+        if: always()
+        run: |
+          dotnet restore tests/CoopagcuyApi.Tests/CoopagcuyApi.Tests.csproj
+          salida=$(dotnet list tests/CoopagcuyApi.Tests/CoopagcuyApi.Tests.csproj package --vulnerable --include-transitive)
+          echo "$salida"
+          {
+            echo '### Paquetes NuGet vulnerables — pruebas (informativo, no bloquea)'
+            echo '```'
+            echo "$salida"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
