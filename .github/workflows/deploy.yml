@@ -1,7 +1,9 @@
 name: Desplegar API
 
 # develop -> staging (automático); main -> producción (con aprobación).
-# Los Pull Requests solo compilan (job build-test), no despliegan.
+# Los Pull Requests compilan (job build-test) y escanean la imagen Docker
+# (job scan-image-pr, que sí bloquea el merge ante HIGH/CRITICAL parcheable);
+# no despliegan.
 on:
   push:
     branches: [develop, main]
@@ -65,6 +67,52 @@ jobs:
           name: resultados-pruebas
           path: artefactos/
 
+  # ── 1b. Escaneo de la imagen en Pull Request (bloqueante) ────────────
+  # Independiente de build-test a propósito: build-test valida el código con
+  # dotnet test, este job valida la imagen Docker ya armada (capas del SO +
+  # runtime publicado), son verificaciones distintas que no comparten pasos.
+  # Correrlos en paralelo (sin "needs") da retroalimentación más rápida en el
+  # PR y evita complicar el grafo de dependencias solo para ahorrar un build
+  # de imagen que de por sí ya es rápido.
+  #
+  # Este es el único punto del workflow donde el escaneo Trivy de la imagen
+  # bloquea de verdad: el mismo paso dentro de "deploy" solo corre en push y
+  # ahí es informativo (ver el comentario en ese job).
+  scan-image-pr:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read   # no publica nada, no necesita login a ghcr.io
+    steps:
+      - uses: actions/checkout@v4
+
+      # ghcr.io exige el nombre del repositorio en minúsculas; aquí solo se
+      # usa como tag local para la imagen que se escanea, nunca se publica.
+      - name: Calcular nombre de imagen
+        run: echo "IMAGE=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+
+      # Se construye SIN publicar: este job nunca hace login ni push a ghcr.io
+      - name: Construir imagen
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: ${{ env.IMAGE }}:${{ github.sha }}
+
+      - name: Trivy sobre la imagen
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.IMAGE }}:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          # Sin esto, una CVE de Debian sin parche disponible dejaría al
+          # proyecto sin poder mergear ni siquiera un hotfix
+          ignore-unfixed: true
+          format: table
+          # Aquí sí bloquea: en PR es donde la política del plan exige
+          # detener el merge ante un HIGH/CRITICAL parcheable.
+          exit-code: "1"
+
   # ── 2. Migraciones + despliegue (solo en push a develop/main) ────────
   deploy:
     needs: build-test
@@ -103,6 +151,12 @@ jobs:
       # Escaneo de la imagen ya construida (distinto del escaneo de
       # filesystem/secretos/config de seguridad.yml, que corre sobre el
       # código fuente y no ve capas ni paquetes del sistema instalados).
+      #
+      # Es puramente INFORMATIVO: no bloquea. El "deploy" solo corre en push
+      # (ver el "if" del job), nunca en pull_request, así que bloquear aquí
+      # detendría un despliegue ya aprobado y en curso, no un merge. El gate
+      # que sí bloquea vive en el job "scan-image-pr", que corre en el PR
+      # antes de que el código llegue a esta rama.
       - name: Trivy sobre la imagen
         uses: aquasecurity/trivy-action@0.28.0
         with:
@@ -112,10 +166,7 @@ jobs:
           # proyecto sin poder desplegar ni siquiera un hotfix
           ignore-unfixed: true
           format: table
-          # Este job solo corre en push (ver el "if" del job), así que en la
-          # práctica siempre evalúa a '0': el gate real ocurriría si algún
-          # día este job también corriera en pull_request.
-          exit-code: ${{ github.event_name == 'pull_request' && '1' || '0' }}
+          exit-code: "0"
 
       # Se etiqueta y publica recién aquí, después de que el escaneo dio luz
       # verde: es la misma imagen cargada arriba (mismo tag de SHA), no una
