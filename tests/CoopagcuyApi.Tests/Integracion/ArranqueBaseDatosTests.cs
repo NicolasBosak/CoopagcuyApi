@@ -1,4 +1,6 @@
 using System.Net;
+using CoopagcuyApi.Common;
+using CoopagcuyApi.Features.Catalogos.Models;
 using CoopagcuyApi.Tests.Infra;
 using Microsoft.EntityFrameworkCore;
 using Shouldly;
@@ -25,11 +27,34 @@ public class ArranqueBaseDatosTests(ApiFactory api) : IAsyncLifetime
     [Fact]
     public async Task Respawn_dejaLaBaseVacia_antesDeCadaPrueba()
     {
-        await using var db = api.NuevoDbContext();
+        // Comunidad no tiene dependencias hacia otras tablas (ver
+        // Features/Catalogos/Models/Comunidad.cs: Id, Nombre, Canton,
+        // CatReferencia y Activa, sin claves foráneas), así que se puede
+        // insertar directamente sin sembrar el resto del grafo.
+        await using (var db = api.NuevoDbContext())
+        {
+            db.Comunidades.Add(new Comunidad
+            {
+                Nombre = "Comunidad de prueba",
+                Canton = "Santa Isabel",
+                CatReferencia = CentroAcopio.PAT
+            });
+            await db.SaveChangesAsync();
+        }
 
-        // InitializeAsync ya corrió la limpieza
-        (await db.Productoras.CountAsync()).ShouldBe(0);
-        (await db.Lotes.CountAsync()).ShouldBe(0);
+        await using (var dbConFila = api.NuevoDbContext())
+            (await dbConFila.Comunidades.CountAsync()).ShouldBe(1);
+
+        await api.LimpiarAsync();
+
+        await using var dbLimpia = api.NuevoDbContext();
+        (await dbLimpia.Comunidades.CountAsync()).ShouldBe(0);
+
+        // El historial de migraciones debe sobrevivir al truncado de
+        // Respawn (TablesToIgnore en BaseDatosFixture); si Respawn lo
+        // arrasara, GetAppliedMigrationsAsync volvería vacío y la próxima
+        // limpieza fallaría en silencio, no con un error claro.
+        (await dbLimpia.Database.GetAppliedMigrationsAsync()).ShouldNotBeEmpty();
     }
 
     [Fact]
@@ -44,6 +69,39 @@ public class ArranqueBaseDatosTests(ApiFactory api) : IAsyncLifetime
     public async Task EndpointProtegido_conTokenDeAdmin_responde200()
     {
         var respuesta = await api.ComoAdmin().GetAsync("/api/productoras");
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task ComoOperadorCat_conCatEnMayusculas_esAceptadoPorElEndpointDeSuCat()
+    {
+        // Contrato de ComoOperadorCat: el argumento es el nombre del enum
+        // CentroAcopio en MAYÚSCULAS ("PAT", "NIE", "HUE", "NAB", "PEL" —
+        // Common/Enums.cs). Este endpoint compara el claim "cat" contra el
+        // prefijo del código de lote con comparación de texto exacta
+        // (RecepcionController.CatNoAutorizado: catOperador != cat.ToString()),
+        // así que un token con el CAT mal formado (p. ej. en minúsculas) no
+        // fallaría con 403: caería en la rama de "CAT no coincide" con un
+        // mensaje engañoso, o peor, en otros endpoints con Enum.TryParse
+        // degradaría en silencio a "sin restricción" (ver
+        // ReportesController.Dashboard). Aquí se fija el formato correcto.
+        var respuesta = await api.ComoOperadorCat("PAT")
+            .PostAsync("/api/recepcion/lotes/PAT-99999999-999/cerrar", null);
+
+        // La base está vacía: el lote no existe. Un 404 (en vez de 401/403)
+        // demuestra que el rol y el CAT del token pasaron la autorización.
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task ComoOperadorFaenamiento_esAceptadoPorElEndpointDeFaenamiento()
+    {
+        // FaenamientoController restringe la clase entera a
+        // OperadorFaenamiento/AdminCooperativa/AdminTecnico; un OperadorCAT
+        // no debe poder leer aquí ni siquiera un listado vacío.
+        var respuesta = await api.ComoOperadorFaenamiento()
+            .GetAsync("/api/faenamiento/lotes-disponibles");
 
         respuesta.StatusCode.ShouldBe(HttpStatusCode.OK);
     }

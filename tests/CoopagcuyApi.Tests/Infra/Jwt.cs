@@ -19,14 +19,18 @@ public static class Jwt
     // Jwt__Audience, así que solo hay una fuente de verdad.
 
     public static string Emitir(string rol, string? cat = null,
-        string cedula = "0102030405")
+        string cedula = "0102030400")
     {
         // Nombres de claims confirmados en Common/Auth/JwtTokenService.cs:
         // ClaimTypes.Role para el rol, "cat" para el centro de acopio y
-        // "cedula" para la cédula.
+        // "cedula" para la cédula. ClaimTypes.NameIdentifier se añade además
+        // de Sub porque UsuariosController lee el id de usuario con
+        // User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "0": sin este
+        // claim, esa lectura degrada en silencio a "0" en vez de fallar.
         var claims = new List<Claim>
         {
             new(ClaimTypes.Role, rol),
+            new(ClaimTypes.NameIdentifier, "1"),
             new("cedula", cedula),
             new(JwtRegisteredClaimNames.Sub, "1")
         };
