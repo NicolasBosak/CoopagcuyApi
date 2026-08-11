@@ -25,4 +25,9 @@ RUN apt-get update && apt-get install -y fontconfig fonts-liberation && rm -rf /
 ENV ASPNETCORE_ENVIRONMENT=Production
 EXPOSE 8080
 
+# Correr como root dentro del contenedor no aporta nada aquí y amplía el daño
+# de cualquier ejecución remota de código. La imagen aspnet:8.0 ya trae el
+# usuario "app" (UID 1654) creado por Microsoft.
+USER app
+
 ENTRYPOINT ["dotnet", "CoopagcuyApi.dll"]
