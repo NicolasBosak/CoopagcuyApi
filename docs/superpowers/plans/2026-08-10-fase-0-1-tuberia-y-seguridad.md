@@ -1793,6 +1793,32 @@ primera vez CodeQL y Trivy (que pueden tardar y arrojar hallazgos iniciales).
 
 ---
 
+## Correcciones descubiertas al ejecutar el plan
+
+Este apartado se escribió **durante** la ejecución. Recoge los puntos donde el
+texto de arriba resultó equivocado. **Los planes de las fases 2 a 5 deben partir
+de estas correcciones, no del texto original.**
+
+| # | Lo que decía el plan | La realidad | Dónde afecta |
+|---|---|---|---|
+| 1 | La cédula `0102030405` es un caso válido | **No pasa el módulo 10.** La válida para ese prefijo es `0102030400` | Tareas 2 y 5. Se coló dos veces; en el fixture de cédulas de la Fase 2, calcular cada dato con el algoritmo, no a ojo |
+| 2 | `dotnet test CoopagcuyApi.slnx` | El formato `.slnx` exige SDK **9.0.200+** y aquí corre el SDK 8 (`MSB4068`). Subir la imagen a `sdk:10` no vale: no trae el runtime `net8.0`. Se apunta al csproj de pruebas, que arrastra al API por referencia | Tareas 3, 7, 8 y 12 |
+| 3 | `WebApplicationFactory` configura la app con `ConfigureAppConfiguration` + `AddInMemoryCollection` | **No funciona.** `Program.cs` usa top-level statements y lee sus **siete** claves de configuración (líneas 29, 41, 45, 57, 58, 170, 189) *antes* de `builder.Build()` (línea 218). `ApiFactory` fija variables de entorno reales en un constructor estático | Tarea 4, y todo lo que dependa de redirigir la cadena de conexión |
+| 4 | `Infra/Jwt.cs` duplica emisor y audiencia como constantes privadas | Se consumen `ApiFactory.EmisorJwt` y `ApiFactory.AudienciaJwt` para no tener dos fuentes de verdad | Tarea 5 |
+| 5 | El token de prueba emite `sub` | Producción emite además `ClaimTypes.NameIdentifier`, y `UsuariosController` lo lee con `?? "0"`: sin él, el id de usuario sale mal **en silencio** | Tarea 5 |
+| 6 | La prueba de Respawn cuenta filas en tablas vacías | **No probaba nada**: pasaría igual con la limpieza desactivada. Ahora inserta, limpia y verifica que desapareció, además de comprobar que `__EFMigrationsHistory` sobrevive | Tarea 5 |
+| 7 | `docker compose … down -v` como comando de limpieza habitual | El `-v` borra el volumen `nuget-cache` y la corrida siguiente vuelve a tardar minutos. Los datos de Postgres ya son `tmpfs`, así que basta `down` a secas | Tarea 6 (la guía) |
+
+### Un contrato que la Fase 3 debe respetar
+
+`Enum.TryParse<CentroAcopio>` es **sensible a mayúsculas**
+(`Features/Reportes/Controllers/ReportesController.cs`). Por tanto
+`ApiFactory.ComoOperadorCat(cat)` exige el nombre del enum en mayúsculas
+(`PAT`, `NIE`, `HUE`, `NAB`, `PEL`). Pasarle `"pat"` **no falla**: degrada en
+silencio a "sin restricción de centro", que es exactamente el fallo que las
+pruebas de segmentación por CAT deben detectar. Hay una prueba que fija ese
+contrato; no la borres.
+
 ## Qué queda fuera de estas dos fases
 
 Cada una tendrá su propio plan, escrito cuando esta esté en verde:
