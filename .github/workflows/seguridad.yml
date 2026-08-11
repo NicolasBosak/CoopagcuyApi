@@ -22,6 +22,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # ── Secretos commiteados ────────────────────────────────────────────
+      # Primer paso del job, y a propósito: es el único escaneo "bloquea
+      # siempre" (una cadena de conexión de Neon o una Jwt:Key en el
+      # historial es una emergencia, no un aviso), así que no puede quedar
+      # detrás de un paso que puede fallar. GitHub Actions salta el resto de
+      # los pasos de un job en cuanto uno falla, a menos que ese paso
+      # siguiente lleve su propio `if:` — y antes de este cambio, el gate de
+      # secretos vivía DESPUÉS de los dos escaneos de dependencias, así que
+      # un HIGH/CRITICAL en el paso "Trivy fs — API" (que sí bloquea en PR)
+      # hacía que el escaneo de secretos ni siquiera se ejecutara: un PR con
+      # una CVE y una clave commiteada a la vez pasaba el gate de secretos en
+      # silencio. Poniéndolo primero, el escaneo de secretos corre siempre
+      # que el checkout tenga éxito, sin depender de `if:` en absoluto. Todos
+      # los pasos que vienen después de este sí lo necesitan (`if: always()`)
+      # para no heredar el mismo problema si ESTE paso falla.
+      - name: Trivy sobre secretos
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: secret
+          format: table
+          exit-code: "1"
+
       # ── Dependencias vulnerables (NuGet, vía Trivy) ────────────────────
       # Se bloquea por lo que llega a producción, no por herramientas de
       # desarrollo: las dependencias de pruebas nunca se sirven al usuario, y
@@ -36,7 +60,12 @@ jobs:
       # Trivy que usa la acción por debajo: ambos mecanismos (scan-ref a un
       # archivo, y "." + --skip-dirs) funcionan igual de bien; se documenta
       # la elección, no una limitación.
+      #
+      # `if: always()`: si el escaneo de secretos de arriba falla, este paso
+      # tiene que correr igual — es el único modo de que un hallazgo de
+      # dependencias no quede oculto detrás de un hallazgo de secretos.
       - name: Trivy sobre el sistema de archivos — API (bloquea)
+        if: always()
         uses: aquasecurity/trivy-action@0.28.0
         with:
           scan-type: fs
@@ -54,6 +83,7 @@ jobs:
       # aparecen hoy aquí quedan como deuda registrada en el reporte de esta
       # tarea, no se arreglan en este cambio.
       - name: Trivy sobre el sistema de archivos — pruebas (informativo)
+        if: always()
         uses: aquasecurity/trivy-action@0.28.0
         with:
           scan-type: fs
@@ -65,21 +95,10 @@ jobs:
           output: trivy-fs-tests.sarif
           exit-code: "0"
 
-      # ── Secretos commiteados ────────────────────────────────────────────
-      # Cualquier hallazgo bloquea, incluso en push: una cadena de conexión
-      # de Neon o una Jwt:Key en el historial es una emergencia, no un aviso.
-      - name: Trivy sobre secretos
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          scan-type: fs
-          scan-ref: .
-          scanners: secret
-          format: table
-          exit-code: "1"
-
       # ── Malas prácticas del Dockerfile ──────────────────────────────────
       # Puramente informativo: no bloquea en ningún evento.
       - name: Trivy sobre configuración
+        if: always()
         uses: aquasecurity/trivy-action@0.28.0
         with:
           scan-type: config
@@ -112,7 +131,17 @@ jobs:
       # Nada de CoopagcuyApi.slnx: ese formato exige SDK 9.0.200+ y aquí se
       # usa 8.0.x, falla con MSB4068 (ya tropezamos con esto en las Tareas 3,
       # 7, 8 y 10). Se usan rutas de proyecto explícitas.
+      #
+      # `if: always()`: este paso es un prerrequisito de las dos auditorías
+      # NuGet de más abajo, que ya llevaban `if: always()` (o lo necesitan)
+      # para no depender de que los Trivy de arriba salieran limpios. Sin
+      # este `if:` aquí, un Trivy fallido saltaba este setup-dotnet, y la
+      # auditoría NuGet corría igual (por su propio `if: always()`) pero
+      # contra el SDK que trajera el runner por defecto en vez del 8.0.x
+      # fijado — silenciosamente, sin fallar, solo con resultados que no
+      # corresponden a la versión que se despliega.
       - uses: actions/setup-dotnet@v4
+        if: always()
         with:
           dotnet-version: "8.0.x"
 
@@ -126,9 +155,14 @@ jobs:
       # `if` explícito y no `[ ... ] && exit 1`: el shell de Actions corre
       # con `bash -e` y una comparación falsa en una lista `&&` es una fuente
       # clásica de gates que fallan (o no) por accidente.
+      #
+      # `if: always()` por la misma razón que los pasos de Trivy de más
+      # arriba: este paso también bloquea en Pull Request, así que su
+      # veredicto tiene que emitirse aunque un Trivy anterior haya fallado.
       - name: Auditoría de paquetes NuGet (API)
+        if: always()
         run: |
-          dotnet restore CoopagcuyApi.csproj
+          dotnet restore CoopagcuyApi.csproj -p:RestoreLockedMode=true
           salida=$(dotnet list CoopagcuyApi.csproj package --vulnerable --include-transitive)
           echo "$salida"
           {
@@ -152,7 +186,7 @@ jobs:
       - name: Auditoría de paquetes NuGet (pruebas, informativo)
         if: always()
         run: |
-          dotnet restore tests/CoopagcuyApi.Tests/CoopagcuyApi.Tests.csproj
+          dotnet restore tests/CoopagcuyApi.Tests/CoopagcuyApi.Tests.csproj -p:RestoreLockedMode=true
           salida=$(dotnet list tests/CoopagcuyApi.Tests/CoopagcuyApi.Tests.csproj package --vulnerable --include-transitive)
           echo "$salida"
           {

@@ -78,14 +78,21 @@ public class ArranqueBaseDatosTests(ApiFactory api) : IAsyncLifetime
     {
         // Contrato de ComoOperadorCat: el argumento es el nombre del enum
         // CentroAcopio en MAYÚSCULAS ("PAT", "NIE", "HUE", "NAB", "PEL" —
-        // Common/Enums.cs). Este endpoint compara el claim "cat" contra el
-        // prefijo del código de lote con comparación de texto exacta
-        // (RecepcionController.CatNoAutorizado: catOperador != cat.ToString()),
-        // así que un token con el CAT mal formado (p. ej. en minúsculas) no
-        // fallaría con 403: caería en la rama de "CAT no coincide" con un
-        // mensaje engañoso, o peor, en otros endpoints con Enum.TryParse
-        // degradaría en silencio a "sin restricción" (ver
-        // ReportesController.Dashboard). Aquí se fija el formato correcto.
+        // Common/Enums.cs). El formato importa porque los dos controladores
+        // que leen el claim "cat" reaccionan distinto a un valor mal
+        // formado (p. ej. en minúsculas):
+        //   - RecepcionController.CatNoAutorizado compara texto exacto
+        //     (catOperador != cat.ToString()), así que un CAT en minúsculas
+        //     SÍ falla, pero con 403 y el mensaje "Tu usuario solo puede
+        //     registrar en el centro pat" en vez de un 401/400 que delate
+        //     que el token está mal formado.
+        //   - ReportesController.Dashboard usa Enum.TryParse<CentroAcopio>,
+        //     que también es sensible a mayúsculas: con un CAT en
+        //     minúsculas el parseo falla, catOperador queda en null y el
+        //     operador ve el dashboard de TODA la cooperativa en vez del de
+        //     su propio centro — una degradación silenciosa, sin error
+        //     alguno. Aquí se fija el formato correcto para no ejercitar
+        //     ninguna de las dos ramas.
         var respuesta = await api.ComoOperadorCat("PAT")
             .PostAsync("/api/recepcion/lotes/PAT-99999999-999/cerrar", null);
 

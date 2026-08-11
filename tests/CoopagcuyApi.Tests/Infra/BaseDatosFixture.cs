@@ -66,17 +66,43 @@ public class BaseDatosFixture
                 await prueba.OpenAsync();
                 return;
             }
+            // 28P01 (contraseña/usuario inválidos) y 3D000 (la base no
+            // existe) no se van a arreglar reintentando: son un error de
+            // configuración, no un Postgres que todavía está arrancando.
+            // Fallar rápido aquí evita quemar los 30 s completos y, sobre
+            // todo, evita el mensaje engañoso de "¿levantaste el compose?"
+            // cuando el contenedor sí está arriba pero mal configurado.
+            catch (PostgresException ex) when (ex.SqlState is "28P01" or "3D000")
+            {
+                var (host, puerto, baseDatos) = DatosDeConexionSinContrasena();
+                throw new InvalidOperationException(
+                    "El Postgres de pruebas respondió pero rechazó la conexión " +
+                    $"(SqlState={ex.SqlState}: {ex.MessageText}). Servidor: " +
+                    $"{host}:{puerto}, base '{baseDatos}'. Revisa usuario, " +
+                    "contraseña y nombre de base en TEST_DB_CONNECTION.", ex);
+            }
             catch (NpgsqlException) when (DateTime.UtcNow < limite)
             {
                 await Task.Delay(500);
             }
             catch (NpgsqlException ex)
             {
+                var (host, puerto, baseDatos) = DatosDeConexionSinContrasena();
                 throw new InvalidOperationException(
-                    "No se pudo conectar al Postgres de pruebas en 30 s. " +
-                    $"TEST_DB_CONNECTION = '{ApiFactory.Cadena}'. " +
+                    "No se pudo conectar al Postgres de pruebas en 30 s. Servidor: " +
+                    $"{host}:{puerto}, base '{baseDatos}' (sin la contraseña: " +
+                    "no va a los logs de un repo público). " +
                     "¿Levantaste docker-compose.tests.yml?", ex);
             }
         }
+    }
+
+    /// Host, puerto y base son lo que hace falta para diagnosticar; la
+    /// contraseña no, y estos mensajes terminan en los logs de un repo
+    /// público vía TEST_DB_CONNECTION.
+    private static (string Host, int Puerto, string BaseDatos) DatosDeConexionSinContrasena()
+    {
+        var builder = new NpgsqlConnectionStringBuilder(ApiFactory.Cadena);
+        return (builder.Host ?? "?", builder.Port, builder.Database ?? "?");
     }
 }
