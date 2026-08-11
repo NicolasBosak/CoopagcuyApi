@@ -18,13 +18,52 @@ jobs:
   # ── 1. Compilación y verificación ───────────────────────────────────
   build-test:
     runs-on: ubuntu-latest
+
+    # Mismo Postgres que docker-compose.tests.yml, publicado en 5433 para que
+    # la cadena por defecto del código de pruebas también sirva aquí.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: coopagcuy_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d coopagcuy_test"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 20
+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "8.0.x"
-      - run: dotnet restore
-      - run: dotnet build -c Release --no-restore
+
+      # Se apunta al csproj de pruebas y no a CoopagcuyApi.slnx: el formato
+      # .slnx solo lo entiende el SDK 9.0.200+ y aquí corre el SDK 8 (igual
+      # que en docker-compose.tests.yml). La referencia de proyecto arrastra
+      # al API, así que también queda compilado.
+      - run: dotnet restore tests/CoopagcuyApi.Tests/CoopagcuyApi.Tests.csproj
+      - run: dotnet build tests/CoopagcuyApi.Tests/CoopagcuyApi.Tests.csproj -c Release --no-restore
+
+      - name: Pruebas
+        env:
+          TEST_DB_CONNECTION: "Host=localhost;Port=5433;Database=coopagcuy_test;Username=postgres;Password=postgres"
+        run: >-
+          dotnet test tests/CoopagcuyApi.Tests/CoopagcuyApi.Tests.csproj -c Release --no-build
+          --logger "trx;LogFileName=resultados.trx"
+          --results-directory artefactos
+
+      # Se suben también cuando fallan: es justo cuando hacen falta
+      - name: Publicar resultados
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resultados-pruebas
+          path: artefactos/
 
   # ── 2. Migraciones + despliegue (solo en push a develop/main) ────────
   deploy:
