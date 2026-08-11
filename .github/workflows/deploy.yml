@@ -91,14 +91,40 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Construir y publicar imagen
+      # Se construye SIN publicar para poder escanear antes de exponerla
+      - name: Construir imagen
         uses: docker/build-push-action@v6
         with:
           context: .
-          push: true
-          tags: |
-            ${{ env.IMAGE }}:${{ github.sha }}
-            ${{ env.IMAGE }}:${{ github.ref_name }}
+          push: false
+          load: true
+          tags: ${{ env.IMAGE }}:${{ github.sha }}
+
+      # Escaneo de la imagen ya construida (distinto del escaneo de
+      # filesystem/secretos/config de seguridad.yml, que corre sobre el
+      # código fuente y no ve capas ni paquetes del sistema instalados).
+      - name: Trivy sobre la imagen
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.IMAGE }}:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          # Sin esto, una CVE de Debian sin parche disponible dejaría al
+          # proyecto sin poder desplegar ni siquiera un hotfix
+          ignore-unfixed: true
+          format: table
+          # Este job solo corre en push (ver el "if" del job), así que en la
+          # práctica siempre evalúa a '0': el gate real ocurriría si algún
+          # día este job también corriera en pull_request.
+          exit-code: ${{ github.event_name == 'pull_request' && '1' || '0' }}
+
+      # Se etiqueta y publica recién aquí, después de que el escaneo dio luz
+      # verde: es la misma imagen cargada arriba (mismo tag de SHA), no una
+      # reconstrucción.
+      - name: Publicar imagen
+        run: |
+          docker tag ${{ env.IMAGE }}:${{ github.sha }} ${{ env.IMAGE }}:${{ github.ref_name }}
+          docker push ${{ env.IMAGE }}:${{ github.sha }}
+          docker push ${{ env.IMAGE }}:${{ github.ref_name }}
 
       # ── 2b. Migraciones EF contra la rama Neon del entorno ───────────
       # Corren ANTES de publicar la app: si una migración falla, el
