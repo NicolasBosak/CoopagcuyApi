@@ -23,22 +23,47 @@ jobs:
       - uses: actions/checkout@v4
 
       # ── Dependencias vulnerables (NuGet, vía Trivy) ────────────────────
-      # `--ignore-unfixed`: no tiene sentido bloquear por una CVE sin parche
-      # disponible. Falla solo en PR: en push a main/develop queremos
-      # enterarnos, no quedarnos sin poder desplegar un arreglo urgente.
-      # Necesita los packages.lock.json de la Tarea 8 (raíz y tests/) para
-      # ver el árbol transitivo; sin ellos este paso no encontraría nada.
-      - name: Trivy sobre el sistema de archivos
+      # Se bloquea por lo que llega a producción, no por herramientas de
+      # desarrollo: las dependencias de pruebas nunca se sirven al usuario, y
+      # bloquear por ellas solo enseña al equipo a ignorar el check (mismo
+      # razonamiento que la auditoría nativa de NuGet más abajo, y que el
+      # `pnpm audit --prod` que tendrá el front). Por eso este escaneo se
+      # divide en dos pasos con `scan-ref` apuntando cada uno a un
+      # packages.lock.json distinto (Tarea 8), en vez de escanear "." con
+      # `--skip-dirs tests`: acotar el archivo exacto es más explícito sobre
+      # qué se está bloqueando y no depende de mantener sincronizado un
+      # nombre de carpeta en un flag aparte. Verificado con el binario de
+      # Trivy que usa la acción por debajo: ambos mecanismos (scan-ref a un
+      # archivo, y "." + --skip-dirs) funcionan igual de bien; se documenta
+      # la elección, no una limitación.
+      - name: Trivy sobre el sistema de archivos — API (bloquea)
         uses: aquasecurity/trivy-action@0.28.0
         with:
           scan-type: fs
-          scan-ref: .
+          scan-ref: packages.lock.json
           scanners: vuln
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           format: sarif
-          output: trivy-fs.sarif
+          output: trivy-fs-api.sarif
           exit-code: ${{ github.event_name == 'pull_request' && '1' || '0' }}
+
+      # Mismo árbol de dependencias que ve `dotnet list` sobre el proyecto de
+      # pruebas: se escanea para tener visibilidad, pero nunca bloquea
+      # (exit-code fijo en "0", sin condicionar al evento). Las 3 CVE que
+      # aparecen hoy aquí quedan como deuda registrada en el reporte de esta
+      # tarea, no se arreglan en este cambio.
+      - name: Trivy sobre el sistema de archivos — pruebas (informativo)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: tests/CoopagcuyApi.Tests/packages.lock.json
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          format: sarif
+          output: trivy-fs-tests.sarif
+          exit-code: "0"
 
       # ── Secretos commiteados ────────────────────────────────────────────
       # Cualquier hallazgo bloquea, incluso en push: una cadena de conexión
@@ -62,15 +87,26 @@ jobs:
           format: table
           exit-code: "0"
 
-      # Se sube siempre, también si el paso de fs falló: el reporte es
+      # Se suben siempre, también si algún paso de fs falló: el reporte es
       # justamente lo que hace falta para diagnosticar. El repositorio es
       # público, así que subir SARIF a la pestaña Security no tiene coste.
-      - name: Publicar hallazgos
+      # Ahora hay dos escaneos de sistema de archivos (API y pruebas), así
+      # que cada uno sube con su propia `category`: si compartieran una, el
+      # segundo upload-sarif pisaría al primero en la pestaña Security y se
+      # perdería la mitad de la información.
+      - name: Publicar hallazgos — API
         if: always()
         uses: github/codeql-action/upload-sarif@v3
         with:
-          sarif_file: trivy-fs.sarif
-          category: trivy-fs
+          sarif_file: trivy-fs-api.sarif
+          category: trivy-fs-api
+
+      - name: Publicar hallazgos — pruebas
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-fs-tests.sarif
+          category: trivy-fs-tests
 
       # ── Segunda opinión con la herramienta nativa de .NET ───────────────
       # Nada de CoopagcuyApi.slnx: ese formato exige SDK 9.0.200+ y aquí se
