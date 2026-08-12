@@ -115,14 +115,14 @@ jobs:
       # perdería la mitad de la información.
       - name: Publicar hallazgos — API
         if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-fs-api.sarif
           category: trivy-fs-api
 
       - name: Publicar hallazgos — pruebas
         if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-fs-tests.sarif
           category: trivy-fs-tests
