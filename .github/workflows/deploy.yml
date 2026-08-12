@@ -130,6 +130,55 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # ── 2a. Comprobación previa de la configuración del entorno ──────
+      # Va PRIMERO por una razón concreta: sin esto, un secreto ausente no se
+      # descubre hasta el paso que lo usa, y para entonces el despliegue ya
+      # publicó la imagen y aplicó las migraciones. Eso deja la base de datos
+      # de producción con el esquema nuevo mientras la aplicación sigue
+      # sirviendo el código viejo. Pasó de verdad: faltaban AZURE_CLIENT_ID y
+      # AZURE_TENANT_ID, y el fallo llegó tras migrar la base.
+      #
+      # Solo se comprueba que no estén vacíos; nunca se imprime su valor.
+      - name: Comprobar configuración del entorno
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          NEON_CONNECTION_STRING: ${{ secrets.NEON_CONNECTION_STRING }}
+          JWT_KEY: ${{ secrets.JWT_KEY }}
+          CONTAINERAPP_NAME: ${{ vars.CONTAINERAPP_NAME }}
+          RESOURCE_GROUP: ${{ vars.RESOURCE_GROUP }}
+          API_URL: ${{ vars.API_URL }}
+        run: |
+          faltan=""
+          for nombre in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID \
+                        NEON_CONNECTION_STRING JWT_KEY \
+                        CONTAINERAPP_NAME RESOURCE_GROUP API_URL; do
+            if [ -z "${!nombre:-}" ]; then
+              faltan="$faltan $nombre"
+            fi
+          done
+
+          if [ -n "$faltan" ]; then
+            echo "::error::Faltan en el entorno 'production':$faltan"
+            echo "Configúralos en Settings > Environments > production."
+            echo "Los tres valores AZURE_* los imprime la sección 8 de infra/bootstrap.azcli."
+            exit 1
+          fi
+          echo "Los 8 secretos y variables requeridos están presentes."
+
+      # ── 2b. Login a Azure ────────────────────────────────────────────
+      # Antes de construir y de migrar, no después: autenticar es barato y
+      # falla en segundos, así que si la identidad OIDC está mal configurada
+      # conviene saberlo antes de tocar el registro de imágenes y la base de
+      # datos. El token dura de sobra para el resto del job.
+      - name: Login a Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
       # ghcr.io exige el nombre del repositorio en minúsculas
       - name: Calcular nombre de imagen
         run: echo "IMAGE=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
@@ -179,9 +228,14 @@ jobs:
           docker push ${{ env.IMAGE }}:${{ github.sha }}
           docker push ${{ env.IMAGE }}:${{ github.ref_name }}
 
-      # ── 2b. Migraciones EF contra la rama Neon del entorno ───────────
-      # Corren ANTES de publicar la app: si una migración falla, el
-      # despliegue se detiene y la versión vieja sigue intacta.
+      # ── 2e. Migraciones EF contra la rama Neon de producción ─────────
+      # Corren ANTES de actualizar el Container App: si una migración falla,
+      # el despliegue se detiene y la revisión vieja sigue sirviendo.
+      #
+      # Y corren DESPUÉS del login a Azure (paso 2b) a propósito: migrar deja
+      # la base con el esquema nuevo, así que cualquier cosa que pueda fallar
+      # de forma barata —autenticación, configuración— debe haberse verificado
+      # ya. Si no, un fallo posterior deja la base por delante del código.
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "8.0.x"
@@ -194,13 +248,7 @@ jobs:
           export PATH="$PATH:$HOME/.dotnet/tools"
           dotnet ef database update --project CoopagcuyApi.csproj
 
-      # ── 2c. Actualizar la imagen del Container App ───────────────────
-      - name: Login a Azure
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      # ── 2f. Actualizar la imagen del Container App ───────────────────
       - name: Desplegar nueva revisión
         uses: azure/cli@v2
         with:
