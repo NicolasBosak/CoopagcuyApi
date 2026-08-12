@@ -790,8 +790,8 @@
       },
       "QuestPDF": {
         "type": "Transitive",
-        "resolved": "2024.3.1",
-        "contentHash": "O68YSBL3Ttd+Qc/9uKjr2NAiszKKa71yWmBlvER7zpZZ/aRSZCwse7vv9O1btkQQJVGTJCwTwVhvqGSpj+ioHQ=="
+        "resolved": "2026.7.2",
+        "contentHash": "GSPOoErqB4Yh7mnbV4m/ykHOF6erHdm5qyMRHDr4sjk+fvrtkEL+RoG5YpOqiWrS833jEiktC1Uthyy5/QMNQA=="
       },
       "runtime.debian.8-x64.runtime.native.System.Security.Cryptography.OpenSsl": {
         "type": "Transitive",
@@ -1932,7 +1932,7 @@
           "Microsoft.Extensions.Caching.Memory": "[8.0.1, )",
           "Npgsql.EntityFrameworkCore.PostgreSQL": "[8.0.4, )",
           "QRCoder": "[1.6.0, )",
-          "QuestPDF": "[2024.3.1, )",
+          "QuestPDF": "[2026.7.2, )",
           "Serilog.AspNetCore": "[8.0.1, )",
           "Swashbuckle.AspNetCore": "[6.6.2, )",
           "System.IO.Packaging": "[8.0.1, )",
