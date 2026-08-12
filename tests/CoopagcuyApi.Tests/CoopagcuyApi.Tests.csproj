@@ -18,7 +18,7 @@
          comercial en la v7 y Dependabot la subiría sin avisar -->
     <PackageReference Include="Shouldly" Version="4.2.1" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.4" />
-    <PackageReference Include="Respawn" Version="6.2.1" />
+    <PackageReference Include="Respawn" Version="7.0.0" />
   </ItemGroup>
 
   <ItemGroup>
