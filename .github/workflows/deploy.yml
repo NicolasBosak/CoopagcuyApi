@@ -130,6 +130,95 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # ── 2a. Comprobación previa de la configuración del entorno ──────
+      # Va PRIMERO por una razón concreta: sin esto, un secreto ausente no se
+      # descubre hasta el paso que lo usa, y para entonces el despliegue ya
+      # publicó la imagen y aplicó las migraciones. Eso deja la base de datos
+      # de producción con el esquema nuevo mientras la aplicación sigue
+      # sirviendo el código viejo. Pasó de verdad: faltaban AZURE_CLIENT_ID y
+      # AZURE_TENANT_ID, y el fallo llegó tras migrar la base.
+      #
+      # Solo se comprueba que no estén vacíos; nunca se imprime su valor.
+      - name: Comprobar configuración del entorno
+        id: config
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          NEON_CONNECTION_STRING: ${{ secrets.NEON_CONNECTION_STRING }}
+          JWT_KEY: ${{ secrets.JWT_KEY }}
+          CONTAINERAPP_NAME: ${{ vars.CONTAINERAPP_NAME }}
+          RESOURCE_GROUP: ${{ vars.RESOURCE_GROUP }}
+          API_URL: ${{ vars.API_URL }}
+        run: |
+          # ── Imprescindibles: sin esto no se puede ni construir ni migrar ──
+          faltan=""
+          for nombre in NEON_CONNECTION_STRING JWT_KEY \
+                        CONTAINERAPP_NAME RESOURCE_GROUP API_URL; do
+            if [ -z "${!nombre:-}" ]; then
+              faltan="$faltan $nombre"
+            fi
+          done
+
+          if [ -n "$faltan" ]; then
+            echo "::error::Faltan en el entorno 'production':$faltan"
+            echo "Configúralos en Settings > Environments > production."
+            exit 1
+          fi
+
+          # ── Azure: OPCIONAL, a propósito ─────────────────────────────
+          # Crear la identidad OIDC exige el rol "Application Developer" en el
+          # directorio, y las cuentas de Azure for Students suelen tenerlo
+          # denegado por política del tenant ("Insufficient privileges to
+          # complete the operation" al hacer `az ad app create`).
+          #
+          # Sin esas credenciales el pipeline igual construye, escanea,
+          # publica la imagen y aplica las migraciones; solo queda pendiente
+          # el último paso, que el operador ejecuta a mano con su propia
+          # sesión de az (tener permisos sobre la SUSCRIPCIÓN es suficiente
+          # para eso, aunque no se tengan sobre el DIRECTORIO).
+          #
+          # El día que existan los tres secretos, este mismo workflow pasa a
+          # desplegar solo, sin tocar una línea.
+          azure_faltan=""
+          n_faltan=0
+          n_total=0
+          for nombre in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID; do
+            n_total=$((n_total + 1))
+            if [ -z "${!nombre:-}" ]; then
+              azure_faltan="$azure_faltan $nombre"
+              n_faltan=$((n_faltan + 1))
+            fi
+          done
+
+          if [ "$n_faltan" -eq 0 ]; then
+            echo "azure=true" >> "$GITHUB_OUTPUT"
+            echo "Credenciales de Azure presentes: el despliegue se completa automáticamente."
+          elif [ "$n_faltan" -eq "$n_total" ]; then
+            echo "azure=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Sin credenciales de Azure: el despliegue final queda pendiente (ver el resumen del job)."
+          else
+            # Estar a medias es un error de configuración, no el modo manual:
+            # azure/login fallaría a mitad del despliegue, que es justo lo
+            # que esta comprobación existe para evitar.
+            echo "::error::Configuración de Azure incompleta, faltan:$azure_faltan"
+            echo "Deben estar los tres secretos o ninguno."
+            exit 1
+          fi
+
+      # ── 2b. Login a Azure ────────────────────────────────────────────
+      # Antes de construir y de migrar, no después: autenticar es barato y
+      # falla en segundos, así que si la identidad OIDC está mal configurada
+      # conviene saberlo antes de tocar el registro de imágenes y la base de
+      # datos. El token dura de sobra para el resto del job.
+      - name: Login a Azure
+        if: steps.config.outputs.azure == 'true'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
       # ghcr.io exige el nombre del repositorio en minúsculas
       - name: Calcular nombre de imagen
         run: echo "IMAGE=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
@@ -179,9 +268,14 @@ jobs:
           docker push ${{ env.IMAGE }}:${{ github.sha }}
           docker push ${{ env.IMAGE }}:${{ github.ref_name }}
 
-      # ── 2b. Migraciones EF contra la rama Neon del entorno ───────────
-      # Corren ANTES de publicar la app: si una migración falla, el
-      # despliegue se detiene y la versión vieja sigue intacta.
+      # ── 2e. Migraciones EF contra la rama Neon de producción ─────────
+      # Corren ANTES de actualizar el Container App: si una migración falla,
+      # el despliegue se detiene y la revisión vieja sigue sirviendo.
+      #
+      # Y corren DESPUÉS del login a Azure (paso 2b) a propósito: migrar deja
+      # la base con el esquema nuevo, así que cualquier cosa que pueda fallar
+      # de forma barata —autenticación, configuración— debe haberse verificado
+      # ya. Si no, un fallo posterior deja la base por delante del código.
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "8.0.x"
@@ -194,14 +288,9 @@ jobs:
           export PATH="$PATH:$HOME/.dotnet/tools"
           dotnet ef database update --project CoopagcuyApi.csproj
 
-      # ── 2c. Actualizar la imagen del Container App ───────────────────
-      - name: Login a Azure
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      # ── 2f. Actualizar la imagen del Container App ───────────────────
       - name: Desplegar nueva revisión
+        if: steps.config.outputs.azure == 'true'
         uses: azure/cli@v2
         with:
           azcliversion: latest
@@ -211,8 +300,9 @@ jobs:
               --resource-group ${{ vars.RESOURCE_GROUP }} \
               --image ${{ env.IMAGE }}:${{ github.sha }}
 
-      # ── 2d. Smoke test: la nueva revisión responde /health ───────────
+      # ── 2g. Smoke test: la nueva revisión responde /health ───────────
       - name: Smoke test
+        if: steps.config.outputs.azure == 'true'
         run: |
           for i in $(seq 1 12); do
             code=$(curl -s -o /dev/null -w "%{http_code}" "${{ vars.API_URL }}/health" || true)
@@ -220,3 +310,42 @@ jobs:
             echo "intento $i -> $code"; sleep 10
           done
           echo "El endpoint /health no respondió 200 tras el despliegue"; exit 1
+
+      # ── 2h. Modo manual: instrucciones para completar el despliegue ──
+      # El job termina en VERDE a propósito. Todo lo que este pipeline puede
+      # verificar y publicar salió bien; lo que falta es un permiso de
+      # directorio que no depende del código. Dejarlo en rojo cada vez
+      # normalizaría el rojo, y un check que siempre está rojo deja de leerse.
+      # El aviso va al resumen del job para que quede visible, no enterrado
+      # en el log de un paso.
+      - name: Despliegue pendiente de completar a mano
+        if: steps.config.outputs.azure != 'true'
+        run: |
+          {
+            echo "## ⚠️ Despliegue pendiente"
+            echo ""
+            echo "La imagen se publicó en ghcr.io y las migraciones se aplicaron,"
+            echo "pero el Container App **no se actualizó**: faltan las credenciales"
+            echo "de Azure en el entorno \`production\`."
+            echo ""
+            echo "Complétalo desde tu máquina, con la sesión de \`az login\` iniciada:"
+            echo ""
+            echo '```bash'
+            echo "az containerapp update --name ${{ vars.CONTAINERAPP_NAME }} --resource-group ${{ vars.RESOURCE_GROUP }} --image ${{ env.IMAGE }}:${{ github.sha }}"
+            echo '```'
+            echo ""
+            echo "Y comprueba que quedó arriba:"
+            echo ""
+            echo '```bash'
+            echo "curl -s -o /dev/null -w '%{http_code}\\n' ${{ vars.API_URL }}/health"
+            echo '```'
+            echo ""
+            echo "### Para que esto pase a ser automático"
+            echo ""
+            echo "Hace falta el rol **Application Developer** en el directorio de Entra ID."
+            echo "Con él, la sección 8 de \`infra/bootstrap.azcli\` crea la identidad OIDC, y"
+            echo "basta con añadir \`AZURE_CLIENT_ID\`, \`AZURE_TENANT_ID\` y"
+            echo "\`AZURE_SUBSCRIPTION_ID\` al entorno \`production\`. Este workflow los detecta"
+            echo "solo: no hay que cambiar nada más."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice::Imagen publicada y migraciones aplicadas. El despliegue final quedó pendiente: ver el resumen del job."
