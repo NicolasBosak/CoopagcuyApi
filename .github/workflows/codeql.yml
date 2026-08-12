@@ -1,0 +1,49 @@
+name: CodeQL
+
+# En PR bloquea; en push a main solo publica. El cron existe porque las reglas
+# de CodeQL mejoran con el tiempo: código que hoy pasa puede no pasar mañana.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [develop, main]
+  schedule:
+    - cron: "0 6 * * 1"   # lunes 06:00 UTC
+  workflow_dispatch:
+
+jobs:
+  analizar:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+      actions: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Inicializar CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: csharp
+          # Manual y no autobuild: la solución es un .slnx, formato nuevo que
+          # el autobuild puede no resolver
+          build-mode: manual
+          queries: security-extended
+
+      # Se compila solo CoopagcuyApi.csproj, no CoopagcuyApi.slnx (el formato
+      # .slnx exige SDK 9.0.200+ y aquí corre el 8.0.x) ni el proyecto de
+      # pruebas, cuyos hallazgos serían ruido porque no se despliega.
+      - name: Compilar
+        run: |
+          dotnet restore CoopagcuyApi.csproj -p:RestoreLockedMode=true
+          dotnet build CoopagcuyApi.csproj -c Release --no-restore
+
+      - name: Analizar
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:csharp"

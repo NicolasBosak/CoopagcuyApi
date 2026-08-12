@@ -480,3 +480,6 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Espacio de trabajo temporal del flujo con subagentes (no es parte del proyecto)
+.superpowers/

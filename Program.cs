@@ -299,3 +299,8 @@ app.MapControllers();
 app.MapHealthChecks("/health");
 
 app.Run();
+
+// `WebApplicationFactory<T>` necesita un tipo público del ensamblado de la
+// aplicación al que anclarse. Con top-level statements la clase generada es
+// interna, así que se declara explícitamente aquí.
+public partial class Program;

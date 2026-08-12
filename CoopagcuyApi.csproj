@@ -5,6 +5,9 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>e49b32ee-8937-4620-80c7-13e6a889e5c7</UserSecretsId>
+    <!-- Genera packages.lock.json: hace reproducibles los restore y permite
+         que Trivy audite las dependencias transitivas de NuGet -->
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
 
   <ItemGroup>
@@ -12,6 +15,13 @@
     <Content Remove="Controllers\**" />
     <EmbeddedResource Remove="Controllers\**" />
     <None Remove="Controllers\**" />
+    <!-- El proyecto de pruebas vive dentro del árbol de este proyecto; sin
+         esta exclusión el glob implícito del SDK ("**/*.cs") compilaría
+         también sus archivos aquí, duplicando símbolos -->
+    <Compile Remove="tests\**" />
+    <Content Remove="tests\**" />
+    <EmbeddedResource Remove="tests\**" />
+    <None Remove="tests\**" />
   </ItemGroup>
 
   <ItemGroup>
