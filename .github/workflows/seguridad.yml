@@ -38,7 +38,7 @@ jobs:
       # los pasos que vienen después de este sí lo necesitan (`if: always()`)
       # para no heredar el mismo problema si ESTE paso falla.
       - name: Trivy sobre secretos
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           scan-type: fs
           scan-ref: .
@@ -66,7 +66,7 @@ jobs:
       # dependencias no quede oculto detrás de un hallazgo de secretos.
       - name: Trivy sobre el sistema de archivos — API (bloquea)
         if: always()
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           scan-type: fs
           scan-ref: packages.lock.json
@@ -84,7 +84,7 @@ jobs:
       # tarea, no se arreglan en este cambio.
       - name: Trivy sobre el sistema de archivos — pruebas (informativo)
         if: always()
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           scan-type: fs
           scan-ref: tests/CoopagcuyApi.Tests/packages.lock.json
@@ -99,7 +99,7 @@ jobs:
       # Puramente informativo: no bloquea en ningún evento.
       - name: Trivy sobre configuración
         if: always()
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           scan-type: config
           scan-ref: .
