@@ -1,4 +1,6 @@
-﻿using CoopagcuyApi.Common;
+﻿using System.Text.Json;
+using CoopagcuyApi.Common;
+using CoopagcuyApi.Common.Auth;
 using CoopagcuyApi.Common.Exceptions;
 using CoopagcuyApi.Features.Productoras.Models;
 using CoopagcuyApi.Features.Recepcion.DTOs;
@@ -18,6 +20,12 @@ public interface IRecepcionService
     Task<IEnumerable<LoteResponseDto>> ListarLotesAsync(
         CentroAcopio? cat, EstadoLote? estado, DateTime? desde, DateTime? hasta);
     Task<SyncResultadoDto> SincronizarEntregasAsync(SyncEntregasDto dto);
+
+    // Bandeja de vinculación (admin): entregas offline con cédula válida sin
+    // productora en el centro
+    Task<IEnumerable<VinculacionPendienteDto>> ListarVinculacionesAsync(CentroAcopio? filtroCat);
+    Task<EntregaResultadoDto> ResolverVinculacionAsync(int id, int productoraId, string resueltaPor);
+    Task<bool> DescartarVinculacionAsync(int id, string resueltaPor);
 }
 
 public class RecepcionService(AppDbContext db) : IRecepcionService
@@ -82,6 +90,11 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
         if (dto.Cuyes.Count == 0)
             throw new InvalidOperationException(
                 "La entrega debe incluir al menos un cuy.");
+
+        // Captura offline sin catálogo: resolver la productora por su cédula.
+        // Puede lanzar EntregaEnVinculacionException (cédula válida sin
+        // productora) para que el sync la reporte como pendiente de vincular.
+        await ResolverProductoraPorCedulaAsync(dto);
 
         // Toda la entrega es atómica y las entregas del MISMO CAT se
         // serializan con un advisory lock de PostgreSQL: así no pueden
@@ -345,6 +358,71 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
     // ── Sincronización offline — RF-211 ───────────────────────────────
     // Las entregas capturadas sin conexión se aplican en orden con la
     // misma lógica de acumulación en jaulas que un registro en línea.
+    // Resuelve la productora de una entrega cuando el dispositivo no envió su
+    // Id (captura offline sin catálogo), a partir de la cédula. Si la cédula
+    // es válida pero no coincide con ninguna productora del centro, encola la
+    // entrega en la bandeja de vinculación y lanza EntregaEnVinculacionException.
+    private async Task ResolverProductoraPorCedulaAsync(RegistrarEntregaDto dto)
+    {
+        if (dto.ProductoraId > 0) return;   // ya identificada por Id
+
+        var cedula = dto.CedulaProductora?.Trim();
+        if (string.IsNullOrEmpty(cedula))
+            throw new InvalidOperationException(
+                "La entrega no identifica a la productora: falta el Id o la cédula.");
+
+        // Misma validación de cédula ecuatoriana que en el alta de productoras
+        if (!ValidadorCedula.EsValida(cedula))
+            throw new InvalidOperationException(
+                $"La cédula '{cedula}' no es una cédula ecuatoriana válida.");
+
+        var productora = await db.Productoras.FirstOrDefaultAsync(p =>
+            p.Cedula == cedula && p.CatAsignado == dto.CentroAcopio && p.Activa);
+
+        if (productora is not null)
+        {
+            dto.ProductoraId = productora.Id;
+            return;
+        }
+
+        // En línea el operador tiene el catálogo: una cédula sin productora es
+        // un dato errado, se rechaza con un 404 claro (no se encola).
+        if (!dto.SincronizadoOffline)
+            throw new KeyNotFoundException(
+                $"No existe una productora activa con la cédula {cedula} " +
+                $"en el centro {dto.CentroAcopio}.");
+
+        await EncolarVinculacionAsync(dto, cedula);
+        throw new EntregaEnVinculacionException(dto.IdCliente);
+    }
+
+    // Guarda la entrega en cuarentena (bandeja de vinculación). Idempotente:
+    // un reintento del dispositivo no crea una segunda fila.
+    private async Task EncolarVinculacionAsync(RegistrarEntregaDto dto, string cedula)
+    {
+        if (dto.DispositivoId is not null && dto.IdCliente is not null)
+        {
+            var yaEncolada = await db.EntregasPendientesVinculacion.AnyAsync(v =>
+                v.DispositivoId == dto.DispositivoId && v.IdCliente == dto.IdCliente);
+            if (yaEncolada) return;
+        }
+
+        db.EntregasPendientesVinculacion.Add(new EntregaPendienteVinculacion
+        {
+            Cedula = cedula,
+            CentroAcopio = dto.CentroAcopio,
+            EnAyunas = dto.EnAyunas,
+            ResponsableRecepcion = dto.ResponsableRecepcion,
+            Observaciones = dto.Observaciones,
+            FechaCaptura = ResolverFechaRecepcion(dto),
+            DispositivoId = dto.DispositivoId ?? string.Empty,
+            IdCliente = dto.IdCliente ?? Guid.NewGuid().ToString(),
+            CuyesJson = JsonSerializer.Serialize(dto.Cuyes),
+            Estado = EstadoVinculacion.Pendiente
+        });
+        await db.SaveChangesAsync();
+    }
+
     // Cada entrega produce UN resultado identificado por su IdCliente:
     // el dispositivo empareja por ese Id (nunca por posición) y los
     // reintentos de entregas ya procesadas no duplican animales.
@@ -360,20 +438,28 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
             try
             {
                 await RegistrarEntregaAsync(entrega);
-                resultados.Add(new SyncItemResultadoDto(
-                    entrega.IdCliente, Exito: true, Duplicada: false, Motivo: null));
+                resultados.Add(new SyncItemResultadoDto(entrega.IdCliente,
+                    Exito: true, Duplicada: false, PendienteVinculacion: false, Motivo: null));
             }
             catch (EntregaDuplicadaException)
             {
                 // Reintento de una entrega ya sincronizada: cuenta como
                 // éxito para que el dispositivo la marque y deje de reenviarla
-                resultados.Add(new SyncItemResultadoDto(
-                    entrega.IdCliente, Exito: true, Duplicada: true, Motivo: null));
+                resultados.Add(new SyncItemResultadoDto(entrega.IdCliente,
+                    Exito: true, Duplicada: true, PendienteVinculacion: false, Motivo: null));
+            }
+            catch (EntregaEnVinculacionException)
+            {
+                // Cédula válida sin productora: quedó en la bandeja. El
+                // dispositivo la marca "en revisión" y deja de reenviarla.
+                resultados.Add(new SyncItemResultadoDto(entrega.IdCliente,
+                    Exito: false, Duplicada: false, PendienteVinculacion: true,
+                    Motivo: "Cédula sin productora registrada: pendiente de vincular."));
             }
             catch (Exception ex)
             {
-                resultados.Add(new SyncItemResultadoDto(
-                    entrega.IdCliente, Exito: false, Duplicada: false,
+                resultados.Add(new SyncItemResultadoDto(entrega.IdCliente,
+                    Exito: false, Duplicada: false, PendienteVinculacion: false,
                     Motivo: ex.Message));
             }
         }
@@ -382,10 +468,100 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
             TotalRecibidos: dto.Entregas.Count,
             TotalGuardados: resultados.Count(r => r.Exito && !r.Duplicada),
             TotalDuplicados: resultados.Count(r => r.Duplicada),
-            TotalConError: resultados.Count(r => !r.Exito),
+            TotalConError: resultados.Count(r => !r.Exito && !r.PendienteVinculacion),
+            TotalPendientesVinculacion: resultados.Count(r => r.PendienteVinculacion),
             Resultados: resultados
         );
     }
+
+    // ── Bandeja de vinculación (admin) ────────────────────────────────────
+
+    public async Task<IEnumerable<VinculacionPendienteDto>> ListarVinculacionesAsync(
+        CentroAcopio? filtroCat)
+    {
+        var query = db.EntregasPendientesVinculacion
+            .Where(v => v.Estado == EstadoVinculacion.Pendiente);
+
+        if (filtroCat is CentroAcopio cat)
+            query = query.Where(v => v.CentroAcopio == cat);
+
+        var pendientes = await query
+            .OrderBy(v => v.FechaCaptura)
+            .AsNoTracking()
+            .ToListAsync();
+
+        return pendientes.Select(v =>
+        {
+            var cuyes = DeserializarCuyes(v.CuyesJson);
+            return new VinculacionPendienteDto(
+                v.Id, v.Cedula, v.CentroAcopio.ToString(), v.FechaCaptura,
+                v.EnAyunas, v.ResponsableRecepcion, v.Observaciones,
+                cuyes.Count, cuyes.Sum(c => c.PesoGramos),
+                v.DispositivoId, v.FechaCreacion);
+        });
+    }
+
+    public async Task<EntregaResultadoDto> ResolverVinculacionAsync(
+        int id, int productoraId, string resueltaPor)
+    {
+        var vinculacion = await db.EntregasPendientesVinculacion.FindAsync(id)
+            ?? throw new KeyNotFoundException("La entrega pendiente no existe.");
+
+        if (vinculacion.Estado != EstadoVinculacion.Pendiente)
+            throw new InvalidOperationException(
+                "Esta entrega ya fue resuelta anteriormente.");
+
+        var productora = await db.Productoras.FindAsync(productoraId)
+            ?? throw new KeyNotFoundException(
+                $"Productora con Id {productoraId} no encontrada.");
+
+        // La productora elegida debe pertenecer al mismo centro de la entrega
+        if (productora.CatAsignado != vinculacion.CentroAcopio)
+            throw new InvalidOperationException(
+                "La productora elegida no pertenece al centro de la entrega.");
+
+        // Reconstruir la entrega original y registrarla como offline, para
+        // que conserve la fecha real de captura y su idempotencia.
+        var entrega = new RegistrarEntregaDto
+        {
+            CentroAcopio = vinculacion.CentroAcopio,
+            ProductoraId = productora.Id,
+            Cuyes = DeserializarCuyes(vinculacion.CuyesJson),
+            EnAyunas = vinculacion.EnAyunas,
+            ResponsableRecepcion = vinculacion.ResponsableRecepcion,
+            Observaciones = vinculacion.Observaciones,
+            SincronizadoOffline = true,
+            FechaCapturaOffline = vinculacion.FechaCaptura,
+            DispositivoId = vinculacion.DispositivoId,
+            IdCliente = vinculacion.IdCliente
+        };
+
+        var resultado = await RegistrarEntregaAsync(entrega);
+
+        vinculacion.Estado = EstadoVinculacion.Vinculada;
+        vinculacion.FechaResolucion = DateTime.UtcNow;
+        vinculacion.ResueltaPor = resueltaPor;
+        vinculacion.ProductoraVinculadaId = productora.Id;
+        await db.SaveChangesAsync();
+
+        return resultado;
+    }
+
+    public async Task<bool> DescartarVinculacionAsync(int id, string resueltaPor)
+    {
+        var vinculacion = await db.EntregasPendientesVinculacion.FindAsync(id);
+        if (vinculacion is null || vinculacion.Estado != EstadoVinculacion.Pendiente)
+            return false;
+
+        vinculacion.Estado = EstadoVinculacion.Descartada;
+        vinculacion.FechaResolucion = DateTime.UtcNow;
+        vinculacion.ResueltaPor = resueltaPor;
+        await db.SaveChangesAsync();
+        return true;
+    }
+
+    private static List<CuyRegistroDto> DeserializarCuyes(string json) =>
+        JsonSerializer.Deserialize<List<CuyRegistroDto>>(json) ?? [];
 
     // ── Evaluación individual por cuy — SRS Apéndice 5.1 ─────────────
 

@@ -80,6 +80,7 @@ builder.Services.AddScoped<ICatalogosService, CatalogosService>();
 
 // ── Servicios de autenticación ───────────────────────────────────────
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
+builder.Services.AddScoped<ISesionService, SesionService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUsuarioService, UsuarioService>();
 
@@ -170,20 +171,26 @@ builder.Services.AddCors(options =>
         {
             // En desarrollo Vite salta de puerto (5173 → 5174…) cuando el
             // habitual está ocupado: se acepta cualquier origen de loopback
-            // para que el login no falle por CORS tras un cambio de puerto
+            // para que el login no falle por CORS tras un cambio de puerto.
+            // AllowCredentials es imprescindible para que viaje la cookie
+            // httpOnly del refresh token (login/refresh/logout).
             policy.SetIsOriginAllowed(origen =>
                       Uri.TryCreate(origen, UriKind.Absolute, out var uri)
                       && uri.IsLoopback)
                   .AllowAnyMethod()
-                  .AllowAnyHeader();
+                  .AllowAnyHeader()
+                  .AllowCredentials();
         }
         else
         {
+            // Con credenciales (cookie) NO se admite comodín de origen: hay
+            // que enumerar los orígenes exactos del frontend en Cors:AllowedOrigins.
             policy.WithOrigins(
                       builder.Configuration["Cors:AllowedOrigins"]?.Split(',')
                       ?? ["http://localhost:5173"])
                   .AllowAnyMethod()
-                  .AllowAnyHeader();
+                  .AllowAnyHeader()
+                  .AllowCredentials();
         }
     });
 });
@@ -292,3 +299,8 @@ app.MapControllers();
 app.MapHealthChecks("/health");
 
 app.Run();
+
+// `WebApplicationFactory<T>` necesita un tipo público del ensamblado de la
+// aplicación al que anclarse. Con top-level statements la clase generada es
+// interna, así que se declara explícitamente aquí.
+public partial class Program;

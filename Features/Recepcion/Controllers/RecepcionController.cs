@@ -269,6 +269,13 @@ public class RecepcionController(
         [FromQuery] bool? pendientes)
     {
         var resultado = await movilizacionService.ListarAsync(pendientes);
+
+        // El operador de CAT solo ve las movilizaciones de su centro
+        if (CatDelOperador() is CentroAcopio cat)
+            resultado = resultado
+                .Where(m => m.CentroAcopio == cat.ToString())
+                .ToList();
+
         return Ok(resultado);
     }
 
@@ -279,6 +286,67 @@ public class RecepcionController(
     public async Task<IActionResult> ObtenerMovilizacionPorLote(string codigoLote)
     {
         var resultado = await movilizacionService.ObtenerPorCodigoLoteAsync(codigoLote);
-        return resultado is null ? NotFound() : Ok(resultado);
+        if (resultado is null) return NotFound();
+
+        if (CatDelOperador() is CentroAcopio cat && resultado.CentroAcopio != cat.ToString())
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                mensaje = "Tu usuario solo puede consultar movilizaciones de su centro."
+            });
+
+        return Ok(resultado);
+    }
+
+    // ── Bandeja de vinculación ────────────────────────────────────────────
+    // Entregas capturadas offline con cédula válida sin productora en el
+    // centro. Solo la administración resuelve la vinculación.
+
+    /// <summary>
+    /// Lista las entregas pendientes de vincular a una productora.
+    /// </summary>
+    [HttpGet("vinculaciones")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
+    public async Task<IActionResult> ListarVinculaciones()
+    {
+        var resultado = await service.ListarVinculacionesAsync(filtroCat: null);
+        return Ok(resultado);
+    }
+
+    /// <summary>
+    /// Asigna una entrega pendiente a una productora y la registra en su
+    /// jaula conservando la fecha real de captura.
+    /// </summary>
+    [HttpPost("vinculaciones/{id:int}/resolver")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
+    public async Task<IActionResult> ResolverVinculacion(
+        int id, [FromBody] ResolverVinculacionDto dto)
+    {
+        var resueltaPor = User.FindFirst("cedula")?.Value ?? "admin";
+        try
+        {
+            var resultado = await service.ResolverVinculacionAsync(
+                id, dto.ProductoraId, resueltaPor);
+            return Ok(resultado);
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { mensaje = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { mensaje = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Descarta una entrega pendiente (cédula errada sin productora real).
+    /// </summary>
+    [HttpDelete("vinculaciones/{id:int}")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
+    public async Task<IActionResult> DescartarVinculacion(int id)
+    {
+        var resueltaPor = User.FindFirst("cedula")?.Value ?? "admin";
+        var ok = await service.DescartarVinculacionAsync(id, resueltaPor);
+        return ok ? NoContent() : NotFound();
     }
 }

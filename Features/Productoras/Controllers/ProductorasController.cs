@@ -1,4 +1,5 @@
 ﻿using System.Security.Claims;
+using CoopagcuyApi.Common.Auth;
 using CoopagcuyApi.Features.Productoras.DTOs;
 using CoopagcuyApi.Features.Productoras.Services;
 using FluentValidation;
@@ -36,7 +37,16 @@ public class ProductorasController(
     public async Task<IActionResult> ObtenerPorId(int id)
     {
         var result = await service.ObtenerPorIdAsync(id);
-        return result is null ? NotFound() : Ok(result);
+        if (result is null) return NotFound();
+
+        // Un operador no puede leer la ficha de una productora de otro centro
+        if (User.FueraDeAlcance(result.CatAsignado))
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                mensaje = "Tu usuario solo puede consultar productoras de su centro."
+            });
+
+        return Ok(result);
     }
 
     [HttpPost]

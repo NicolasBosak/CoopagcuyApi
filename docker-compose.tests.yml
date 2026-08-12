@@ -1,0 +1,46 @@
+# Ejecuta la batería de pruebas dentro de Linux. Necesario porque Smart App
+# Control bloquea la carga del DLL recién compilado desde OneDrive (0x800711C7),
+# así que `dotnet test` no corre en el Windows del equipo.
+#
+#   docker compose -f docker-compose.tests.yml run --rm tests
+#
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: coopagcuy_test
+    ports:
+      - "5433:5432"        # 5433 en el host: no choca con un Postgres local
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d coopagcuy_test"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    tmpfs:
+      - /var/lib/postgresql/data   # efímero: la BD de test no debe sobrevivir
+
+  tests:
+    image: mcr.microsoft.com/dotnet/sdk:8.0
+    working_dir: /src
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Nombre de servicio, no localhost: se resuelve en la red del compose
+      TEST_DB_CONNECTION: "Host=postgres;Port=5432;Database=coopagcuy_test;Username=postgres;Password=postgres"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      # Los paquetes NuGet se cachean en un volumen para no re-descargar
+      NUGET_PACKAGES: /nuget
+    volumes:
+      - .:/src
+      - nuget-cache:/nuget
+    # Se apunta al csproj de pruebas y no a CoopagcuyApi.slnx: el formato
+    # .slnx solo lo entiende el SDK 9.0.200+ y aquí corre el SDK 8 (subirlo
+    # no es opción, la imagen sdk:10 no trae el runtime net8.0 que los tests
+    # necesitan para ejecutarse). La referencia de proyecto arrastra al API.
+    command: dotnet test tests/CoopagcuyApi.Tests/CoopagcuyApi.Tests.csproj --logger "console;verbosity=normal"
+
+volumes:
+  nuget-cache:

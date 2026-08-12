@@ -21,3 +21,5 @@ docs/
 scripts/
 Dockerfile
 .dockerignore
+tests/
+docker-compose.tests.yml

@@ -1,0 +1,75 @@
+version: 2
+updates:
+  # Proyecto principal (el que se despliega). RestorePackagesWithLockFile
+  # (Tarea 8) hace que Dependabot pueda actualizar también las transitivas
+  # ancladas en packages.lock.json, no solo las referencias directas.
+  - package-ecosystem: nuget
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    target-branch: develop
+    commit-message:
+      prefix: "deps"
+    groups:
+      # Un solo PR para todo el stack de Microsoft: subirlos por separado
+      # genera conflictos de versión entre paquetes que van acoplados
+      microsoft:
+        patterns:
+          - "Microsoft.*"
+          - "System.*"
+    ignore:
+      # El proyecto está fijado a net8.0; los majors de EF Core exigen
+      # migrar el TargetFramework y eso es una decisión, no un bump
+      - dependency-name: "Microsoft.EntityFrameworkCore*"
+        update-types: ["version-update:semver-major"]
+
+  # Proyecto de pruebas: tiene su propio packages.lock.json (Tarea 8) y
+  # Dependabot trata cada "directory" de forma independiente, así que sin
+  # esta segunda entrada quedaría sin actualizaciones automáticas. No es
+  # redundante con la entrada de arriba: la Tarea 12 encontró 3 CVE
+  # HIGH/CRITICAL (Azure.Identity, System.Drawing.Common,
+  # System.Formats.Asn1) que viven como transitivas exactamente aquí, no
+  # en el proyecto principal. No borrar aunque parezca duplicada.
+  - package-ecosystem: nuget
+    directory: "/tests/CoopagcuyApi.Tests"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    target-branch: develop
+    commit-message:
+      prefix: "deps"
+    groups:
+      # Mismo motivo que en la entrada de arriba: Microsoft.AspNetCore.Mvc.Testing
+      # y Microsoft.NET.Test.Sdk van acoplados a la versión de ASP.NET Core
+      # del proyecto principal (referenciado vía ProjectReference)
+      microsoft:
+        patterns:
+          - "Microsoft.*"
+          - "System.*"
+    ignore:
+      # EF Core llega aquí como transitiva a través del ProjectReference al
+      # proyecto principal (ver packages.lock.json de este proyecto); mismo
+      # criterio que arriba: net8.0 fijo, migrar es decisión manual
+      - dependency-name: "Microsoft.EntityFrameworkCore*"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    target-branch: develop
+    commit-message:
+      prefix: "ci"
+
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    target-branch: develop
+    commit-message:
+      prefix: "build"
