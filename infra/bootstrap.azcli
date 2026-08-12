@@ -20,7 +20,20 @@ RG="rg-cuyazuayito"
 ACA_ENV="cae-cuyazuayito"
 STORAGE="stcuyazuayito$RANDOM"          # global, único, minúsculas, sin guiones
 GH_OWNER="NicolasBosak"
-GHCR_PAT="<PAT-con-read:packages>"      # para que Container Apps baje la imagen privada de ghcr.io
+
+# NO se configura credencial de ghcr.io a propósito. El paquete de la imagen
+# es público, así que Container Apps la descarga de forma anónima.
+#
+# Antes sí había una (--registry-password con un PAT) y fue la causa de un
+# ImagePullBackOff que tuvo la aplicación caída semanas: cuando hay credencial
+# configurada, Azure la usa EN VEZ de intentar la descarga anónima, así que al
+# caducar el PAT el pull empezó a fallar aunque cualquiera pudiera bajar esa
+# misma imagen sin autenticarse. Un secreto que caduca protegiendo algo que no
+# es secreto solo añade una forma de romperse.
+#
+# Si algún día el paquete pasara a privado, habría que volver a añadir
+# --registry-server/--registry-username/--registry-password aquí Y acordarse
+# de rotar el PAT antes de cada vencimiento.
 
 az account set --subscription "$SUB"
 
@@ -53,7 +66,6 @@ crear_app () {
     --image mcr.microsoft.com/dotnet/aspnet:8.0 \
     --target-port 8080 --ingress external \
     --min-replicas 0 --max-replicas 2 \
-    --registry-server ghcr.io --registry-username "$GH_OWNER" --registry-password "$GHCR_PAT" \
     --secrets neon="$NEON" jwtkey="$JWT" setupkey="$SETUP" blobconn="$CONN_BLOB" \
     --env-vars \
       ASPNETCORE_ENVIRONMENT=Production \
