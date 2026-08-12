@@ -1,6 +1,8 @@
 name: Desplegar API
 
-# develop -> staging (automático); main -> producción (con aprobación).
+# main -> producción (con aprobación manual del entorno "production").
+# develop solo ejecuta la verificación (build-test); ya no despliega: el
+# entorno de staging se eliminó de Azure para reducir costes.
 # Los Pull Requests compilan (job build-test) y escanean la imagen Docker
 # (job scan-image-pr, que sí bloquea el merge ante HIGH/CRITICAL parcheable);
 # no despliegan.
@@ -113,18 +115,18 @@ jobs:
           # detener el merge ante un HIGH/CRITICAL parcheable.
           exit-code: "1"
 
-  # ── 2. Migraciones + despliegue (solo en push a develop/main) ────────
+  # ── 2. Migraciones + despliegue (solo en push a main) ────────────────
   deploy:
     needs: build-test
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && github.ref_name == 'main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write   # push de la imagen a ghcr.io
       id-token: write    # login a Azure vía OIDC (sin secreto de larga vida)
-    # El nombre del entorno decide el gate: production exige aprobación
+    # Único entorno: production, con la aprobación manual ya configurada
     environment:
-      name: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
+      name: production
     steps:
       - uses: actions/checkout@v4
 
