@@ -21,6 +21,11 @@ public class Usuario
     // entregas en su propio centro (comunidad)
     public CentroAcopio? CatAsignado { get; set; }
 
+    // Se activa al restablecerle la contraseña: el front lo obliga a poner
+    // una propia antes de dejarle usar el resto de la aplicación, para que
+    // el administrador no quede conociendo su contraseña definitiva.
+    public bool DebeCambiarPassword { get; set; }
+
     public bool Activo { get; set; } = true;
     public DateTime FechaCreacion { get; set; } = DateTime.UtcNow;
 }
