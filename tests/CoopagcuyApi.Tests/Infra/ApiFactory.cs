@@ -97,7 +97,10 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
             .UseNpgsql(Cadena)
             .Options);
 
-    public HttpClient ComoAnonimo() => CreateClient();
+    // Contador para repartir una IP distinta a cada cliente de prueba.
+    private int _clientesCreados;
+
+    public HttpClient ComoAnonimo() => ClienteCon(token: null);
 
     public HttpClient ComoAdmin() => ClienteCon(Jwt.Emitir("AdminCooperativa"));
 
@@ -107,11 +110,43 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     public HttpClient ComoOperadorFaenamiento() =>
         ClienteCon(Jwt.Emitir("OperadorFaenamiento"));
 
-    private HttpClient ClienteCon(string token)
+    public HttpClient ComoAdminTecnico() => ClienteCon(Jwt.Emitir("AdminTecnico"));
+
+    /// Cliente con la cédula que se le indique: los endpoints que actúan
+    /// sobre "el usuario del token" la leen del claim "cedula".
+    public HttpClient ComoUsuario(string rol, string cedula) =>
+        ClienteCon(Jwt.Emitir(rol, cat: null, cedula: cedula));
+
+    /// <summary>
+    /// Cliente con una IP propia y, si se le pasa, un token.
+    ///
+    /// La IP importa: la política "auth" del rate limiter permite 10
+    /// peticiones por minuto y POR IP, y la comparten /api/auth/login y
+    /// /api/auth/recuperacion. Sin esto todas las pruebas saldrían de la
+    /// misma IP —la batería entera corre en unos segundos, dentro de la
+    /// misma ventana— y alguna recibiría 429 en vez de su código esperado,
+    /// fallando por un motivo que no tiene que ver con lo que verifica.
+    ///
+    /// Se hace con X-Forwarded-For y no con un doble del limitador porque
+    /// UseForwardedHeaders va primero en el pipeline y reescribe
+    /// RemoteIpAddress: así se ejercita el camino real de producción, que es
+    /// justamente el que hay que mantener funcionando tras el proxy de Azure.
+    ///
+    /// El rango 203.0.113.0/24 es TEST-NET-3 (RFC 5737), reservado para
+    /// documentación y pruebas. Asume menos de 254 clientes por corrida.
+    /// </summary>
+    private HttpClient ClienteCon(string? token)
     {
         var cliente = CreateClient();
-        cliente.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", token);
+
+        var n = Interlocked.Increment(ref _clientesCreados);
+        cliente.DefaultRequestHeaders.Add(
+            "X-Forwarded-For", $"203.0.113.{(n % 254) + 1}");
+
+        if (token is not null)
+            cliente.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue("Bearer", token);
+
         return cliente;
     }
 }

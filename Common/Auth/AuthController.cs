@@ -85,13 +85,16 @@ public class AuthController(
     }
 
     // ── Administración de sesiones activas ────────────────────────────────
+    // Solo el administrador TÉCNICO: revocar sesiones es una herramienta de
+    // soporte, no de gestión. El administrador de cooperativa conserva la
+    // bandeja de contraseñas, que es lo que necesita para desbloquear gente.
 
     /// <summary>
     /// Lista las sesiones activas de todos los usuarios. Marca cuál es la
     /// sesión del propio administrador para que no se desconecte por error.
     /// </summary>
     [HttpGet("sesiones")]
-    [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
+    [Authorize(Roles = "AdminTecnico")]
     public async Task<IActionResult> ListarSesiones()
     {
         var sesiones = await sesionService.ListarActivasAsync(
@@ -104,7 +107,7 @@ public class AuthController(
     /// en su siguiente intento de renovar el token.
     /// </summary>
     [HttpDelete("sesiones/{id:int}")]
-    [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
+    [Authorize(Roles = "AdminTecnico")]
     public async Task<IActionResult> RevocarSesion(int id)
     {
         var ok = await sesionService.RevocarSesionAsync(id);
@@ -116,7 +119,7 @@ public class AuthController(
     /// tablet o dejó de trabajar en la cooperativa).
     /// </summary>
     [HttpDelete("sesiones/usuario/{usuarioId:int}")]
-    [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
+    [Authorize(Roles = "AdminTecnico")]
     public async Task<IActionResult> RevocarSesionesUsuario(int usuarioId)
     {
         var revocadas = await sesionService.RevocarUsuarioAsync(usuarioId);
