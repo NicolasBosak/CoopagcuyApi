@@ -1,5 +1,6 @@
 ﻿using CoopagcuyApi.Common;
 using CoopagcuyApi.Common.Auth;
+using CoopagcuyApi.Common.Auth.Recuperacion;
 using CoopagcuyApi.Features.Catalogos.Models;
 using CoopagcuyApi.Features.Faenamiento.Models;
 using CoopagcuyApi.Features.Productoras.Models;
@@ -32,6 +33,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<EntregaPendienteVinculacion> EntregasPendientesVinculacion =>
         Set<EntregaPendienteVinculacion>();
+    public DbSet<SolicitudRestablecerPassword> SolicitudesRestablecerPassword =>
+        Set<SolicitudRestablecerPassword>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -337,6 +340,33 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(v => v.IdCliente).HasMaxLength(100).IsRequired();
             e.Property(v => v.CuyesJson).IsRequired();
             e.Property(v => v.Estado).HasConversion<string>();
+        });
+
+        // Solicitud de restablecimiento de contraseña: bandeja que atiende un
+        // administrador. El índice único PARCIAL es la pieza importante —
+        // garantiza en la base, no en código, que un usuario no acumule
+        // solicitudes pendientes. El historial (Resuelta/Descartada) queda
+        // fuera del filtro, así que el mismo usuario puede pedirlo otra vez
+        // dentro de un mes sin chocar con su propia solicitud vieja.
+        modelBuilder.Entity<SolicitudRestablecerPassword>(e =>
+        {
+            e.HasKey(s => s.Id);
+            e.Property(s => s.CedulaSolicitada).HasMaxLength(10).IsRequired();
+            e.Property(s => s.Estado).HasConversion<string>().HasMaxLength(20);
+            e.Property(s => s.ResueltaPor).HasMaxLength(10);
+            e.Property(s => s.IpSolicitud).HasMaxLength(60);
+
+            e.HasOne(s => s.Usuario)
+                .WithMany()
+                .HasForeignKey(s => s.UsuarioId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // El Estado se persiste como texto (HasConversion<string>), por eso
+            // el filtro compara contra 'Pendiente' y no contra un entero.
+            e.HasIndex(s => s.UsuarioId)
+                .IsUnique()
+                .HasFilter("\"Estado\" = 'Pendiente'")
+                .HasDatabaseName("IX_SolicitudesRestablecerPassword_Pendiente");
         });
 
         // Comunidad — catálogo gestionable RF-102 / RF-506

@@ -18,7 +18,10 @@ public record LoginResponseDto(
     DateTime Expira,
     // Fin de la sesión de 7 días (expiración del refresh token). El front la
     // usa para saber hasta cuándo permite "entrar directo" sin conexión.
-    DateTime SesionExpira
+    DateTime SesionExpira,
+    // Se activó tras un restablecimiento: el front lleva al usuario a la
+    // pantalla de cambio y no le deja navegar a otra hasta que la cambie.
+    bool DebeCambiarPassword
 );
 
 // Resultado interno del login/refresh: la respuesta que va al cuerpo más el

@@ -1,4 +1,5 @@
 using CoopagcuyApi.Common.Auth;
+using CoopagcuyApi.Common.Auth.Recuperacion;
 using CoopagcuyApi.Common.Exceptions;
 using CoopagcuyApi.Features.Catalogos.Services;
 using CoopagcuyApi.Features.Faenamiento.Services;
@@ -83,6 +84,7 @@ builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<ISesionService, SesionService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUsuarioService, UsuarioService>();
+builder.Services.AddScoped<IRecuperacionService, RecuperacionService>();
 
 // ── Rate limiting ─────────────────────────────────────────────────────
 // Las ventanas se particionan POR IP: un cliente abusivo no consume el

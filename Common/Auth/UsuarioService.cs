@@ -123,18 +123,11 @@ public class UsuarioService(AppDbContext db) : IUsuarioService
         return true;
     }
 
-    // Política mínima de contraseñas: 8+ caracteres, al menos una letra y un número
-    private static void ValidarPassword(string password)
-    {
-        if (password.Length < 8 ||
-            !password.Any(char.IsLetter) ||
-            !password.Any(char.IsDigit))
-        {
-            throw new InvalidOperationException(
-                "La contraseña debe tener al menos 8 caracteres, " +
-                "incluyendo una letra y un número.");
-        }
-    }
+    // Política mínima de contraseñas: 8+ caracteres, al menos una letra y un
+    // número. La regla vive en PoliticaPassword porque la comparte el módulo
+    // de recuperación de contraseña.
+    private static void ValidarPassword(string password) =>
+        PoliticaPassword.Validar(password);
 
     // La cédula es el identificador de acceso: debe ser una cédula
     // ecuatoriana válida (provincia y dígito verificador)

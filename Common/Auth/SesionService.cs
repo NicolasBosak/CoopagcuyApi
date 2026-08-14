@@ -185,7 +185,8 @@ public class SesionService(
             Rol: usuario.Rol.ToString(),
             CatAsignado: usuario.CatAsignado?.ToString(),
             Expira: DateTime.UtcNow.Add(DuracionAccessToken),
-            SesionExpira: refreshExpira);
+            SesionExpira: refreshExpira,
+            DebeCambiarPassword: usuario.DebeCambiarPassword);
         return new AuthTokensResultado(respuesta, refreshPlano, refreshExpira);
     }
 
