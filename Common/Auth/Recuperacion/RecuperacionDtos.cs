@@ -14,6 +14,8 @@ public record SolicitudPasswordDto(
     // para que el administrador no intente restablecer en vano
     bool UsuarioActivo,
     string Estado,
+    // "Usuario" o "Administrador": quién puso en marcha el restablecimiento
+    string Origen,
     DateTime FechaCreacion,
     DateTime? FechaResolucion,
     string? ResueltaPor

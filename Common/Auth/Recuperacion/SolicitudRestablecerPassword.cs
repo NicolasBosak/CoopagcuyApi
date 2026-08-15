@@ -7,6 +7,12 @@ public enum EstadoSolicitudPassword
     Descartada   // el administrador decidió no atenderla
 }
 
+public enum OrigenSolicitudPassword
+{
+    Usuario,        // la pidió la propia persona desde la pantalla de ingreso
+    Administrador   // la inició un administrador, sin que mediara solicitud
+}
+
 /// <summary>
 /// Petición de un usuario que olvidó su contraseña. Los operadores entran
 /// solo con cédula y el correo es opcional, así que no hay dónde enviar un
@@ -30,6 +36,12 @@ public class SolicitudRestablecerPassword
 
     public EstadoSolicitudPassword Estado { get; set; }
         = EstadoSolicitudPassword.Pendiente;
+
+    // Quién puso en marcha el restablecimiento. Importa para auditar: el de
+    // origen Administrador es el único caso en que alguien toca la cuenta de
+    // otra persona sin que esa persona lo haya pedido.
+    public OrigenSolicitudPassword Origen { get; set; }
+        = OrigenSolicitudPassword.Usuario;
 
     public DateTime FechaCreacion { get; set; } = DateTime.UtcNow;
     public DateTime? FechaResolucion { get; set; }

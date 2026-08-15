@@ -353,6 +353,15 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasKey(s => s.Id);
             e.Property(s => s.CedulaSolicitada).HasMaxLength(10).IsRequired();
             e.Property(s => s.Estado).HasConversion<string>().HasMaxLength(20);
+            // El valor por defecto se declara aquí y no solo en el
+            // inicializador de la propiedad: EF no lo lee del C#, y sin esto
+            // la migración añade la columna con cadena vacía — un valor que no
+            // corresponde a ningún miembro del enum y que reventaría al leer
+            // las solicitudes que ya existen.
+            e.Property(s => s.Origen)
+                .HasConversion<string>()
+                .HasMaxLength(20)
+                .HasDefaultValue(OrigenSolicitudPassword.Usuario);
             e.Property(s => s.ResueltaPor).HasMaxLength(10);
             e.Property(s => s.IpSolicitud).HasMaxLength(60);
 
