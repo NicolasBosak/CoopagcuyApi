@@ -10,6 +10,7 @@ public interface IRecuperacionService
     Task<List<SolicitudPasswordDto>> ListarAsync(bool incluirResueltas);
     Task<PasswordTemporalDto> ResolverAsync(int id, string cedulaAdmin);
     Task<bool> DescartarAsync(int id, string cedulaAdmin);
+    Task<PasswordTemporalDto> RestablecerPorAdminAsync(int usuarioId, string cedulaAdmin);
     Task<bool> CambiarPasswordAsync(string cedula, string passwordActual, string passwordNueva);
 }
 
@@ -71,6 +72,7 @@ public class RecuperacionService(
                 s.Usuario.CatAsignado == null ? null : s.Usuario.CatAsignado.ToString(),
                 s.Usuario.Activo,
                 s.Estado.ToString(),
+                s.Origen.ToString(),
                 s.FechaCreacion,
                 s.FechaResolucion,
                 s.ResueltaPor))
@@ -107,10 +109,7 @@ public class RecuperacionService(
                     "El usuario está desactivado. " +
                     "Reactívalo antes de restablecer su contraseña.");
 
-            var temporal = GeneradorPasswordTemporal.Generar();
-
-            solicitud.Usuario.PasswordHash = BCrypt.Net.BCrypt.HashPassword(temporal);
-            solicitud.Usuario.DebeCambiarPassword = true;
+            var temporal = CredencialTemporal.Asignar(solicitud.Usuario);
 
             solicitud.Estado = EstadoSolicitudPassword.Resuelta;
             solicitud.FechaResolucion = DateTime.UtcNow;
@@ -129,6 +128,84 @@ public class RecuperacionService(
                 temporal,
                 solicitud.Usuario.NombreCompleto,
                 solicitud.Usuario.Cedula);
+        });
+    }
+
+    /// <summary>
+    /// Restablece la contraseña de un usuario por iniciativa del administrador,
+    /// sin que medie una solicitud. Es la vía para desbloquear a quien llama por
+    /// teléfono o no logra usar la pantalla de recuperación por su cuenta.
+    /// </summary>
+    public async Task<PasswordTemporalDto> RestablecerPorAdminAsync(
+        int usuarioId, string cedulaAdmin)
+    {
+        var estrategia = db.Database.CreateExecutionStrategy();
+
+        return await estrategia.ExecuteAsync(async () =>
+        {
+            db.ChangeTracker.Clear();
+            await using var transaccion = await db.Database.BeginTransactionAsync();
+
+            var usuario = await db.Usuarios.FirstOrDefaultAsync(u => u.Id == usuarioId)
+                ?? throw new KeyNotFoundException("El usuario no existe.");
+
+            // Restablecerse a uno mismo revocaría la propia sesión en mitad de
+            // la operación: el administrador quedaría desconectado con la
+            // temporal a medio leer en un modal que su sesión acaba de
+            // invalidar. Para cambiar la propia está /cambiar-password.
+            if (usuario.Cedula == cedulaAdmin)
+                throw new InvalidOperationException(
+                    "No puedes restablecer tu propia contraseña desde aquí. " +
+                    "Usa la pantalla de cambiar contraseña.");
+
+            if (!usuario.Activo)
+                throw new InvalidOperationException(
+                    "El usuario está desactivado. " +
+                    "Reactívalo antes de restablecer su contraseña.");
+
+            var temporal = CredencialTemporal.Asignar(usuario);
+            var ahora = DateTime.UtcNow;
+
+            // Si ya tenía una solicitud pendiente se resuelve ESA, conservando
+            // su origen: esa persona sí pidió el cambio, y el administrador la
+            // atendió sin pasar por el botón de la bandeja. Crear una segunda
+            // fila dejaría la pendiente colgada para siempre y el administrador
+            // vería una solicitud fantasma de alguien a quien ya atendió.
+            var pendiente = await db.SolicitudesRestablecerPassword
+                .FirstOrDefaultAsync(s => s.UsuarioId == usuarioId
+                    && s.Estado == EstadoSolicitudPassword.Pendiente);
+
+            if (pendiente is not null)
+            {
+                pendiente.Estado = EstadoSolicitudPassword.Resuelta;
+                pendiente.FechaResolucion = ahora;
+                pendiente.ResueltaPor = cedulaAdmin;
+            }
+            else
+            {
+                db.SolicitudesRestablecerPassword.Add(new SolicitudRestablecerPassword
+                {
+                    UsuarioId = usuario.Id,
+                    CedulaSolicitada = usuario.Cedula,
+                    Origen = OrigenSolicitudPassword.Administrador,
+                    Estado = EstadoSolicitudPassword.Resuelta,
+                    FechaCreacion = ahora,
+                    FechaResolucion = ahora,
+                    ResueltaPor = cedulaAdmin
+                });
+            }
+
+            await db.SaveChangesAsync();
+
+            // Igual que al resolver una solicitud: si la cuenta estaba
+            // comprometida, dejarle la sesión de 7 días viva anularía el
+            // restablecimiento.
+            await sesionService.RevocarUsuarioAsync(usuario.Id);
+
+            await transaccion.CommitAsync();
+
+            return new PasswordTemporalDto(
+                temporal, usuario.NombreCompleto, usuario.Cedula);
         });
     }
 

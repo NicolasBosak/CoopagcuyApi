@@ -1,3 +1,4 @@
+using CoopagcuyApi.Common.Auth.Recuperacion;
 using CoopagcuyApi.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -7,7 +8,7 @@ public interface IUsuarioService
 {
     Task<IEnumerable<UsuarioResponseDto>> ListarAsync(bool incluirInactivos);
     Task<UsuarioResponseDto?> ObtenerPorIdAsync(int id);
-    Task<UsuarioResponseDto> CrearAsync(CrearUsuarioDto dto);
+    Task<UsuarioCreadoDto> CrearAsync(CrearUsuarioDto dto);
     Task<bool> ActualizarAsync(int id, ActualizarUsuarioDto dto);
     Task<bool> CambiarEstadoAsync(int id, bool activo, int usuarioActualId);
 }
@@ -36,10 +37,9 @@ public class UsuarioService(AppDbContext db) : IUsuarioService
         return u is null ? null : MapToDto(u);
     }
 
-    public async Task<UsuarioResponseDto> CrearAsync(CrearUsuarioDto dto)
+    public async Task<UsuarioCreadoDto> CrearAsync(CrearUsuarioDto dto)
     {
         ValidarCedula(dto.Cedula);
-        ValidarPassword(dto.Password);
         ValidarCatOperador(dto.Rol, dto.CatAsignado);
 
         var cedula = dto.Cedula.Trim();
@@ -53,15 +53,19 @@ public class UsuarioService(AppDbContext db) : IUsuarioService
             NombreCompleto = dto.NombreCompleto.Trim(),
             Cedula = cedula,
             Email = NormalizarEmail(dto.Email),
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password),
             Rol = dto.Rol,
             CatAsignado = dto.Rol == RolUsuario.OperadorCAT
                 ? dto.CatAsignado : null
         };
 
+        // La contraseña la genera el sistema: el administrador da de alta la
+        // cuenta pero nunca elige —ni llega a conocer— la contraseña con la
+        // que esa persona va a operar. La dicta una vez y el usuario la cambia.
+        var temporal = CredencialTemporal.Asignar(usuario);
+
         db.Usuarios.Add(usuario);
         await db.SaveChangesAsync();
-        return MapToDto(usuario);
+        return new UsuarioCreadoDto(MapToDto(usuario), temporal);
     }
 
     public async Task<bool> ActualizarAsync(int id, ActualizarUsuarioDto dto)
@@ -77,12 +81,6 @@ public class UsuarioService(AppDbContext db) : IUsuarioService
         usuario.Rol = dto.Rol;
         usuario.CatAsignado = dto.Rol == RolUsuario.OperadorCAT
             ? dto.CatAsignado : null;
-
-        if (!string.IsNullOrEmpty(dto.NuevaPassword))
-        {
-            ValidarPassword(dto.NuevaPassword);
-            usuario.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.NuevaPassword);
-        }
 
         await db.SaveChangesAsync();
         return true;
@@ -122,12 +120,6 @@ public class UsuarioService(AppDbContext db) : IUsuarioService
         await db.SaveChangesAsync();
         return true;
     }
-
-    // Política mínima de contraseñas: 8+ caracteres, al menos una letra y un
-    // número. La regla vive en PoliticaPassword porque la comparte el módulo
-    // de recuperación de contraseña.
-    private static void ValidarPassword(string password) =>
-        PoliticaPassword.Validar(password);
 
     // La cédula es el identificador de acceso: debe ser una cédula
     // ecuatoriana válida (provincia y dígito verificador)

@@ -9,7 +9,6 @@ public class CrearUsuarioDto
     public string Cedula { get; set; } = string.Empty;
     // Correo de contacto opcional; no sirve para iniciar sesión
     public string? Email { get; set; }
-    public string Password { get; set; } = string.Empty;
     public RolUsuario Rol { get; set; }
     // Obligatorio para OperadorCAT: centro donde puede registrar
     public CentroAcopio? CatAsignado { get; set; }
@@ -22,8 +21,6 @@ public class ActualizarUsuarioDto
     public string? Email { get; set; }
     public RolUsuario Rol { get; set; }
     public CentroAcopio? CatAsignado { get; set; }
-    // Opcional: si viene, se restablece la contraseña
-    public string? NuevaPassword { get; set; }
 }
 
 public record UsuarioResponseDto(
@@ -35,4 +32,12 @@ public record UsuarioResponseDto(
     string? CatAsignado,
     bool Activo,
     DateTime FechaCreacion
+);
+
+// Respuesta del alta. La contraseña temporal viaja UNA sola vez y no se puede
+// volver a consultar: si el administrador no la anota, restablece otra desde
+// la lista de usuarios.
+public record UsuarioCreadoDto(
+    UsuarioResponseDto Usuario,
+    string PasswordTemporal
 );
