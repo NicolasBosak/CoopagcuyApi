@@ -33,7 +33,8 @@ public class UsuariosController(IUsuarioService service) : ControllerBase
         try
         {
             var result = await service.CrearAsync(dto);
-            return CreatedAtAction(nameof(ObtenerPorId), new { id = result.Id }, result);
+            return CreatedAtAction(nameof(ObtenerPorId),
+                new { id = result.Usuario.Id }, result);
         }
         catch (InvalidOperationException ex)
         {

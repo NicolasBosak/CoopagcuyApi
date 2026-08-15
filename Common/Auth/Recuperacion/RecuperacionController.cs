@@ -134,6 +134,30 @@ public class RecuperacionController(IRecuperacionService servicio) : ControllerB
         }
     }
 
+    /// <summary>
+    /// Restablece la contraseña de un usuario por iniciativa del administrador,
+    /// sin solicitud previa. Vive aquí y no en UsuariosController aunque el
+    /// botón esté en la lista de usuarios: escribe en la tabla de solicitudes y
+    /// revoca sesiones, así que pertenece al módulo de contraseñas.
+    /// </summary>
+    [HttpPost("usuario/{usuarioId:int}")]
+    [Authorize(Roles = RolesAdmin)]
+    public async Task<IActionResult> RestablecerPorAdmin(int usuarioId)
+    {
+        try
+        {
+            return Ok(await servicio.RestablecerPorAdminAsync(usuarioId, CedulaAdmin()));
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { mensaje = ex.Message });
+        }
+    }
+
     // Cédula del administrador autenticado, para la auditoría de la solicitud
     private string CedulaAdmin() => User.FindFirstValue("cedula") ?? "desconocido";
 
