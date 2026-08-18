@@ -108,8 +108,8 @@
       },
       "BCrypt.Net-Next": {
         "type": "Transitive",
-        "resolved": "4.0.3",
-        "contentHash": "W+U9WvmZQgi5cX6FS5GDtDoPzUCV4LkBLkywq/kRZhuDwcbavOzcDAr3LXJFqHUi952Yj3LEYoWW0jbEUQChsA=="
+        "resolved": "4.2.0",
+        "contentHash": "gwLD2KfCuwQesP17aVh4h6lpiMPEVt5Lbpndo0ej903hNUUTtyxt3ARdDjmuydBRTAUICc7OVKVbaOvc6SQYXA=="
       },
       "ClosedXML": {
         "type": "Transitive",
@@ -1925,7 +1925,7 @@
         "type": "Project",
         "dependencies": {
           "Azure.Storage.Blobs": "[12.20.0, )",
-          "BCrypt.Net-Next": "[4.0.3, )",
+          "BCrypt.Net-Next": "[4.2.0, )",
           "ClosedXML": "[0.102.2, )",
           "FluentValidation.AspNetCore": "[11.3.0, )",
           "Microsoft.AspNetCore.Authentication.JwtBearer": "[8.0.4, )",
