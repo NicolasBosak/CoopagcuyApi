@@ -1,0 +1,16 @@
+# Imagen del ejecutor de pruebas.
+#
+# Es el SDK pelado MÁS las fuentes de texto. Sin ellas QuestPDF no falla: emite
+# un PDF con los recuadros y las imágenes pero SIN una sola letra, en silencio.
+# El Dockerfile de producción ya instala fontconfig y fonts-liberation por esa
+# misma razón; si el ejecutor de pruebas no las tiene, las pruebas de PDF corren
+# contra un entorno que no se parece al real y una regresión de tipografía
+# pasaría entera por delante de ellas.
+FROM mcr.microsoft.com/dotnet/sdk:8.0
+
+# Exactamente la misma línea que el Dockerfile de producción, incluidos los
+# paquetes recomendados: con --no-install-recommends el conjunto de fuentes
+# instaladas cambia y QuestPDF acaba resolviendo una tipografía distinta a la
+# del servidor real. Un entorno de pruebas que se parece "casi" a producción no
+# sirve para revisar un documento maquetado.
+RUN apt-get update && apt-get install -y fontconfig fonts-liberation && rm -rf /var/lib/apt/lists/*

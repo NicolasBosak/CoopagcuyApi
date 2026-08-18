@@ -39,12 +39,33 @@ public class SesionService(
     {
         var plano = TokenSeguro.GenerarTokenPlano();
         var ahora = DateTime.UtcNow;
+        var dispositivo = Recortar(dispositivoId, 100);
+
+        // Una tablet, una sesión. Sin esto, cada inicio de sesión dejaba una
+        // fila más y la pantalla de sesiones mostraba cinco entradas del mismo
+        // usuario, imposible de interpretar para quien tiene que revocar una.
+        //
+        // Se revoca, no se borra: el rastro de auditoría se conserva.
+        //
+        // Sin identificador de dispositivo no se revoca nada: no hay forma de
+        // saber de qué tablet viene, y revocar por usuario cerraría las
+        // sesiones legítimas de las demás.
+        if (dispositivo is not null)
+        {
+            await db.RefreshTokens
+                .Where(t => t.UsuarioId == usuario.Id
+                         && t.DispositivoId == dispositivo
+                         && !t.Revocado)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(t => t.Revocado, true)
+                    .SetProperty(t => t.FechaRevocacion, ahora));
+        }
 
         db.RefreshTokens.Add(new RefreshToken
         {
             UsuarioId = usuario.Id,
             TokenHash = TokenSeguro.Hash(plano),
-            DispositivoId = Recortar(dispositivoId, 100),
+            DispositivoId = dispositivo,
             UserAgent = Recortar(userAgent, 300),
             IpCreacion = Recortar(ip, 60),
             FechaCreacion = ahora,
@@ -131,26 +152,38 @@ public class SesionService(
             ? null : TokenSeguro.Hash(refreshTokenActualPlano);
         var ahora = DateTime.UtcNow;
 
-        return await db.RefreshTokens
+        // Se materializa antes de describir el dispositivo: Describir es
+        // código C# y EF no puede traducirlo a SQL dentro del Select.
+        var filas = await db.RefreshTokens
             .AsNoTracking()
             .Include(t => t.Usuario)
             .Where(t => !t.Revocado && t.FechaExpiracion > ahora)
             .OrderByDescending(t => t.FechaUltimoUso)
-            .Select(t => new SesionActivaDto(
+            .Select(t => new
+            {
                 t.Id,
                 t.UsuarioId,
                 t.Usuario.NombreCompleto,
                 t.Usuario.Cedula,
-                t.Usuario.Rol.ToString(),
-                t.Usuario.CatAsignado == null ? null : t.Usuario.CatAsignado.ToString(),
+                Rol = t.Usuario.Rol.ToString(),
+                CatAsignado = t.Usuario.CatAsignado == null
+                    ? null : t.Usuario.CatAsignado.ToString(),
                 t.DispositivoId,
                 t.UserAgent,
                 t.IpCreacion,
                 t.FechaCreacion,
                 t.FechaUltimoUso,
                 t.FechaExpiracion,
-                hashActual != null && t.TokenHash == hashActual))
+                EsActual = hashActual != null && t.TokenHash == hashActual
+            })
             .ToListAsync();
+
+        return filas.Select(f => new SesionActivaDto(
+            f.Id, f.UsuarioId, f.NombreCompleto, f.Cedula, f.Rol,
+            f.CatAsignado, f.DispositivoId, f.UserAgent, f.IpCreacion,
+            f.FechaCreacion, f.FechaUltimoUso, f.FechaExpiracion,
+            f.EsActual,
+            DescripcionDispositivo.Describir(f.UserAgent))).ToList();
     }
 
     public async Task<bool> RevocarSesionAsync(int sesionId)
