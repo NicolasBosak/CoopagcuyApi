@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using CoopagcuyApi.Common;
 using CoopagcuyApi.Tests.Infra;
 using Shouldly;
 using Xunit;
@@ -34,9 +35,9 @@ public class ReporteSalidaTests(ApiFactory api) : IAsyncLifetime
     [Fact]
     public async Task UnDespachoDeHoy_apareceEnElReporteDelMesEnCurso()
     {
-        var hoy = DateTime.UtcNow;
-        await Sembrador.DespachoAsync(api, hoy, "Cliente de hoy");
+        await Sembrador.DespachoAsync(api, DateTime.UtcNow, "Cliente de hoy");
 
+        var hoy = DateTime.UtcNow + FechaUtc.DesfasePiloto;
         var desde = new DateTime(hoy.Year, hoy.Month, 1).ToString("yyyy-MM-dd");
         var hasta = hoy.ToString("yyyy-MM-dd");
 
@@ -53,13 +54,12 @@ public class ReporteSalidaTests(ApiFactory api) : IAsyncLifetime
     [Fact]
     public async Task UnDespachoDeHoy_apareceAunqueSeaElUltimoDiaDelRango()
     {
-        // El límite superior del filtro es exclusivo (día siguiente a las
-        // 00:00 UTC). Un despacho de esta tarde cae dentro del último día del
-        // rango: si RangoUtc cortara a medianoche, esta prueba lo detectaría.
-        var hoy = DateTime.UtcNow;
-        await Sembrador.DespachoAsync(api, hoy, "Cliente del borde");
+        // El límite superior es exclusivo: el inicio del día local SIGUIENTE.
+        // Un despacho de ahora mismo cae dentro del último día del rango, sea
+        // cual sea la hora a la que corra la prueba.
+        await Sembrador.DespachoAsync(api, DateTime.UtcNow, "Cliente del borde");
 
-        var dia = hoy.ToString("yyyy-MM-dd");
+        var dia = (DateTime.UtcNow + FechaUtc.DesfasePiloto).ToString("yyyy-MM-dd");
 
         var respuesta = await api.ComoAdmin()
             .GetAsync($"/api/reportes/salida?desde={dia}&hasta={dia}");
@@ -77,7 +77,7 @@ public class ReporteSalidaTests(ApiFactory api) : IAsyncLifetime
         await Sembrador.DespachoAsync(
             api, DateTime.UtcNow.AddDays(-90), "Cliente antiguo");
 
-        var hoy = DateTime.UtcNow;
+        var hoy = DateTime.UtcNow + FechaUtc.DesfasePiloto;
         var desde = new DateTime(hoy.Year, hoy.Month, 1).ToString("yyyy-MM-dd");
         var hasta = hoy.ToString("yyyy-MM-dd");
 
