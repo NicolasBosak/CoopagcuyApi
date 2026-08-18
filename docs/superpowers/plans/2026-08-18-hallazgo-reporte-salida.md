@@ -1,105 +1,128 @@
-# Hallazgo — el reporte de Salida no muestra los despachos nuevos
+# Hallazgo — fechas: el reporte de Salida y las horas de sesión
 
 **Fecha:** 2026-08-18
-**Tarea:** Fase 0 del plan [2026-08-18-permisos-sesiones-pdfs.md](2026-08-18-permisos-sesiones-pdfs.md)
-**Estado:** el código queda descartado. Falta una consulta a la base del entorno real.
+**Estado:** resuelto. Dos fallos distintos con la misma familia de causa.
 
-## Síntoma reportado
+## Fallo 1 — las últimas cinco horas de cada día no salían en ningún reporte
 
-En Reportes → Salida, el despacho más reciente que aparece es del **04/08/2026**.
-Se registraron dos despachos el **18/08/2026** y no aparecen ni en la pantalla web
-ni en la exportación a Excel. Los dos **sí** aparecen en la pantalla Despacho.
+### Síntoma
 
-## Qué se comprobó
+En Reportes → Salida no aparecían los despachos nuevos, ni en la web ni en el
+Excel. Sí aparecían en la pantalla Despacho.
 
-### 1. La consulta del reporte es correcta
+### Causa
 
-`tests/CoopagcuyApi.Tests/Integracion/ReporteSalidaTests.cs` inserta despachos
-**directamente en la tabla**, sin pasar por `RegistrarDespachoAsync`, y consulta
-`GET /api/reportes/salida` con el mismo rango que usa el front por defecto
-(primer día del mes → hoy).
+`ReportesService.RangoUtc` tomaba las fechas del filtro —que el usuario elige
+pensando en días **locales**— y las trataba como días **UTC**:
 
-| Prueba | Resultado |
-|---|---|
-| Un despacho de hoy aparece en el rango del mes en curso | **Pasa** |
-| Un despacho de hoy aparece cuando el rango es solo el día de hoy | **Pasa** |
-| Un despacho de hace 90 días no aparece en el rango del mes | **Pasa** |
-
-La tercera es el control negativo: descarta que el filtro esté sencillamente
-inactivo y las otras dos pasen por casualidad.
-
-**Conclusión:** `ReporteSalidaAsync` encuentra lo que hay dentro del rango, y el
-límite superior exclusivo de `RangoUtc` cubre bien el día en curso. La sospecha
-inicial sobre los `Include` encadenados sin `AsSplitQuery()` queda descartada.
-
-### 2. La fecha entrante no se desplaza
-
-`tests/CoopagcuyApi.Tests/Unitarias/FechaDespachoEntranteTests.cs` deserializa
-el cuerpo JSON contra el DTO real (`RegistrarDespachoDto`) con las mismas
-opciones que aplica ASP.NET Core, y le pasa el resultado por
-`FechaUtc.Normalizar`.
-
-| Formato enviado | Resultado |
-|---|---|
-| `2026-08-18T11:09:00.000Z` — el que manda el front | **Pasa**, queda 11:09 UTC |
-| `2026-08-18T06:09:00.000-05:00` — con desfase de Ecuador | **Pasa**, queda 11:09 UTC |
-| `2026-08-18T11:09:00` — sin zona horaria | **Pasa**, queda 11:09 UTC |
-
-**Conclusión:** la fecha sobrevive intacta el viaje desde el cuerpo de la
-petición hasta el valor que se guarda. No hay desplazamiento por zona horaria
-ni por `DateTimeKind`.
-
-## Un tropiezo que conviene anotar
-
-La primera corrida dio 2 fallos de 3, y parecía la confirmación del defecto. No
-lo era: el registro de la prueba nombraba los campos `ClienteDestino`,
-`CodigoLote`, `Destino` y `CantidadUnidades`, mientras que `ReporteSalidaDto`
-los llama `Cliente`, `CodigoLoteFaenado`, `Ubicacion` y `Unidades`.
-System.Text.Json empareja **por nombre**, así que `ClienteDestino` se
-deserializaba como `null` en silencio y la aserción fallaba con el sistema sano.
-
-Vale la pena recordarlo para las pruebas que vengan: un registro de prueba con
-nombres inventados no da error de compilación ni de deserialización, solo
-resultados falsos.
-
-## Qué queda por descartar
-
-El código está limpio en las dos mitades del recorrido, así que lo que queda son
-explicaciones sobre los datos y el entorno. En orden de probabilidad:
-
-1. **La fecha guardada está fuera del rango.** El formulario de despacho
-   (`FormDespacho.tsx`) trae un campo de fecha y hora **editable**, precargado
-   con el momento actual del dispositivo. Si el reloj de la tablet está
-   desajustado, o si quien registró el despacho tocó ese campo, la fila queda
-   con una fecha que el rango del mes no cubre. Es la explicación que mejor
-   encaja con «aparece en Despacho pero no en Salida»: la pantalla Despacho
-   consulta **sin filtro de fecha**, así que muestra la fila sea cual sea su
-   fecha.
-2. **La API desplegada es anterior a este código.** Explicaría cualquier
-   diferencia entre lo que se lee aquí y lo que hace el servidor.
-3. **El front y la API apuntan a bases distintas.** Menos probable, porque
-   ambas pantallas usan el mismo cliente HTTP.
-
-## Lo que hace falta para cerrarlo
-
-Una consulta contra la base del entorno donde se registraron los despachos:
-
-```sql
-SELECT "Id", "FechaDespacho", "ClienteDestino", "LoteFaenadoId", "LoteId"
-FROM "Despachos"
-ORDER BY "Id" DESC
-LIMIT 10;
+```csharp
+var desde = DateTime.SpecifyKind(filtro.Desde.Date, DateTimeKind.Utc);
+var hasta = DateTime.SpecifyKind(filtro.Hasta.Date.AddDays(1), DateTimeKind.Utc);
 ```
 
-Con eso se resuelve en un vistazo:
+Ecuador es UTC-5, así que el día local termina a las **05:00 UTC del día
+siguiente**, no a las 00:00. El rango se cerraba cinco horas antes de tiempo y
+se llevaba por delante todo lo registrado entre las **19:00 y la medianoche**
+hora local.
 
-- **Si `FechaDespacho` de las dos filas nuevas cae fuera de agosto de 2026** →
-  hipótesis 1 confirmada. El arreglo no es de consulta sino de captura: sellar
-  la fecha en el servidor, o avisar en el formulario cuando la fecha elegida se
-  aleja del momento actual.
-- **Si cae dentro del rango y aun así el reporte no la devuelve** → hipótesis 2
-  o 3. Toca comparar la versión desplegada y la cadena de conexión.
-- **Si las dos filas no existen** → el registro no está confirmando la
-  transacción pese a responder con éxito, y hay que mirar `RegistrarDespachoAsync`.
+Un despacho de las 20:00 en el CAT se guarda como las 01:00 UTC del día
+siguiente. El reporte "hasta hoy" lo excluía, aunque la fila estuviera
+perfectamente guardada — por eso sí se veía en la pantalla Despacho, que
+consulta sin filtro de fechas.
 
-Hasta tener ese dato, escribir un arreglo sería adivinar.
+Afectaba a **todos** los reportes, no solo a Salida.
+
+### Por qué la pantalla Despacho sí los mostraba
+
+`ListarDespachosAsync` no filtra por fecha salvo que se le pidan parámetros, y
+el front no le pasa ninguno. Esa asimetría es la que hacía parecer que el dato
+se perdía.
+
+### Arreglo
+
+`FechaUtc.InicioDelDiaLocal` traduce un día local del piloto al instante UTC en
+que empieza, y `RangoUtc` lo usa en los dos extremos. El desfase es una
+constante fija (`FechaUtc.DesfasePiloto` = -5): Ecuador no aplica horario de
+verano, así que es exacto todo el año.
+
+En el frontend, `inicioMes()`, `hoy()` y los rangos rápidos usaban
+`toISOString().slice(0, 10)`, que convierte a UTC antes de recortar y por tanto
+devolvía el día siguiente a partir de las 19:00. Ahora usan `fechaLocal()`.
+
+### Consecuencia a tener presente
+
+El desfase está fijado a Ecuador continental. Si alguien consulta reportes desde
+un equipo en otra zona horaria, el selector le mostrará sus días locales pero el
+servidor los interpretará como días de Ecuador. Para el piloto es lo correcto
+—la cooperativa opera en Azuay— pero deja de serlo si el sistema se usa desde
+otro huso.
+
+### Cobertura
+
+- `DespachoExtremoAExtremoTests` registra un despacho **por el endpoint real** a
+  las 19:30 hora de Ecuador y lo busca en el reporte del día local. Falla sin el
+  arreglo, pasa con él.
+- `ReporteSalidaTests` cubre la consulta con filas insertadas a mano, incluido
+  un control negativo.
+- `FechaDespachoEntranteTests` cubre la deserialización de la fecha entrante en
+  los tres formatos que puede mandar un cliente.
+
+## Fallo 2 — las horas se mostraban cinco horas en el futuro
+
+### Síntoma
+
+La pantalla de sesiones mostraba "Último uso: 9:51 p. m." con el reloj del
+equipo marcando las 4:56 p. m.
+
+### Causa
+
+Una cadena de tres piezas, ninguna de ellas un error por sí sola:
+
+1. `Program.cs` activa `Npgsql.EnableLegacyTimestampBehavior`, así que las
+   columnas `timestamp without time zone` devuelven sus `DateTime` con
+   `Kind=Unspecified`.
+2. System.Text.Json serializa un `Unspecified` **sin la `Z` final**:
+   `"2026-08-18T21:51:00"` en vez de `"2026-08-18T21:51:00Z"`.
+3. En el navegador, `new Date("2026-08-18T21:51:00")` interpreta una fecha sin
+   zona como hora **local**, y pinta 21:51 tal cual.
+
+Era UTC mostrado como si fuera hora local. Afectaba a todas las fechas del
+sistema; se notó en las sesiones porque es donde la hora exacta se mira con
+lupa.
+
+### Arreglo
+
+`FechaUtcJsonConverter` (y su versión nullable) serializan todo `DateTime` como
+instante UTC explícito. Se registran en `Program.cs` junto al converter de
+enums.
+
+La versión nullable hace falta aparte: System.Text.Json **no** deriva el
+converter de `DateTime?` del de `DateTime`, y sin ella las fechas opcionales
+—`fechaRevocacion`, `fechaRecepcionPlanta`— habrían seguido saliendo mal
+mientras las obligatorias ya salían bien.
+
+### Cobertura
+
+`FechasSerializadasTests` comprueba sobre el **JSON crudo** que las fechas
+terminan en `Z`. Deserializar a `DateTime` habría ocultado el fallo: .NET
+rellena la zona que falta y la prueba pasaría con el navegador leyendo mal.
+
+## Nota sobre el formato de calendario de EEUU
+
+No influye. El frontend envía y recibe fechas en ISO-8601, que es independiente
+del formato de presentación del sistema operativo. Lo que sí importa es el
+**desfase horario**, y el del equipo desde el que se reportó el fallo es UTC-5,
+el mismo que Ecuador: no añadía ningún desplazamiento extra.
+
+## Un tropiezo que conviene recordar
+
+La primera versión de `ReporteSalidaTests` dio 2 fallos de 3 y pareció confirmar
+un defecto en la consulta. No lo era: el registro de la prueba nombraba los
+campos `ClienteDestino`, `CodigoLote`, `Destino` y `CantidadUnidades`, mientras
+que `ReporteSalidaDto` los llama `Cliente`, `CodigoLoteFaenado`, `Ubicacion` y
+`Unidades`. System.Text.Json empareja **por nombre**: los campos inventados se
+deserializaban como `null` en silencio y las aserciones fallaban con el sistema
+sano.
+
+Un registro de prueba con nombres que no existen no da error de compilación ni
+de deserialización, solo resultados falsos.

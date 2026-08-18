@@ -1,3 +1,4 @@
+﻿using CoopagcuyApi.Common;
 using CoopagcuyApi.Common.Auth;
 using CoopagcuyApi.Common.Auth.Recuperacion;
 using CoopagcuyApi.Common.Exceptions;
@@ -133,6 +134,14 @@ builder.Services.AddControllers()
         // Permite enviar enums como strings en el JSON ("PAT" en lugar de 0)
         options.JsonSerializerOptions.Converters.Add(
             new System.Text.Json.Serialization.JsonStringEnumConverter());
+
+        // Toda fecha sale como instante UTC explícito ("…Z"). Sin esto salen
+        // sin zona horaria —EnableLegacyTimestampBehavior hace que Postgres
+        // las devuelva con Kind=Unspecified— y el navegador las interpreta
+        // como hora local, mostrándolas cinco horas en el futuro.
+        options.JsonSerializerOptions.Converters.Add(new FechaUtcJsonConverter());
+        options.JsonSerializerOptions.Converters.Add(
+            new FechaUtcNullableJsonConverter());
     });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>

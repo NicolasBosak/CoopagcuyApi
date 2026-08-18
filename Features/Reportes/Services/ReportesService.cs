@@ -45,12 +45,18 @@ public class ReportesService(AppDbContext db) : IReportesService
     // El filtro llega como fecha sin hora ("2026-07-03"): el límite
     // superior debe cubrir el día completo, no cortar a medianoche.
     // Devuelve (desde inclusivo, hasta exclusivo = día siguiente 00:00).
+    //
+    // Los días son LOCALES del piloto (Ecuador, UTC-5), no UTC. Antes se
+    // tomaban como UTC directamente, y eso recortaba de todos los reportes
+    // las últimas cinco horas de cada día local: un despacho de las 20:00 en
+    // el CAT ya pertenecía al día UTC siguiente y no salía en el reporte "de
+    // hoy" pese a estar bien guardado. Ese fue el fallo que se reportó como
+    // "los despachos nuevos no aparecen en Salida".
     private static (DateTime desdeUtc, DateTime hastaExclusivoUtc) RangoUtc(
         FiltroPeriodoDto filtro)
     {
-        var desde = DateTime.SpecifyKind(filtro.Desde.Date, DateTimeKind.Utc);
-        var hasta = DateTime.SpecifyKind(
-            filtro.Hasta.Date.AddDays(1), DateTimeKind.Utc);
+        var desde = FechaUtc.InicioDelDiaLocal(filtro.Desde);
+        var hasta = FechaUtc.InicioDelDiaLocal(filtro.Hasta.Date.AddDays(1));
         return (desde, hasta);
     }
 
