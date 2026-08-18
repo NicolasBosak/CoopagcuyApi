@@ -25,6 +25,14 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- El logo va embebido en el ensamblado y no como archivo suelto: la
+         imagen de la API se publica sobre aspnet SIN wwwroot, así que un
+         archivo que no se copiara funcionaría en desarrollo y fallaría en
+         producción — y fallaría al generar un PDF, no al arrancar. -->
+    <EmbeddedResource Include="Common\Branding\coopagcuy-logo.png" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Azure.Storage.Blobs" Version="12.20.0" />
     <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
     <PackageReference Include="ClosedXML" Version="0.102.2" />

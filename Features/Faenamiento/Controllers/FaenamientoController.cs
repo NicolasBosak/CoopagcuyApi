@@ -11,7 +11,7 @@ namespace CoopagcuyApi.Features.Faenamiento.Controllers;
 // El módulo de faenamiento es de la planta: ningún OperadorCAT debe leerlo.
 // La restricción a nivel de clase cubre también las lecturas que antes
 // quedaban con [Authorize] a secas (lote, devoluciones, retornos, despachos).
-[Authorize(Roles = "OperadorFaenamiento,AdminCooperativa,AdminTecnico")]
+[Authorize(Roles = "OperadorFaenamiento,AdminCooperativa")]
 public class FaenamientoController(
     IFaenamientoService service,
     IValidator<RegistrarFaenamientoBatchDto> batchValidator,
@@ -22,7 +22,7 @@ public class FaenamientoController(
     /// saldo cero desaparecen de esta vista automáticamente.
     /// </summary>
     [HttpGet("lotes-disponibles")]
-    [Authorize(Roles = "OperadorFaenamiento,AdminCooperativa,AdminTecnico")]
+    [Authorize(Roles = "OperadorFaenamiento,AdminCooperativa")]
     public async Task<IActionResult> LotesDisponibles()
     {
         var resultado = await service.LotesDisponiblesAsync();
@@ -35,7 +35,7 @@ public class FaenamientoController(
     /// en planta ya venía registrada desde la recepción en el CAT.
     /// </summary>
     [HttpPost("batch")]
-    [Authorize(Roles = "OperadorFaenamiento,AdminCooperativa,AdminTecnico")]
+    [Authorize(Roles = "OperadorFaenamiento,AdminCooperativa")]
     public async Task<IActionResult> RegistrarBatch(
         [FromBody] RegistrarFaenamientoBatchDto dto)
     {
@@ -99,7 +99,7 @@ public class FaenamientoController(
     /// Incluye código de lote, fecha de faenamiento, vencimiento y datos de origen.
     /// </summary>
     [HttpGet("inkjet/{codigoLote}")]
-    [Authorize(Roles = "OperadorFaenamiento,AdminCooperativa,AdminTecnico")]
+    [Authorize(Roles = "OperadorFaenamiento,AdminCooperativa")]
     public async Task<IActionResult> ObtenerDatosInkJet(string codigoLote)
     {
         var resultado = await service.ObtenerDatosInkJetAsync(codigoLote);
@@ -113,7 +113,7 @@ public class FaenamientoController(
     /// Un lote totalmente despachado deja de aparecer aquí.
     /// </summary>
     [HttpGet("despachos/disponibles")]
-    [Authorize(Roles = "OperadorFaenamiento,AdminCooperativa,AdminTecnico")]
+    [Authorize(Roles = "OperadorFaenamiento,AdminCooperativa")]
     public async Task<IActionResult> ListarDespachables()
     {
         var resultado = await service.ListarDespachablesAsync();
@@ -125,7 +125,7 @@ public class FaenamientoController(
     /// a un cliente. Cada animal solo puede despacharse una vez.
     /// </summary>
     [HttpPost("despachos")]
-    [Authorize(Roles = "OperadorFaenamiento,AdminCooperativa,AdminTecnico")]
+    [Authorize(Roles = "OperadorFaenamiento,AdminCooperativa")]
     public async Task<IActionResult> RegistrarDespacho([FromBody] RegistrarDespachoDto dto)
     {
         var validacion = await despachoValidator.ValidateAsync(dto);
@@ -157,7 +157,7 @@ public class FaenamientoController(
     /// Queda vinculada al lote de origen y a su productora.
     /// </summary>
     [HttpPost("devoluciones")]
-    [Authorize(Roles = "OperadorFaenamiento,AdminCooperativa,AdminTecnico")]
+    [Authorize(Roles = "OperadorFaenamiento,AdminCooperativa")]
     public async Task<IActionResult> RegistrarDevolucion([FromBody] RegistrarDevolucionDto dto)
     {
         try

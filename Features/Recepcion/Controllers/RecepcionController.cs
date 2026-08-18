@@ -47,7 +47,7 @@ public class RecepcionController(
     /// y el remanente abre una jaula nueva.
     /// </summary>
     [HttpPost("entregas")]
-    [Authorize(Roles = "OperadorCAT,AdminCooperativa,AdminTecnico")]
+    [Authorize(Roles = "OperadorCAT,AdminCooperativa")]
     public async Task<IActionResult> RegistrarEntrega([FromBody] RegistrarEntregaDto dto)
     {
         if (CatNoAutorizado(dto.CentroAcopio) is string motivo)
@@ -78,6 +78,7 @@ public class RecepcionController(
     /// Obtiene la jaula abierta (en armado) del CAT, si existe.
     /// </summary>
     [HttpGet("lotes/abierto")]
+    [Authorize(Roles = "OperadorCAT,AdminCooperativa,OperadorFaenamiento")]
     public async Task<IActionResult> ObtenerLoteAbierto([FromQuery] CentroAcopio cat)
     {
         // El operador de CAT solo consulta la jaula de su propio centro
@@ -91,7 +92,7 @@ public class RecepcionController(
     /// dejándola lista para movilización.
     /// </summary>
     [HttpPost("lotes/{codigoLote}/cerrar")]
-    [Authorize(Roles = "OperadorCAT,AdminCooperativa,AdminTecnico")]
+    [Authorize(Roles = "OperadorCAT,AdminCooperativa")]
     public async Task<IActionResult> CerrarLote(string codigoLote)
     {
         // El código de jaula empieza con el CAT (PAT-…, NIE-…)
@@ -122,6 +123,7 @@ public class RecepcionController(
     /// Obtiene un lote por su Id interno.
     /// </summary>
     [HttpGet("lotes/{id:int}")]
+    [Authorize(Roles = "OperadorCAT,AdminCooperativa,OperadorFaenamiento")]
     public async Task<IActionResult> ObtenerLotePorId(int id)
     {
         var resultado = await service.ObtenerLotePorIdAsync(id);
@@ -141,6 +143,7 @@ public class RecepcionController(
     /// Usado por el módulo QR y por el faenamiento.
     /// </summary>
     [HttpGet("lotes/codigo/{codigo}")]
+    [Authorize(Roles = "OperadorCAT,AdminCooperativa,OperadorFaenamiento")]
     public async Task<IActionResult> ObtenerLotePorCodigo(string codigo)
     {
         var resultado = await service.ObtenerLotePorCodigoAsync(codigo);
@@ -159,6 +162,7 @@ public class RecepcionController(
     /// Lista lotes con filtros opcionales por CAT, estado y rango de fechas.
     /// </summary>
     [HttpGet("lotes")]
+    [Authorize(Roles = "OperadorCAT,AdminCooperativa,OperadorFaenamiento")]
     public async Task<IActionResult> ListarLotes(
         [FromQuery] CentroAcopio? cat,
         [FromQuery] EstadoLote? estado,
@@ -177,7 +181,7 @@ public class RecepcionController(
     /// desde el CAT hasta la planta de faenamiento.
     /// </summary>
     [HttpGet("lotes/{codigoLote}/guia")]
-    [Authorize(Roles = "OperadorCAT,AdminCooperativa,AdminTecnico")]
+    [Authorize(Roles = "OperadorCAT,AdminCooperativa")]
     public async Task<IActionResult> GuiaMovilizacion(string codigoLote)
     {
         try
@@ -197,7 +201,7 @@ public class RecepcionController(
     /// y los registra en la base de datos central.
     /// </summary>
     [HttpPost("sync-entregas")]
-    [Authorize(Roles = "OperadorCAT,AdminCooperativa,AdminTecnico")]
+    [Authorize(Roles = "OperadorCAT,AdminCooperativa")]
     public async Task<IActionResult> SincronizarEntregas([FromBody] SyncEntregasDto dto)
     {
         foreach (var entrega in dto.Entregas)
@@ -218,7 +222,7 @@ public class RecepcionController(
     /// conductor, condiciones de transporte y declaración de tratamientos.
     /// </summary>
     [HttpPost("lotes/{codigoLote}/movilizacion")]
-    [Authorize(Roles = "OperadorCAT,AdminCooperativa,AdminTecnico")]
+    [Authorize(Roles = "OperadorCAT,AdminCooperativa")]
     public async Task<IActionResult> RegistrarMovilizacion(
         string codigoLote, [FromBody] RegistrarMovilizacionDto dto)
     {
@@ -245,7 +249,7 @@ public class RecepcionController(
     /// Cierra el eslabón documental CAT → transportista → planta.
     /// </summary>
     [HttpPatch("movilizaciones/{id:int}/recepcion")]
-    [Authorize(Roles = "OperadorFaenamiento,AdminCooperativa,AdminTecnico")]
+    [Authorize(Roles = "OperadorFaenamiento,AdminCooperativa")]
     public async Task<IActionResult> ConfirmarRecepcionPlanta(
         int id, [FromBody] ConfirmarRecepcionPlantaDto dto)
     {
@@ -265,6 +269,7 @@ public class RecepcionController(
     /// aún no confirman recepción en planta.
     /// </summary>
     [HttpGet("movilizaciones")]
+    [Authorize(Roles = "OperadorCAT,AdminCooperativa,OperadorFaenamiento")]
     public async Task<IActionResult> ListarMovilizaciones(
         [FromQuery] bool? pendientes)
     {
@@ -283,6 +288,7 @@ public class RecepcionController(
     /// Obtiene la movilización de un lote por su código.
     /// </summary>
     [HttpGet("lotes/{codigoLote}/movilizacion")]
+    [Authorize(Roles = "OperadorCAT,AdminCooperativa,OperadorFaenamiento")]
     public async Task<IActionResult> ObtenerMovilizacionPorLote(string codigoLote)
     {
         var resultado = await movilizacionService.ObtenerPorCodigoLoteAsync(codigoLote);

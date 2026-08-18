@@ -1,4 +1,5 @@
 using System.Net;
+using ClosedXML.Excel;
 using CoopagcuyApi.Tests.Infra;
 using Shouldly;
 using Xunit;
@@ -6,11 +7,15 @@ using Xunit;
 namespace CoopagcuyApi.Tests.Integracion;
 
 /// <summary>
-/// Los dos roles de administración dejan de ser intercambiables: el técnico
-/// conserva todo el sistema, el de cooperativa pierde las sesiones activas
-/// pero gana la bandeja de contraseñas. Se comprueba en el API y no solo en
-/// las rutas del front: una ruta protegida sin su [Authorize] correspondiente
-/// es una falsa sensación de seguridad — con el token se llama igual.
+/// Los dos roles de administración no son intercambiables. El técnico atiende
+/// soporte: conserva vinculaciones, reportes administrativos, administración de
+/// usuarios y sesiones activas, y pierde toda la operación de la cadena. El de
+/// cooperativa opera y pierde las sesiones activas, pero gana la bandeja de
+/// contraseñas.
+///
+/// Se comprueba en el API y no solo en las rutas del front: una ruta protegida
+/// sin su [Authorize] correspondiente es una falsa sensación de seguridad —con
+/// el token se llama igual.
 /// </summary>
 [Collection(ColeccionApi.Nombre)]
 public class AutorizacionAdminTests(ApiFactory api) : IAsyncLifetime
@@ -62,5 +67,122 @@ public class AutorizacionAdminTests(ApiFactory api) : IAsyncLifetime
             .GetAsync("/api/auth/recuperacion");
 
         respuesta.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+    }
+
+    // ── El admin técnico queda acotado a soporte ──────────────────────
+    // Su trabajo es atender usuarios, no operar la cadena. Pierde recepción,
+    // faenamiento, despacho, productoras, pagos y los reportes del flujo
+    // físico; conserva vinculaciones, reportes administrativos, usuarios y
+    // sesiones.
+
+    [Theory]
+    [InlineData("/api/recepcion/lotes")]
+    [InlineData("/api/faenamiento/despachos")]
+    [InlineData("/api/productoras")]
+    [InlineData("/api/pagos")]
+    [InlineData("/api/reportes/dashboard")]
+    public async Task AdminTecnico_pierdeLaOperacion(string ruta)
+    {
+        var respuesta = await api.ComoAdminTecnico().GetAsync(ruta);
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+    }
+
+    [Theory]
+    [InlineData("/api/reportes/entrada")]
+    [InlineData("/api/reportes/transito")]
+    [InlineData("/api/reportes/salida")]
+    [InlineData("/api/reportes/exportar/excel/entrada")]
+    [InlineData("/api/reportes/exportar/excel/transito")]
+    [InlineData("/api/reportes/exportar/excel/salida")]
+    public async Task AdminTecnico_pierdeLosReportesDelFlujoOperativo(string ruta)
+    {
+        var respuesta = await api.ComoAdminTecnico()
+            .GetAsync($"{ruta}?desde=2026-08-01&hasta=2026-08-18");
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+    }
+
+    [Theory]
+    [InlineData("/api/reportes/productoras")]
+    [InlineData("/api/reportes/cat")]
+    [InlineData("/api/reportes/novedades")]
+    [InlineData("/api/reportes/devoluciones")]
+    public async Task AdminTecnico_conservaLosReportesAdministrativos(string ruta)
+    {
+        var respuesta = await api.ComoAdminTecnico()
+            .GetAsync($"{ruta}?desde=2026-08-01&hasta=2026-08-18");
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task AdminTecnico_conservaLaBandejaDeVinculaciones()
+    {
+        // Los endpoints de vinculación viven dentro de RecepcionController.
+        // Retirar el rol de "todo el controlador" le rompería una de las
+        // cuatro pantallas que conserva: esta prueba es la red que lo evita.
+        var respuesta = await api.ComoAdminTecnico()
+            .GetAsync("/api/recepcion/vinculaciones");
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task AdminCooperativa_conservaLaOperacion()
+    {
+        // Control: el recorte es del técnico, no de los dos administradores.
+        var respuesta = await api.ComoAdmin().GetAsync("/api/productoras");
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task AdminTecnico_descargaElLibroGeneralSinLasHojasDelFlujo()
+    {
+        // La restricción no puede escaparse por la descarga: el libro general
+        // llevaba una hoja de Salida, que es justo lo que este rol perdió.
+        var respuesta = await api.ComoAdminTecnico().GetAsync(
+            "/api/reportes/exportar/excel/general?desde=2026-08-01&hasta=2026-08-18");
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        await using var contenido = await respuesta.Content.ReadAsStreamAsync();
+        using var libro = new XLWorkbook(contenido);
+        var hojas = libro.Worksheets.Select(h => h.Name).ToList();
+
+        hojas.ShouldNotContain("Entrada");
+        hojas.ShouldNotContain("Tránsito");
+        hojas.ShouldNotContain("Salida");
+        hojas.ShouldContain("Productoras");
+        hojas.ShouldContain("Devoluciones clientes");
+    }
+
+    [Fact]
+    public async Task AdminCooperativa_descargaElLibroGeneralCompleto()
+    {
+        var respuesta = await api.ComoAdmin().GetAsync(
+            "/api/reportes/exportar/excel/general?desde=2026-08-01&hasta=2026-08-18");
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        await using var contenido = await respuesta.Content.ReadAsStreamAsync();
+        using var libro = new XLWorkbook(contenido);
+        var hojas = libro.Worksheets.Select(h => h.Name).ToList();
+
+        hojas.ShouldContain("Entrada");
+        hojas.ShouldContain("Tránsito");
+        hojas.ShouldContain("Salida");
+        hojas.ShouldContain("Productoras");
+    }
+
+    [Fact]
+    public async Task OperadorFaenamiento_conservaElFlujoOperativo()
+    {
+        // Control: el reporte de Salida es su herramienta de trabajo diaria.
+        var respuesta = await api.ComoOperadorFaenamiento()
+            .GetAsync("/api/reportes/salida?desde=2026-08-01&hasta=2026-08-18");
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.OK);
     }
 }
