@@ -1,4 +1,5 @@
 ﻿using System.Security.Claims;
+using CoopagcuyApi.Common;
 using CoopagcuyApi.Common.Auth;
 using CoopagcuyApi.Features.Productoras.DTOs;
 using CoopagcuyApi.Features.Productoras.Services;
@@ -16,20 +17,21 @@ public class ProductorasController(
     IValidator<CrearProductoraDto> validator) : ControllerBase
 {
     [HttpGet]
-    [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorCAT")]
+    [Authorize(Roles = "AdminCooperativa,OperadorCAT")]
     public async Task<IActionResult> Listar(
         [FromQuery] string? comunidad,
         [FromQuery] string? cat,
         [FromQuery] bool incluirInactivas = false)
     {
-        // El operador de CAT solo ve las productoras activas de su centro;
-        // las inactivas solo se listan para la administración
+        // El operador de CAT solo ve las productoras de su centro —el filtro
+        // por catEfectivo lo garantiza—, incluidas las inactivas: desde que
+        // puede reactivarlas, ocultárselas le quitaría la mitad del trabajo.
         var esOperador = User.IsInRole("OperadorCAT");
         var catEfectivo = esOperador
             ? User.FindFirst("cat")?.Value ?? cat
             : cat;
         var result = await service.ObtenerTodasAsync(
-            comunidad, catEfectivo, incluirInactivas && !esOperador);
+            comunidad, catEfectivo, incluirInactivas);
         return Ok(result);
     }
 
@@ -50,9 +52,28 @@ public class ProductorasController(
     }
 
     [HttpPost]
-    [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
+    [Authorize(Roles = "AdminCooperativa,OperadorCAT")]
     public async Task<IActionResult> Crear([FromBody] CrearProductoraDto dto)
     {
+        // El operador no elige el centro de la productora que registra: se
+        // sella con el CAT de su token. Se hace ANTES de validar para que el
+        // validador vea el objeto definitivo, y para que un cuerpo con otro
+        // centro no sea un error sino sencillamente un dato ignorado.
+        if (User.CatRestringido() is string catOperador &&
+            Enum.TryParse<CentroAcopio>(catOperador, out var catDelToken))
+            dto.CatAsignado = catDelToken;
+
+        // La comunidad también entra en el alcance: sin esta comprobación, el
+        // operador de PAT registraría productoras de Las Nieves con el sello
+        // "PAT", ensuciando el catálogo de otro centro.
+        var catComunidad = await service.CatDeComunidadAsync(dto.ComunidadId);
+        if (User.ComunidadFueraDeAlcance(catComunidad))
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                mensaje = "Tu usuario solo puede registrar productoras de " +
+                          "las comunidades de su centro de acopio."
+            });
+
         var validacion = await validator.ValidateAsync(dto);
         if (!validacion.IsValid)
             return BadRequest(new
@@ -73,9 +94,35 @@ public class ProductorasController(
     }
 
     [HttpPut("{id:int}")]
-    [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
+    [Authorize(Roles = "AdminCooperativa,OperadorCAT")]
     public async Task<IActionResult> Actualizar(int id, [FromBody] CrearProductoraDto dto)
     {
+        var actual = await service.ObtenerPorIdAsync(id);
+        if (actual is null) return NotFound();
+
+        // Alcance sobre la productora tal como está HOY: si se comprobara
+        // contra el DTO, bastaría con mandar el propio CAT en el cuerpo para
+        // editar la de cualquier otro centro.
+        if (User.FueraDeAlcance(actual.CatAsignado))
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                mensaje = "Tu usuario solo puede editar productoras de su centro."
+            });
+
+        // Y alcance sobre el destino: una edición no puede ser la puerta por
+        // la que una productora sale del centro de quien la edita.
+        var catComunidad = await service.CatDeComunidadAsync(dto.ComunidadId);
+        if (User.ComunidadFueraDeAlcance(catComunidad))
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                mensaje = "No puedes mover una productora a una comunidad " +
+                          "de otro centro de acopio."
+            });
+
+        if (User.CatRestringido() is string catOperador &&
+            Enum.TryParse<CentroAcopio>(catOperador, out var catDelToken))
+            dto.CatAsignado = catDelToken;
+
         var validacion = await validator.ValidateAsync(dto);
         if (!validacion.IsValid)
             return BadRequest(new
@@ -95,10 +142,21 @@ public class ProductorasController(
     /// historial de lotes, pagos y trazabilidad.
     /// </summary>
     [HttpPatch("{id:int}/estado")]
-    [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
+    [Authorize(Roles = "AdminCooperativa,OperadorCAT")]
     public async Task<IActionResult> CambiarEstado(
         int id, [FromBody] CambiarEstadoProductoraDto dto)
     {
+        var actual = await service.ObtenerPorIdAsync(id);
+        if (actual is null) return NotFound();
+
+        // Vale para las dos direcciones: dar de baja y volver a activar.
+        if (User.FueraDeAlcance(actual.CatAsignado))
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                mensaje = "Tu usuario solo puede cambiar el estado de las " +
+                          "productoras de su centro."
+            });
+
         var ok = await service.CambiarEstadoAsync(id, dto.Activa);
         return ok ? NoContent() : NotFound();
     }
@@ -107,7 +165,7 @@ public class ProductorasController(
     /// Historial de cambios de la productora — RF-105.
     /// </summary>
     [HttpGet("{id:int}/historial")]
-    [Authorize(Roles = "AdminCooperativa,AdminTecnico")]
+    [Authorize(Roles = "AdminCooperativa")]
     public async Task<IActionResult> Historial(int id)
     {
         var result = await service.ObtenerHistorialAsync(id);

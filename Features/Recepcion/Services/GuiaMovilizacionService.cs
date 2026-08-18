@@ -1,3 +1,4 @@
+﻿using CoopagcuyApi.Common.Branding;
 using CoopagcuyApi.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using QuestPDF.Fluent;
@@ -28,7 +29,12 @@ public class GuiaMovilizacionService(AppDbContext db) : IGuiaMovilizacionService
         var lote = await db.Lotes
             .Include(l => l.Productora)
             .Include(l => l.Novedades)
+            // El ThenInclude de Comunidad es explícito a propósito. Funciona
+            // igual sin él, porque Productora.Comunidad está marcada como
+            // AutoInclude en AppDbContext, pero que un PDF no reviente no
+            // debería depender de una configuración que vive en otro archivo.
             .Include(l => l.Cuyes).ThenInclude(c => c.Productora)
+                .ThenInclude(p => p!.Comunidad)
             .FirstOrDefaultAsync(l => l.CodigoLote == codigoLote)
             ?? throw new KeyNotFoundException($"Lote {codigoLote} no encontrado.");
 
@@ -55,12 +61,20 @@ public class GuiaMovilizacionService(AppDbContext db) : IGuiaMovilizacionService
             {
                 page.Size(PageSizes.A5);
                 page.Margin(1.5f, Unit.Centimetre);
-                page.DefaultTextStyle(t => t.FontSize(10));
+                page.DefaultTextStyle(t => t
+                    .FontSize(10)
+                    .FontFamily(BrandingAssets.FamiliaTipografica));
 
                 page.Header().Column(col =>
                 {
                     col.Item().Row(row =>
                     {
+                        // Ancho fijo y no relativo: el isotipo es más alto que
+                        // ancho, y dejarlo crecer con el contenido empujaría el
+                        // código de lote fuera de una página A5.
+                        row.ConstantItem(24).PaddingRight(6).AlignMiddle()
+                            .Image(BrandingAssets.Logo).FitWidth();
+
                         row.RelativeItem().Column(c =>
                         {
                             c.Item().Text("GUÍA DE MOVILIZACIÓN")
@@ -68,10 +82,10 @@ public class GuiaMovilizacionService(AppDbContext db) : IGuiaMovilizacionService
                             c.Item().Text("COOPAGCUY — Cuy Azuayito")
                                 .FontSize(10).FontColor("#555555");
                         });
-                        row.ConstantItem(110).AlignRight().Column(c =>
+                        row.ConstantItem(124).AlignRight().Column(c =>
                         {
                             c.Item().Text(lote.CodigoLote)
-                                .FontSize(13).Bold().FontColor("#B71C1C");
+                                .FontSize(12).Bold().FontColor("#B71C1C");
                             c.Item().Text($"Emitida: {DateTime.Now:dd/MM/yyyy HH:mm}")
                                 .FontSize(7).FontColor("#777777");
                         });
@@ -153,7 +167,7 @@ public class GuiaMovilizacionService(AppDbContext db) : IGuiaMovilizacionService
                                     cols.ConstantColumn(25);   // N°
                                     cols.RelativeColumn(3);    // Productora
                                     cols.ConstantColumn(55);   // Peso
-                                    cols.RelativeColumn(2);    // Características
+                                    cols.RelativeColumn(4);    // Características
                                     cols.ConstantColumn(65);   // Estado
                                 });
 
@@ -181,14 +195,12 @@ public class GuiaMovilizacionService(AppDbContext db) : IGuiaMovilizacionService
 
                                     tabla.Cell().PaddingVertical(1)
                                         .Text($"{cuy.NumeroEnLote}").FontSize(7);
-                                    tabla.Cell().PaddingVertical(1)
-                                        .Text(cuy.Productora is not null
-                                            ? $"{cuy.Productora.NombreCompleto} ({cuy.Productora.Comunidad})"
-                                            : "—").FontSize(7);
+                                    tabla.Cell().PaddingVertical(1).PaddingRight(6)
+                                        .Text(TextosGuia.Productora(cuy)).FontSize(7);
                                     tabla.Cell().PaddingVertical(1)
                                         .Text($"{cuy.PesoGramos:F0}g").FontSize(7);
-                                    tabla.Cell().PaddingVertical(1)
-                                        .Text($"{cuy.ColorPelaje} · {cuy.EstadoOreja} · {cuy.TamanoAnimal}")
+                                    tabla.Cell().PaddingVertical(1).PaddingRight(6)
+                                        .Text(TextosGuia.Caracteristicas(cuy))
                                         .FontSize(7);
                                     tabla.Cell().PaddingVertical(1)
                                         .Text(cuy.Estado.ToString()).FontSize(7)

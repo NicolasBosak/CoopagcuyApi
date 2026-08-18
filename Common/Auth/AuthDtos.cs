@@ -49,5 +49,8 @@ public record SesionActivaDto(
     DateTime FechaUltimoUso,
     DateTime FechaExpiracion,
     // La sesión de quien está viendo la pantalla, para no auto-desconectarse
-    bool EsSesionActual
+    bool EsSesionActual,
+    // User-Agent traducido a algo legible ("Chrome · Android"). El User-Agent
+    // crudo se conserva encima para auditoría; este es el que se enseña.
+    string Dispositivo
 );

@@ -13,7 +13,7 @@ namespace CoopagcuyApi.Features.Productoras.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/pagos")]
-[Authorize(Roles = "OperadorCAT,AdminCooperativa,AdminTecnico")]
+[Authorize(Roles = "OperadorCAT,AdminCooperativa")]
 public class PagosController(IPagoService service) : ControllerBase
 {
     // CAT al que está acotado el operador (null = admin, sin restricción)

@@ -1,5 +1,6 @@
 ﻿using ClosedXML.Excel;
 using CoopagcuyApi.Common;
+using CoopagcuyApi.Common.Branding;
 using CoopagcuyApi.Features.Productoras.Models;
 using CoopagcuyApi.Features.Reportes.DTOs;
 using CoopagcuyApi.Infrastructure.Data;
@@ -31,7 +32,8 @@ public interface IReportesService
     Task<byte[]> ExportarExcelEntradaAsync(FiltroPeriodoDto filtro);
     Task<byte[]> ExportarExcelTransitoAsync(FiltroPeriodoDto filtro);
     Task<byte[]> ExportarExcelSalidaAsync(FiltroPeriodoDto filtro);
-    Task<byte[]> ExportarExcelGeneralAsync(FiltroPeriodoDto filtro);
+    Task<byte[]> ExportarExcelGeneralAsync(
+        FiltroPeriodoDto filtro, bool incluirFlujoOperativo = true);
     Task<byte[]> ExportarPDFLoteAsync(string codigoLote);
     Task<IEnumerable<ReporteCuyDto>> ReporteCuyesAsync(FiltroPeriodoDto filtro);
     Task<byte[]> ExportarExcelCuyesAsync(FiltroPeriodoDto filtro);
@@ -872,22 +874,31 @@ public class ReportesService(AppDbContext db) : IReportesService
     /// El precio es serializar y releer cada libro, irrelevante con el volumen
     /// del piloto y a cambio de no duplicar siete maquetaciones.
     /// </summary>
-    public async Task<byte[]> ExportarExcelGeneralAsync(FiltroPeriodoDto filtro)
+    public async Task<byte[]> ExportarExcelGeneralAsync(
+        FiltroPeriodoDto filtro, bool incluirFlujoOperativo = true)
     {
         // El orden sigue el flujo de la cadena: primero los tres eslabones
-        // de trazabilidad, después los desgloses y las devoluciones
-        var partes = new[]
+        // de trazabilidad, después los desgloses y las devoluciones.
+        //
+        // Los tres primeros se omiten para quien no puede consultarlos por
+        // separado (el admin técnico): si no, la restricción de rol se
+        // escaparía por esta descarga, que es una sola llamada a un endpoint
+        // que sí conserva.
+        var partes = new List<byte[]>();
+
+        if (incluirFlujoOperativo)
         {
-            await ExportarExcelEntradaAsync(filtro),
-            await ExportarExcelTransitoAsync(filtro),
-            await ExportarExcelSalidaAsync(filtro),
-            await ExportarExcelProductorasAsync(filtro),
-            await ExportarExcelCATAsync(filtro),
-            await ExportarExcelNovedadesAsync(filtro),
-            await ExportarExcelCuyesAsync(filtro),
-            // Aporta dos hojas: devoluciones de clientes y retornos
-            await ExportarExcelDevolucionesAsync(filtro),
-        };
+            partes.Add(await ExportarExcelEntradaAsync(filtro));
+            partes.Add(await ExportarExcelTransitoAsync(filtro));
+            partes.Add(await ExportarExcelSalidaAsync(filtro));
+        }
+
+        partes.Add(await ExportarExcelProductorasAsync(filtro));
+        partes.Add(await ExportarExcelCATAsync(filtro));
+        partes.Add(await ExportarExcelNovedadesAsync(filtro));
+        partes.Add(await ExportarExcelCuyesAsync(filtro));
+        // Aporta dos hojas: devoluciones de clientes y retornos
+        partes.Add(await ExportarExcelDevolucionesAsync(filtro));
 
         using var libro = new XLWorkbook();
         foreach (var bytes in partes)
@@ -968,12 +979,18 @@ public class ReportesService(AppDbContext db) : IReportesService
             {
                 page.Size(PageSizes.A4);
                 page.Margin(2, Unit.Centimetre);
-                page.DefaultTextStyle(t => t.FontSize(10));
+                page.DefaultTextStyle(t => t
+                    .FontSize(10)
+                    .FontFamily(BrandingAssets.FamiliaTipografica));
 
                 page.Header().Column(col =>
                 {
                     col.Item().Row(row =>
                     {
+                        // 38 y no 30 como en la guía: estos documentos son A4.
+                        row.ConstantItem(38).PaddingRight(10).AlignMiddle()
+                            .Image(BrandingAssets.Logo).FitWidth();
+
                         row.RelativeItem().Column(c =>
                         {
                             c.Item().Text("COOPAGCUY — Cuy Azuayito")
@@ -1223,12 +1240,18 @@ public class ReportesService(AppDbContext db) : IReportesService
             {
                 page.Size(PageSizes.A4);
                 page.Margin(2, Unit.Centimetre);
-                page.DefaultTextStyle(t => t.FontSize(10));
+                page.DefaultTextStyle(t => t
+                    .FontSize(10)
+                    .FontFamily(BrandingAssets.FamiliaTipografica));
 
                 page.Header().Column(col =>
                 {
                     col.Item().Row(row =>
                     {
+                        // 38 y no 30 como en la guía: estos documentos son A4.
+                        row.ConstantItem(38).PaddingRight(10).AlignMiddle()
+                            .Image(BrandingAssets.Logo).FitWidth();
+
                         row.RelativeItem().Column(c =>
                         {
                             c.Item().Text("COOPAGCUY — Cuy Azuayito")

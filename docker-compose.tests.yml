@@ -22,7 +22,12 @@ services:
       - /var/lib/postgresql/data   # efímero: la BD de test no debe sobrevivir
 
   tests:
-    image: mcr.microsoft.com/dotnet/sdk:8.0
+    # No el SDK pelado: Dockerfile.tests le añade las fuentes de texto que
+    # QuestPDF necesita. Sin ellas los PDF salen sin una sola letra y las
+    # pruebas de la guía verificarían un documento que no se parece al real.
+    build:
+      context: .
+      dockerfile: Dockerfile.tests
     working_dir: /src
     depends_on:
       postgres:

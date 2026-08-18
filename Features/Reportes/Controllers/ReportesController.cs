@@ -6,10 +6,13 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace CoopagcuyApi.Features.Reportes.Controllers;
 
-// El dashboard es la pantalla de aterrizaje de TODOS los roles; los
-// reportes detallados y exportaciones siguen siendo de administradores
-// (restricción por acción, ya que los atributos de rol no se relajan
-// a nivel de clase)
+// Cada acción declara sus roles: los atributos de rol no se relajan a nivel de
+// clase, así que un endpoint sin lista propia queda abierto a cualquier usuario
+// autenticado. Dos ejes de restricción conviven aquí:
+//   · El dashboard y los reportes del flujo físico (entrada/tránsito/salida)
+//     son operación: no los ve el admin técnico.
+//   · Los reportes de gestión y calidad sí los ve, porque atiende consultas
+//     sobre ellos.
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
@@ -21,6 +24,10 @@ public class ReportesController(IReportesService service) : ControllerBase
     /// indicadores de recepción de su propio centro.
     /// </summary>
     [HttpGet("dashboard")]
+    // Lista explícita y no el [Authorize] de clase: el panel es la portada de
+    // la operación y el admin técnico ya no opera. Sin esta línea seguiría
+    // alcanzándolo con su token aunque el menú no se lo enseñe.
+    [Authorize(Roles = "AdminCooperativa,OperadorCAT,OperadorFaenamiento")]
     public async Task<IActionResult> Dashboard(
         [FromQuery] DateTime? desde,
         [FromQuery] DateTime? hasta)
@@ -169,7 +176,7 @@ public class ReportesController(IReportesService service) : ControllerBase
     /// Entrada: cuyes que llegaron a planta, vivos, aún sin faenar.
     /// </summary>
     [HttpGet("entrada")]
-    [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
+    [Authorize(Roles = "AdminCooperativa,OperadorFaenamiento")]
     public async Task<IActionResult> Entrada(
         [FromQuery] DateTime desde, [FromQuery] DateTime hasta,
         [FromQuery] string? cat)
@@ -180,7 +187,7 @@ public class ReportesController(IReportesService service) : ControllerBase
     /// Tránsito: lotes faenados completos en el período.
     /// </summary>
     [HttpGet("transito")]
-    [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
+    [Authorize(Roles = "AdminCooperativa,OperadorFaenamiento")]
     public async Task<IActionResult> Transito(
         [FromQuery] DateTime desde, [FromQuery] DateTime hasta,
         [FromQuery] string? cat)
@@ -191,7 +198,7 @@ public class ReportesController(IReportesService service) : ControllerBase
     /// Salida: despachos comerciales con datos de transporte.
     /// </summary>
     [HttpGet("salida")]
-    [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
+    [Authorize(Roles = "AdminCooperativa,OperadorFaenamiento")]
     public async Task<IActionResult> Salida(
         [FromQuery] DateTime desde, [FromQuery] DateTime hasta,
         [FromQuery] string? cat)
@@ -199,7 +206,7 @@ public class ReportesController(IReportesService service) : ControllerBase
             new FiltroPeriodoDto(desde, hasta, cat)));
 
     [HttpGet("exportar/excel/entrada")]
-    [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
+    [Authorize(Roles = "AdminCooperativa,OperadorFaenamiento")]
     public async Task<IActionResult> ExcelEntrada(
         [FromQuery] DateTime desde, [FromQuery] DateTime hasta,
         [FromQuery] string? cat)
@@ -221,15 +228,19 @@ public class ReportesController(IReportesService service) : ControllerBase
         [FromQuery] DateTime desde, [FromQuery] DateTime hasta,
         [FromQuery] string? cat)
     {
+        // La decisión de permisos se toma aquí, no en el servicio: el servicio
+        // arma libros, no sabe de roles.
+        var incluirFlujoOperativo = !User.IsInRole("AdminTecnico");
+
         var bytes = await service.ExportarExcelGeneralAsync(
-            new FiltroPeriodoDto(desde, hasta, cat));
+            new FiltroPeriodoDto(desde, hasta, cat), incluirFlujoOperativo);
         return File(bytes,
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             $"Reporte-General-{desde:yyyyMMdd}-{hasta:yyyyMMdd}.xlsx");
     }
 
     [HttpGet("exportar/excel/transito")]
-    [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
+    [Authorize(Roles = "AdminCooperativa,OperadorFaenamiento")]
     public async Task<IActionResult> ExcelTransito(
         [FromQuery] DateTime desde, [FromQuery] DateTime hasta,
         [FromQuery] string? cat)
@@ -242,7 +253,7 @@ public class ReportesController(IReportesService service) : ControllerBase
     }
 
     [HttpGet("exportar/excel/salida")]
-    [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
+    [Authorize(Roles = "AdminCooperativa,OperadorFaenamiento")]
     public async Task<IActionResult> ExcelSalida(
         [FromQuery] DateTime desde, [FromQuery] DateTime hasta,
         [FromQuery] string? cat)

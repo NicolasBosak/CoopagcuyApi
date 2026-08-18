@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using CoopagcuyApi.Common;
 
 namespace CoopagcuyApi.Common.Auth;
 
@@ -36,6 +37,26 @@ public static class AlcanceUsuario
         var catUsuario = user.CatRestringido();
         if (catUsuario is null) return false;              // sin restricción
         return !string.Equals(catUsuario, catRecurso,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// true si el usuario NO puede operar sobre la comunidad indicada. Una
+    /// comunidad pertenece a un centro de acopio (Comunidad.CatReferencia),
+    /// así que el alcance por CAT alcanza también a las comunidades sin
+    /// necesidad de un campo nuevo en el usuario.
+    ///
+    /// Vive aquí y no en el controlador por la misma razón que el resto de
+    /// este archivo: la respuesta a "qué puede tocar este usuario" tiene un
+    /// solo sitio, o el próximo endpoint se olvidará de preguntarla.
+    /// </summary>
+    public static bool ComunidadFueraDeAlcance(
+        this ClaimsPrincipal user, CentroAcopio? catDeLaComunidad)
+    {
+        var catUsuario = user.CatRestringido();
+        if (catUsuario is null) return false;              // sin restricción
+        if (catDeLaComunidad is null) return true;         // comunidad inexistente
+        return !string.Equals(catUsuario, catDeLaComunidad.Value.ToString(),
             StringComparison.OrdinalIgnoreCase);
     }
 }

@@ -41,8 +41,17 @@ public class BaseDatosFixture
         {
             DbAdapter = DbAdapter.Postgres,
             SchemasToInclude = ["public"],
-            // El historial de migraciones debe sobrevivir a la limpieza
-            TablesToIgnore = [new Table("public", "__EFMigrationsHistory")]
+            TablesToIgnore =
+            [
+                // El historial de migraciones debe sobrevivir a la limpieza
+                new Table("public", "__EFMigrationsHistory"),
+                // Comunidades es un CATÁLOGO sembrado por la migración con
+                // HasData, no datos de prueba. Truncarlo dejaba la tabla vacía
+                // desde la primera limpieza, y cualquier alta de productora
+                // fallaba con 400 ("la comunidad no existe o está inactiva")
+                // por un motivo que no tenía nada que ver con la prueba.
+                new Table("public", "Comunidades")
+            ]
         });
     }
 
