@@ -17,6 +17,19 @@ public class Novedad
     // Para novedades de peso: guardar el peso registrado
     public decimal? PesoRegistradoGramos { get; set; }
 
+    // Animal al que pertenece la novedad. Antes solo lo decía el texto
+    // "Cuy #N: …" de la descripción, que sirve para leerlo pero no para
+    // relacionarlo: el faenamiento necesita mostrar la evidencia JUNTO al
+    // cuy correcto, y adjudicar un defecto al animal equivocado es peor
+    // que no mostrar nada.
+    //
+    // Anulable por dos motivos distintos: las novedades de la entrega
+    // (SinAyuno) no pertenecen a ningún animal, y las filas anteriores a
+    // este cambio se quedan sin enlace. Lo segundo no cuesta nada: ninguna
+    // novedad histórica tiene foto, así que no hay nada que rellenar.
+    public int? CuyRegistroId { get; set; }
+    public CuyRegistro? CuyRegistro { get; set; }
+
     // Evidencia fotográfica para reclamar al proveedor. Solo la llevan las
     // novedades de tipo SignosClinicos. El binario vive en Blob, no en la
     // base: aquí queda la referencia y la fecha en que deja de ser válida.

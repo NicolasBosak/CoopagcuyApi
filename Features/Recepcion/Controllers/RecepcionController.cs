@@ -380,8 +380,13 @@ public class RecepcionController(
     /// y no por URL directa al Blob porque el contenedor es privado: es una
     /// foto de defectos atribuida a un proveedor, no un QR público.
     /// </summary>
+    // OperadorFaenamiento incluido: es quien tiene el animal delante al
+    // procesarlo, y el asistente de faenamiento muestra la evidencia junto
+    // al cuy. El filtro por centro de abajo no le aplica —CatDelOperador()
+    // solo devuelve un CAT para OperadorCAT— y así debe ser: la planta
+    // recibe jaulas de los cinco centros.
     [HttpGet("novedades/{id:int}/foto")]
-    [Authorize(Roles = "OperadorCAT,AdminCooperativa")]
+    [Authorize(Roles = "OperadorCAT,AdminCooperativa,OperadorFaenamiento")]
     public async Task<IActionResult> FotoDeNovedad(int id)
     {
         // Mismo filtro de centro que los otros endpoints de lectura puntual
