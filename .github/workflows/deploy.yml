@@ -23,8 +23,9 @@ jobs:
   build-test:
     runs-on: ubuntu-latest
 
-    # Mismo Postgres que docker-compose.tests.yml, publicado en 5433 para que
-    # la cadena por defecto del código de pruebas también sirva aquí.
+    # Mismos servicios que docker-compose.tests.yml, publicados en los mismos
+    # puertos para que las cadenas por defecto del código de pruebas también
+    # sirvan aquí.
     services:
       postgres:
         image: postgres:16-alpine
@@ -36,6 +37,25 @@ jobs:
           - 5433:5432
         options: >-
           --health-cmd "pg_isready -U postgres -d coopagcuy_test"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 20
+
+      # Emulador de Azure Storage. Sin él, BlobStorageService lanza al
+      # construirse y revientan TODAS las pruebas que resuelven el servicio
+      # por inyección de dependencias, no solo las de evidencia fotográfica.
+      #
+      # A diferencia del compose, aquí NO se pasa el comando: los service
+      # containers de GitHub Actions no permiten sobrescribirlo. No hace
+      # falta — el CMD por defecto de la imagen ya publica en 0.0.0.0, y la
+      # suite se verificó entera (152/152) contra ese comando por defecto,
+      # así que `--skipApiVersionCheck` del compose no era necesario.
+      azurite:
+        image: mcr.microsoft.com/azure-storage/azurite:latest
+        ports:
+          - 10000:10000
+        options: >-
+          --health-cmd "nc -z 127.0.0.1 10000"
           --health-interval 3s
           --health-timeout 3s
           --health-retries 20
@@ -56,6 +76,9 @@ jobs:
       - name: Pruebas
         env:
           TEST_DB_CONNECTION: "Host=localhost;Port=5433;Database=coopagcuy_test;Username=postgres;Password=postgres"
+          # Cuenta de desarrollo de Azurite: credencial pública y fija del
+          # emulador, documentada por Microsoft. No es un secreto.
+          TEST_BLOB_CONNECTION: "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://localhost:10000/devstoreaccount1;"
         run: >-
           dotnet test tests/CoopagcuyApi.Tests/CoopagcuyApi.Tests.csproj -c Release --no-build
           --logger "trx;LogFileName=resultados.trx"
