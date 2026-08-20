@@ -34,6 +34,55 @@ public class EvidenciaClinicaTests(ApiFactory api) : IAsyncLifetime
         return new BlobStorageService(configuracion);
     }
 
+    [Fact]
+    public async Task ConElNombreDeContenedorVacioSeUsaElPorDefecto()
+    {
+        // Regresión de producción (2026-08-20): appsettings.json declara
+        // AzureBlob:ContainerEvidencias con cadena VACÍA como superficie de
+        // documentación, y el Container App no traía la variable de entorno.
+        // Con `?? "evidencias-clinicas"` el respaldo no entraba —`??` solo
+        // cubre null, no cadena vacía— así que el nombre del contenedor
+        // llegaba vacío, la URL quedaba sin contenedor y Azure respondía
+        // InvalidQueryParameterValue (comp). Toda entrega con foto daba 500.
+        var configuracion = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["AzureBlob:ConnectionString"] = ApiFactory.CadenaBlob,
+                ["AzureBlob:ContainerEvidencias"] = ""
+            })
+            .Build();
+
+        var servicio = new BlobStorageService(configuracion);
+        var nombre = $"prueba-{Guid.NewGuid():N}.jpg";
+
+        var uri = await servicio.SubirEvidenciaAsync(
+            nombre, Encoding.UTF8.GetBytes("respaldo-del-contenedor"));
+
+        uri.ShouldContain("/evidencias-clinicas/");
+    }
+
+    [Fact]
+    public async Task ConElNombreDeContenedorDeQRVacioSeUsaElPorDefecto()
+    {
+        // Mismo defecto latente en el contenedor de los QR: hoy no estalla
+        // porque appsettings trae "qr-coopagcuy" y el despliegue fija la
+        // variable, pero es la misma trampa a un descuido de distancia.
+        var configuracion = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["AzureBlob:ConnectionString"] = ApiFactory.CadenaBlob,
+                ["AzureBlob:ContainerName"] = ""
+            })
+            .Build();
+
+        var servicio = new BlobStorageService(configuracion);
+
+        var uri = await servicio.SubirQRAsync(
+            $"PRUEBA-{Guid.NewGuid():N}", [0x89, 0x50, 0x4E, 0x47]);
+
+        uri.ShouldContain("/qr-coopagcuy/");
+    }
+
     // Cuenta los blobs que hay HOY en el contenedor de evidencias. La
     // colección corre en serie sobre un único Azurite compartido y
     // ApiFactory.LimpiarAsync solo trunca la base, no el contenedor, así que
