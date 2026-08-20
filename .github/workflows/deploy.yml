@@ -62,7 +62,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "8.0.x"
 
@@ -299,7 +299,7 @@ jobs:
       # la base con el esquema nuevo, así que cualquier cosa que pueda fallar
       # de forma barata —autenticación, configuración— debe haberse verificado
       # ya. Si no, un fallo posterior deja la base por delante del código.
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "8.0.x"
       - name: Aplicar migraciones
