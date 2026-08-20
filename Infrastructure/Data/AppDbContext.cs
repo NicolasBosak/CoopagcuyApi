@@ -87,6 +87,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(n => n.Tipo).HasConversion<string>();
             e.Property(n => n.Descripcion).HasMaxLength(500);
             e.Property(n => n.PesoRegistradoGramos).HasPrecision(10, 2);
+            e.Property(n => n.FotoUrl).HasMaxLength(500);
             e.HasOne(n => n.Lote)
              .WithMany(l => l.Novedades)
              .HasForeignKey(n => n.LoteId);

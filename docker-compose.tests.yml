@@ -21,6 +21,20 @@ services:
     tmpfs:
       - /var/lib/postgresql/data   # efímero: la BD de test no debe sobrevivir
 
+  azurite:
+    # Emulador oficial de Azure Storage. Se añade porque BlobStorageService
+    # lanza si no hay cadena de conexión: sin esto, cualquier prueba que
+    # resuelva el servicio por DI falla al construirlo, aunque no suba nada.
+    image: mcr.microsoft.com/azure-storage/azurite:latest
+    command: azurite-blob --blobHost 0.0.0.0 --skipApiVersionCheck
+    ports:
+      - "10000:10000"
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "10000"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
   tests:
     # No el SDK pelado: Dockerfile.tests le añade las fuentes de texto que
     # QuestPDF necesita. Sin ellas los PDF salen sin una sola letra y las
@@ -32,9 +46,14 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      azurite:
+        condition: service_healthy
     environment:
       # Nombre de servicio, no localhost: se resuelve en la red del compose
       TEST_DB_CONNECTION: "Host=postgres;Port=5432;Database=coopagcuy_test;Username=postgres;Password=postgres"
+      # Cuenta de desarrollo de Azurite: credencial pública y fija del
+      # emulador, documentada por Microsoft. No es un secreto.
+      TEST_BLOB_CONNECTION: "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;"
       DOTNET_CLI_TELEMETRY_OPTOUT: "1"
       # Los paquetes NuGet se cachean en un volumen para no re-descargar
       NUGET_PACKAGES: /nuget

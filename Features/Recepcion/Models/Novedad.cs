@@ -16,4 +16,14 @@ public class Novedad
 
     // Para novedades de peso: guardar el peso registrado
     public decimal? PesoRegistradoGramos { get; set; }
+
+    // Evidencia fotográfica para reclamar al proveedor. Solo la llevan las
+    // novedades de tipo SignosClinicos. El binario vive en Blob, no en la
+    // base: aquí queda la referencia y la fecha en que deja de ser válida.
+    public string? FotoUrl { get; set; }
+
+    // El blob lo borra una política de ciclo de vida de Azure a los 90 días.
+    // Esta fecha permite que el API deje de servir la foto en el momento
+    // exacto, sin depender de cuándo pase el barrido de Azure.
+    public DateTime? FotoExpiraEn { get; set; }
 }

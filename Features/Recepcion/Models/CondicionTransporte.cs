@@ -1,3 +1,5 @@
+using CoopagcuyApi.Common;
+
 namespace CoopagcuyApi.Features.Recepcion.Models;
 
 /// <summary>
@@ -15,7 +17,11 @@ public static class CondicionTransporte
         new Dictionary<string, string>
         {
             ["JaulasLimpias"] = "Jaulas limpias y desinfectadas",
-            ["Maximo20"] = "Máximo 20 animales por jaula",
+            // La CLAVE se queda como "Maximo20" aunque el tope sea 15: las
+            // tablets con el bundle antiguo en caché la siguen enviando, y
+            // MovilizacionService rechaza con 400 cualquier clave que no
+            // reconozca. Lo que se ve y se imprime es la etiqueta.
+            ["Maximo20"] = $"Máximo {ReglasRecepcion.CapacidadJaula} animales por jaula",
             ["Ventilacion"] = "Ventilación adecuada",
             ["JaulasAseguradas"] = "Jaulas aseguradas, sin apilar",
             ["ProteccionClima"] = "Protección contra sol y lluvia",

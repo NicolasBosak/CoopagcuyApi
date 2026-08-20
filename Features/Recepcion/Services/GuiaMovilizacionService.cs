@@ -1,4 +1,5 @@
 ﻿using CoopagcuyApi.Common.Branding;
+using CoopagcuyApi.Features.Recepcion.Models;
 using CoopagcuyApi.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using QuestPDF.Fluent;
@@ -21,6 +22,21 @@ public class GuiaMovilizacionService(AppDbContext db) : IGuiaMovilizacionService
 {
     private const string DestinoPlanta =
         "Planta de Faenamiento — Sulupali Chico, Santa Isabel, Azuay";
+
+    /// <summary>
+    /// Línea sanitaria de la guía. Es público y estático para poder fijarlo
+    /// por unidad: el PDF comprime su texto y no hay forma razonable de
+    /// afirmar nada sobre el binario.
+    /// </summary>
+    public static string TextoDeclaracionSanitaria(Movilizacion movilizacion) =>
+        movilizacion.SinAntibioticos7Dias == true
+            ? "Sin antibióticos últimos 7 días: declarado por " +
+              movilizacion.ResponsableDespacho
+            // Movilización anterior al cambio: se conserva el dato que sí se
+            // capturó entonces en vez de imprimir una línea vacía.
+            : movilizacion.DiasRetiroMedicamentos is int dias
+                ? $"Retiro de medicamentos: {dias} días"
+                : "Declaración sanitaria: sin declaración";
 
     public async Task<byte[]> GenerarGuiaPdfAsync(string codigoLote)
     {
@@ -235,9 +251,7 @@ public class GuiaMovilizacionService(AppDbContext db) : IGuiaMovilizacionService
                                 r.RelativeItem().Text(
                                     $"Forraje: {movilizacion.TipoForraje ?? "-"}");
                                 r.RelativeItem().Text(
-                                    "Retiro de medicamentos: " +
-                                    (movilizacion.DiasRetiroMedicamentos is int dias
-                                        ? $"{dias} días" : "sin declaración"));
+                                    TextoDeclaracionSanitaria(movilizacion));
                             });
                             if (movilizacion.FechaRecepcionPlanta is not null)
                             {

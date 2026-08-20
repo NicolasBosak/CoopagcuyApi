@@ -23,7 +23,17 @@ public class Movilizacion
 
     // Declaración de tratamientos básicos (guía de movilización)
     public string? TipoForraje { get; set; }
+
+    // Legado: se dejó de capturar en 2026-08, sustituido por la declaración
+    // de abajo. La columna se conserva para que reimprimir una guía antigua
+    // no pierda el dato.
     public int? DiasRetiroMedicamentos { get; set; }
+
+    // Nulo = movilización anterior al cambio, nunca se preguntó.
+    // True = el responsable declaró que no recibieron antibióticos en 7 días.
+    // El validador exige true en los registros nuevos, así que false no
+    // debería aparecer nunca; se admite por no mentirle al tipo.
+    public bool? SinAntibioticos7Dias { get; set; }
 
     public string ResponsableDespacho { get; set; } = string.Empty;
     public string? Observaciones { get; set; }
