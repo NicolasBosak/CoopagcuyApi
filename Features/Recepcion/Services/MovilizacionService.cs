@@ -60,7 +60,7 @@ public class MovilizacionService(AppDbContext db) : IMovilizacionService
             CantidadMovilizada = dto.CantidadMovilizada,
             CondicionesTransporte = CondicionTransporte.Describir(dto.CondicionesTransporte),
             TipoForraje = dto.TipoForraje,
-            DiasRetiroMedicamentos = dto.DiasRetiroMedicamentos,
+            SinAntibioticos7Dias = dto.SinAntibioticos7Dias,
             ResponsableDespacho = dto.ResponsableDespacho.Trim(),
             Observaciones = dto.Observaciones
         };
@@ -136,6 +136,7 @@ public class MovilizacionService(AppDbContext db) : IMovilizacionService
         CondicionesTransporte: m.CondicionesTransporte,
         TipoForraje: m.TipoForraje,
         DiasRetiroMedicamentos: m.DiasRetiroMedicamentos,
+        SinAntibioticos7Dias: m.SinAntibioticos7Dias,
         ResponsableDespacho: m.ResponsableDespacho,
         Observaciones: m.Observaciones,
         FechaRecepcionPlanta: m.FechaRecepcionPlanta,

@@ -9,6 +9,17 @@ public class CuyRegistroDto
     public string EstadoOreja { get; set; } = string.Empty;
     public string TamanoAnimal { get; set; } = string.Empty;
     public string? SignosClinicos { get; set; }
+
+    // Evidencia del defecto, en base64 y sin prefijo data:. Viaja dentro del
+    // cuy y no por multipart aparte: así el sync offline no cambia de forma.
+    //
+    // OJO: la idempotencia por IdCliente NO cubre la subida de la foto. La
+    // subida (SubirEvidenciasAsync) corre ANTES de la estrategia de
+    // ejecución, y la comprobación de SyncEntregasProcesadas vive DENTRO de
+    // la transacción; un reintento tras una respuesta perdida vuelve a subir
+    // todas las fotos como blobs nuevos antes de descubrir que la entrega ya
+    // estaba procesada. Lo único idempotente es la fila que queda en la base.
+    public string? FotoBase64 { get; set; }
 }
 
 public record CuyRegistroResponseDto(
@@ -101,7 +112,10 @@ public record NovedadResponseDto(
     string Descripcion,
     decimal? PesoRegistradoGramos,
     DateTime FechaRegistro,
-    string RegistradoPor
+    string RegistradoPor,
+    // El front solo necesita saber si hay algo que pedir: el binario se
+    // descarga aparte y solo si la ficha se abre.
+    bool TieneFoto
 );
 
 // Resultado del sync: un ítem POR CADA entrega recibida, identificado por
@@ -160,7 +174,11 @@ public class RegistrarMovilizacionDto
     // Ya no es texto libre: el servidor arma la descripción canónica.
     public List<string> CondicionesTransporte { get; set; } = [];
     public string? TipoForraje { get; set; }
-    public int? DiasRetiroMedicamentos { get; set; }
+
+    // Obligatoria y true: la exige RegistrarMovilizacionValidator. Es bool?
+    // y no bool para poder distinguir "no vino en el cuerpo" de "vino false"
+    // y dar un mensaje de error distinto en cada caso.
+    public bool? SinAntibioticos7Dias { get; set; }
     public string ResponsableDespacho { get; set; } = string.Empty;
     public string? Observaciones { get; set; }
 }
@@ -187,5 +205,6 @@ public record MovilizacionResponseDto(
     string? Observaciones,
     DateTime? FechaRecepcionPlanta,
     string? RecibidoPor,
-    string? CondicionLlegada
+    string? CondicionLlegada,
+    bool? SinAntibioticos7Dias
 );

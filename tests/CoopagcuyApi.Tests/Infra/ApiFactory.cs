@@ -37,6 +37,17 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         Environment.GetEnvironmentVariable("TEST_DB_CONNECTION")
         ?? CadenaPorDefecto;
 
+    private const string CadenaBlobPorDefecto =
+        "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;" +
+        "AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;" +
+        "BlobEndpoint=http://localhost:10000/devstoreaccount1;";
+
+    /// Dentro del compose llega por variable de entorno; fuera, apunta al
+    /// Azurite publicado en 10000. Nunca a una cuenta real de Azure.
+    public static string CadenaBlob =>
+        Environment.GetEnvironmentVariable("TEST_BLOB_CONNECTION")
+        ?? CadenaBlobPorDefecto;
+
     // `Program.cs` lee varias claves de configuración ANTES de llamar a
     // `builder.Build()` (líneas 29, 41, 45, 57, 58, 170 y 189): `Jwt:Key`
     // (con `?? throw` si falta), `ConnectionStrings:NeonDb` al registrar el
@@ -74,7 +85,9 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         Environment.SetEnvironmentVariable("Jwt__Issuer", EmisorJwt);
         Environment.SetEnvironmentVariable("Jwt__Audience", AudienciaJwt);
         Environment.SetEnvironmentVariable("Cors__AllowedOrigins", "https://localhost:5173");
-        Environment.SetEnvironmentVariable("AzureBlob__ConnectionString", "");
+        Environment.SetEnvironmentVariable("AzureBlob__ConnectionString", CadenaBlob);
+        Environment.SetEnvironmentVariable("AzureBlob__ContainerName", "qr-test");
+        Environment.SetEnvironmentVariable("AzureBlob__ContainerEvidencias", "evidencias-test");
         Environment.SetEnvironmentVariable("QR__BaseUrl", "https://localhost/qr");
     }
 
