@@ -73,7 +73,12 @@ public record CuyDisponibleDto(
     string EstadoRecepcion,
     string? MotivoNovedad,
     string? NombreProductora,
-    string? Comunidad
+    string? Comunidad,
+    // Id de la novedad clínica de este animal, SOLO si tiene evidencia
+    // fotográfica vigente. Nulo cuando no hay novedad, cuando la hay sin
+    // foto, y cuando la foto ya caducó: así el front nunca ofrece un botón
+    // que al pulsarlo daría 404.
+    int? NovedadFotoId
 );
 
 public record RetornoProductoraResponseDto(

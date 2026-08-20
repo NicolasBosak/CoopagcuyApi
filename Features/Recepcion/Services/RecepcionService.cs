@@ -790,6 +790,18 @@ public class RecepcionService(AppDbContext db, IBlobStorageService blobService)
             MotivoNovedad = motivos.Count > 0 ? string.Join("; ", motivos) : null
         };
 
+        // Se enlaza AQUÍ y no donde se crea cada novedad porque el cuy se
+        // construye al final del método: antes de esta línea no existe. Se
+        // asigna la navegación, no el Id — ambos se insertan en el mismo
+        // SaveChanges y el cuy todavía no lo tiene; EF resuelve la clave.
+        //
+        // El filtro de SinAyuno es defensivo: esa novedad se añade en el
+        // bucle de la entrega, una vez por productora, así que hoy no llega
+        // hasta aquí. Queda escrito para dejar claro que no pertenece a
+        // ningún animal, y para no enlazarla por error si se moviera.
+        foreach (var novedad in novedades.Where(n => n.Tipo != TipoNovedad.SinAyuno))
+            novedad.CuyRegistro = cuy;
+
         return (cuy, novedades);
     }
 

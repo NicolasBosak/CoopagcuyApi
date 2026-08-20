@@ -38,8 +38,11 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
 
     public async Task<IEnumerable<LoteDisponibleDto>> LotesDisponiblesAsync()
     {
+        var ahora = DateTime.UtcNow;
+
         var lotes = await db.Lotes
             .Include(l => l.Cuyes).ThenInclude(c => c.Productora)
+            .Include(l => l.Novedades)
             .Include(l => l.Faenamientos).ThenInclude(f => f.Cuyes)
             .Where(l => l.Cerrado && l.Estado != EstadoLote.Rechazado)
             // La jaula solo es faenable cuando un operador de planta
@@ -76,7 +79,15 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
                     .Select(c => new CuyDisponibleDto(
                         c.NumeroEnLote, c.PesoGramos,
                         c.Estado.ToString(), c.MotivoNovedad,
-                        c.Productora?.NombreCompleto, c.Productora?.Comunidad.Nombre))
+                        c.Productora?.NombreCompleto, c.Productora?.Comunidad.Nombre,
+                        // Emparejado en memoria sobre las novedades del lote,
+                        // ya materializadas: son pocas filas y no añade consulta.
+                        // La foto se ofrece solo si sigue vigente.
+                        l.Novedades.FirstOrDefault(n =>
+                            n.CuyRegistroId == c.Id &&
+                            n.Tipo == TipoNovedad.SignosClinicos &&
+                            n.FotoUrl != null &&
+                            n.FotoExpiraEn > ahora)?.Id))
                     .ToList();
 
                 return new LoteDisponibleDto(

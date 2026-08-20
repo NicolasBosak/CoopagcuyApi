@@ -91,6 +91,16 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasOne(n => n.Lote)
              .WithMany(l => l.Novedades)
              .HasForeignKey(n => n.LoteId);
+
+            // Explícita y en cascada, igual que la de Lote. Sin declararla,
+            // EF elegiría ClientSetNull por ser una FK opcional y dejaría
+            // filas huérfanas si algún día se borrara un cuy. Hoy no se
+            // borran, así que la regla no se ejercita: se fija para que no
+            // dependa de un valor por defecto que nadie eligió.
+            e.HasOne(n => n.CuyRegistro)
+             .WithMany()
+             .HasForeignKey(n => n.CuyRegistroId)
+             .OnDelete(DeleteBehavior.Cascade);
         });
 
         // Faenamiento: un lote puede faenarse en varias sesiones parciales
