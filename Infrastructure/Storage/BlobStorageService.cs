@@ -27,15 +27,25 @@ public class BlobStorageService(IConfiguration configuration) : IBlobStorageServ
             : throw new InvalidOperationException(
                 "AzureBlob:ConnectionString no configurado.");
 
+    // IsNullOrWhiteSpace y no `??`, por el mismo motivo que la cadena de
+    // conexión de arriba: appsettings.json declara estas claves con cadena
+    // VACÍA como superficie de documentación, y `??` solo cubre null. Con
+    // `??`, una clave vacía dejaba el nombre del contenedor en "", la URL
+    // salía sin contenedor y Azure respondía InvalidQueryParameterValue
+    // (comp) — un 500 en cada entrega con foto, ilegible desde el cliente.
     private readonly string _containerName =
-        configuration["AzureBlob:ContainerName"] ?? "qr-coopagcuy";
+        !string.IsNullOrWhiteSpace(configuration["AzureBlob:ContainerName"])
+            ? configuration["AzureBlob:ContainerName"]!
+            : "qr-coopagcuy";
 
     // Contenedor SEPARADO del de QR, por dos motivos: el de QR es público a
     // propósito (tiene que escanearse desde fuera) y una foto de defectos de
     // un proveedor no debe serlo; y la política de caducidad se aplica por
     // contenedor, así que compartirlo borraría también los QR a los 90 días.
     private readonly string _containerEvidencias =
-        configuration["AzureBlob:ContainerEvidencias"] ?? "evidencias-clinicas";
+        !string.IsNullOrWhiteSpace(configuration["AzureBlob:ContainerEvidencias"])
+            ? configuration["AzureBlob:ContainerEvidencias"]!
+            : "evidencias-clinicas";
 
     public async Task<string> SubirQRAsync(string codigoLote, byte[] imagenPng)
     {
