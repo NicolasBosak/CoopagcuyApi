@@ -9,11 +9,13 @@ public enum EstadoLote
 
 public enum TipoNovedad
 {
-    BajoPeso,        // 850g–874g
+    BajoPeso,        // < 1200g: animal rechazado
     OrejaDura,       // animal viejo
-    ColorNoConforme, // piel negra
+    // Ya no se genera: "Negro" salió del catálogo de colores en 2026-08.
+    // El valor permanece por las filas históricas y por AnilloNovedades.
+    ColorNoConforme,
     SinAyuno,
-    SobrePeso,       // > 1300g: fuera del rango operativo
+    SobrePeso,       // > 1500g: fuera del rango comercial, se acepta
     SignosClinicos,  // condición sanitaria visual con observación
     Otro
 }

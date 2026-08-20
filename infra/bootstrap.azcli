@@ -50,6 +50,73 @@ az containerapp env create -n "$ACA_ENV" -g "$RG" -l "$LOCATION"
 az storage account create -n "$STORAGE" -g "$RG" -l "$LOCATION" --sku Standard_LRS
 CONN_BLOB=$(az storage account show-connection-string -n "$STORAGE" -g "$RG" -o tsv)
 az storage container create --account-name "$STORAGE" -n qr-prod
+
+# ── Evidencia fotográfica de novedades clínicas ─────────────
+#
+# SI EL ENTORNO YA EXISTÍA cuando se desplegó esta función, estos dos comandos
+# —el `container create` y el `management-policy create` de abajo— NO se
+# ejecutaron nunca: hay que lanzarlos A MANO una sola vez.
+#
+# NO hace falta tocar las variables del Container App: el nombre por defecto
+# del código y el prefixMatch de la política son la misma cadena (ver el
+# comentario de abajo), así que la caducidad funciona sin configurar nada.
+# El paso de despliegue solo hace `az containerapp update --image` y nunca
+# añadiría una variable nueva — por eso el valor por defecto tiene que ser
+# el correcto por sí solo.
+#
+# La política es lo ÚNICO que borra los binarios. El API deja de servir la foto
+# en cuanto pasa su fecha de caducidad, pero no borra nada por su cuenta: si la
+# política no está puesta, los blobs se acumulan indefinidamente y nada falla a
+# la vista — se descubre en la factura de almacenamiento.
+#
+# Contenedor SEPARADO para la evidencia clínica. Privado (sin --public-access):
+# se sirve solo por el endpoint autenticado del API. Separado del de QR porque
+# la política de caducidad de abajo se aplica por contenedor y borraría también
+# los QR de los lotes.
+#
+# El nombre "evidencias-clinicas" NO es arbitrario: es el mismo que
+# BlobStorageService usa por defecto cuando AzureBlob__ContainerEvidencias no
+# está configurada (ver _containerEvidencias en BlobStorageService.cs), y el
+# mismo que el prefixMatch de la política de abajo. Los tres deben ser
+# EXACTAMENTE la misma cadena. Si divergen, el código sube las fotos a un
+# contenedor y la política de borrado vigila otro: como CreateIfNotExistsAsync
+# crea el contenedor equivocado sobre la marcha, todo parece funcionar y nada
+# se borra jamás — sin ningún error visible.
+az storage container create --account-name "$STORAGE" -n evidencias-clinicas
+
+# Borrado automático de la evidencia clínica a los 90 días. Corre dentro de
+# Azure Storage, no en la aplicación: el Container App escala a CERO, así que
+# un temporizador dentro del API no se ejecutaría de forma fiable.
+cat > /tmp/politica-evidencias.json <<'JSON'
+{
+  "rules": [
+    {
+      "enabled": true,
+      "name": "borrar-evidencias-clinicas-90d",
+      "type": "Lifecycle",
+      "definition": {
+        "filters": {
+          "blobTypes": [ "blockBlob" ],
+          "prefixMatch": [ "evidencias-clinicas/" ]
+        },
+        "actions": {
+          "baseBlob": {
+            "delete": { "daysAfterCreationGreaterThan": 90 }
+          }
+        }
+      }
+    }
+  ]
+}
+JSON
+
+# OJO: esto REEMPLAZA la política completa de la cuenta, no añade una regla.
+# Hoy es inocuo porque "rules" solo trae esta entrada; si en el futuro se
+# añade una segunda regla de ciclo de vida (p. ej. para otro contenedor), hay
+# que incluir AMBAS en el mismo "rules" de este comando o la primera desaparece.
+az storage account management-policy create \
+  --account-name "$STORAGE" -g "$RG" \
+  --policy @/tmp/politica-evidencias.json
 # ── 4. Base de datos Neon (MANUAL, en console.neon.tech) ────
 #   Usa la rama "main" de Neon. Su cadena de conexión es la que usarás
 #   como NEON_CONNECTION_STRING en el Environment de GitHub y como
@@ -74,7 +141,8 @@ crear_app () {
       Jwt__Issuer=CoopagcuyApi Jwt__Audience=CoopagcuyFrontend \
       Setup__Key=secretref:setupkey \
       AzureBlob__ConnectionString=secretref:blobconn \
-      AzureBlob__ContainerName="$BLOBC"
+      AzureBlob__ContainerName="$BLOBC" \
+      AzureBlob__ContainerEvidencias=evidencias-clinicas
 }
 
 # Genera claves fuertes para Jwt:Key y Setup:Key

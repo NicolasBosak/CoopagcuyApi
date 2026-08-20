@@ -1,6 +1,8 @@
 ﻿using CoopagcuyApi.Common;
+using CoopagcuyApi.Common.Exceptions;
 using CoopagcuyApi.Features.Recepcion.DTOs;
 using CoopagcuyApi.Features.Recepcion.Services;
+using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -12,7 +14,8 @@ namespace CoopagcuyApi.Features.Recepcion.Controllers;
 public class RecepcionController(
     IRecepcionService service,
     IGuiaMovilizacionService guiaService,
-    IMovilizacionService movilizacionService) : ControllerBase
+    IMovilizacionService movilizacionService,
+    IValidator<RegistrarMovilizacionDto> movilizacionValidator) : ControllerBase
 {
     // Un Operador de CAT solo puede registrar en su centro asignado.
     // El CAT del operador viaja como claim en el token JWT.
@@ -39,11 +42,11 @@ public class RecepcionController(
         return Enum.TryParse<CentroAcopio>(cat, out var c) ? c : null;
     }
 
-    // ── Entregas por productora: armado de jaulas de hasta 20 ─────────
+    // ── Entregas por productora: armado de jaulas de hasta 15 ─────────
 
     /// <summary>
     /// Registra la entrega de una productora. Los cuyes se acumulan en la
-    /// jaula abierta del CAT; al completar 20 la jaula se cierra como lote
+    /// jaula abierta del CAT; al completar 15 la jaula se cierra como lote
     /// y el remanente abre una jaula nueva.
     /// </summary>
     [HttpPost("entregas")]
@@ -68,6 +71,10 @@ public class RecepcionController(
         {
             return NotFound(new { mensaje = ex.Message });
         }
+        catch (EvidenciaInvalidaException ex)
+        {
+            return BadRequest(new { mensaje = ex.Message });
+        }
         catch (InvalidOperationException ex)
         {
             return Conflict(new { mensaje = ex.Message });
@@ -88,7 +95,7 @@ public class RecepcionController(
     }
 
     /// <summary>
-    /// Cierra manualmente la jaula abierta aunque no llegue a 20,
+    /// Cierra manualmente la jaula abierta aunque no llegue a 15,
     /// dejándola lista para movilización.
     /// </summary>
     [HttpPost("lotes/{codigoLote}/cerrar")]
@@ -226,6 +233,14 @@ public class RecepcionController(
     public async Task<IActionResult> RegistrarMovilizacion(
         string codigoLote, [FromBody] RegistrarMovilizacionDto dto)
     {
+        var validacion = await movilizacionValidator.ValidateAsync(dto);
+        if (!validacion.IsValid)
+            return BadRequest(new
+            {
+                mensaje = string.Join(" ",
+                    validacion.Errors.Select(e => e.ErrorMessage))
+            });
+
         try
         {
             var resultado = await movilizacionService.RegistrarAsync(codigoLote, dto);
@@ -338,6 +353,10 @@ public class RecepcionController(
         {
             return NotFound(new { mensaje = ex.Message });
         }
+        catch (EvidenciaInvalidaException ex)
+        {
+            return BadRequest(new { mensaje = ex.Message });
+        }
         catch (InvalidOperationException ex)
         {
             return Conflict(new { mensaje = ex.Message });
@@ -354,5 +373,24 @@ public class RecepcionController(
         var resueltaPor = User.FindFirst("cedula")?.Value ?? "admin";
         var ok = await service.DescartarVinculacionAsync(id, resueltaPor);
         return ok ? NoContent() : NotFound();
+    }
+
+    /// <summary>
+    /// Evidencia fotográfica de una novedad clínica. Se sirve a través del API
+    /// y no por URL directa al Blob porque el contenedor es privado: es una
+    /// foto de defectos atribuida a un proveedor, no un QR público.
+    /// </summary>
+    [HttpGet("novedades/{id:int}/foto")]
+    [Authorize(Roles = "OperadorCAT,AdminCooperativa")]
+    public async Task<IActionResult> FotoDeNovedad(int id)
+    {
+        // Mismo filtro de centro que los otros endpoints de lectura puntual
+        // (ver CatDelOperador). Un OperadorCAT que pida la foto de otro
+        // centro recibe 404, no 403: un 403 confirmaría que ese id existe.
+        var bytes = await service.ObtenerFotoNovedadAsync(id, CatDelOperador());
+
+        return bytes is null
+            ? NotFound(new { mensaje = "La evidencia no existe o ya caducó." })
+            : File(bytes, "image/jpeg");
     }
 }

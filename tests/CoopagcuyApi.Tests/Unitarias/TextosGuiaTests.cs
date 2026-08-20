@@ -95,4 +95,51 @@ public class TextosGuiaTests
 
         texto.ShouldBe("Pelaje: Bayo · Tamaño: Grande");
     }
+
+    [Fact]
+    public void LaGuiaDeclaraLaAusenciaDeAntibioticosConElResponsable()
+    {
+        var movilizacion = new Movilizacion
+        {
+            ResponsableDespacho = "Nicolas Nieves",
+            SinAntibioticos7Dias = true
+        };
+
+        var texto = GuiaMovilizacionService.TextoDeclaracionSanitaria(movilizacion);
+
+        texto.ShouldContain("Sin antibióticos últimos 7 días");
+        texto.ShouldContain("Nicolas Nieves");
+    }
+
+    [Fact]
+    public void UnaMovilizacionHeredadaConservaLaLineaDeDiasDeRetiro()
+    {
+        // Reimprimir una guía anterior al cambio no puede perder el dato que
+        // sí se capturó entonces.
+        var movilizacion = new Movilizacion
+        {
+            ResponsableDespacho = "Nicolas Nieves",
+            SinAntibioticos7Dias = null,
+            DiasRetiroMedicamentos = 12
+        };
+
+        var texto = GuiaMovilizacionService.TextoDeclaracionSanitaria(movilizacion);
+
+        texto.ShouldContain("12 días");
+    }
+
+    [Fact]
+    public void UnaMovilizacionHeredadaSinDatoDiceSinDeclaracion()
+    {
+        var movilizacion = new Movilizacion
+        {
+            ResponsableDespacho = "Nicolas Nieves",
+            SinAntibioticos7Dias = null,
+            DiasRetiroMedicamentos = null
+        };
+
+        var texto = GuiaMovilizacionService.TextoDeclaracionSanitaria(movilizacion);
+
+        texto.ShouldContain("sin declaración");
+    }
 }

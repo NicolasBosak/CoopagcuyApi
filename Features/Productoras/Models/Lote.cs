@@ -6,10 +6,10 @@ using CoopagcuyApi.Features.Faenamiento.Models;
 namespace CoopagcuyApi.Features.Productoras.Models;
 
 /// <summary>
-/// El lote representa una jaula de transporte de hasta 20 cuyes.
+/// El lote representa una jaula de transporte de hasta 15 cuyes.
 /// Puede contener animales de varias productoras: cada CuyRegistro
 /// lleva su propia productora de origen. Mientras está abierto acepta
-/// entregas; al completar 20 (o cerrarse manualmente) queda listo
+/// entregas; al completar 15 (o cerrarse manualmente) queda listo
 /// para movilización a la planta.
 /// </summary>
 public class Lote
@@ -26,7 +26,7 @@ public class Lote
 
     public CentroAcopio CentroAcopio { get; set; }
     public DateTime FechaRecepcion { get; set; }
-    public int CantidadAnimales { get; set; }          // máx 20 por SRS RF-104
+    public int CantidadAnimales { get; set; }          // máx 15 por SRS RF-104
     public decimal PesoTotalGramos { get; set; }
     public EstadoLote Estado { get; set; }
 

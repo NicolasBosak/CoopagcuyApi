@@ -6,6 +6,7 @@ using CoopagcuyApi.Features.Productoras.Models;
 using CoopagcuyApi.Features.Recepcion.DTOs;
 using CoopagcuyApi.Features.Recepcion.Models;
 using CoopagcuyApi.Infrastructure.Data;
+using CoopagcuyApi.Infrastructure.Storage;
 using Microsoft.EntityFrameworkCore;
 
 namespace CoopagcuyApi.Features.Recepcion.Services;
@@ -26,16 +27,25 @@ public interface IRecepcionService
     Task<IEnumerable<VinculacionPendienteDto>> ListarVinculacionesAsync(CentroAcopio? filtroCat);
     Task<EntregaResultadoDto> ResolverVinculacionAsync(int id, int productoraId, string resueltaPor);
     Task<bool> DescartarVinculacionAsync(int id, string resueltaPor);
+
+    /// Bytes de la evidencia, o null si la novedad no tiene foto, si ya
+    /// caducó, si el blob fue borrado por la política de ciclo de vida, o si
+    /// el lote de la novedad no pertenece al CAT indicado (cuando se pasa).
+    Task<byte[]?> ObtenerFotoNovedadAsync(int novedadId, CentroAcopio? catEfectivo);
 }
 
-public class RecepcionService(AppDbContext db) : IRecepcionService
+public class RecepcionService(AppDbContext db, IBlobStorageService blobService)
+    : IRecepcionService
 {
-    // Capacidad máxima de la jaula de transporte — SRS RF-104
-    private const int CapacidadJaula = 20;
-
     // Tope del listado general: se carga lo más reciente y el histórico
     // se consulta con los filtros de fecha (evita degradar con la historia)
     private const int MaxLotesListado = 300;
+
+    // Retención de la evidencia fotográfica. Debe coincidir con la política
+    // de ciclo de vida del contenedor evidencias-clinicas en Azure.
+    private const int DiasRetencionEvidencia = 90;
+
+    private const int MaxBytesEvidencia = 2 * 1024 * 1024;
 
     // El acopio se reúne cada ~15 días y puede tardar en encontrar señal:
     // una captura de hace semanas es legítima. Más allá de esta ventana, o
@@ -46,8 +56,9 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
 
     // ── Entregas por productora: la jaula se arma acumulando ─────────
     // Cada productora entrega los cuyes que quiera; se suman a la jaula
-    // abierta del CAT hasta completar 20. Al llenarse, la jaula se cierra
-    // y el remanente de la entrega abre una jaula nueva.
+    // abierta del CAT hasta completar ReglasRecepcion.CapacidadJaula. Al
+    // llenarse, la jaula se cierra y el remanente de la entrega abre una
+    // jaula nueva.
 
     /// <summary>
     /// Fecha de recepción del lote. En línea la sella el servidor; nunca se
@@ -85,16 +96,103 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
         return captura;
     }
 
+    /// <summary>
+    /// Decodifica y valida (formato base64, tope de tamaño) TODAS las fotos
+    /// de la entrega sin subir ninguna. Se llama ANTES de resolver la
+    /// productora: así el camino de vinculación offline —que serializa
+    /// dto.Cuyes tal cual a CuyesJson (columna text, sin tope)— nunca puede
+    /// encolar una foto que jamás pasaría el tope de tamaño.
+    ///
+    /// Separada de la subida a propósito: si se validara y subiera en el
+    /// mismo bucle, una foto inválida a mitad de la entrega dejaría subidos
+    /// (y huérfanos) los blobs de los cuyes anteriores, y como la validación
+    /// es determinista el dispositivo reintentaría esa misma entrega sin fin,
+    /// acumulando basura en cada intento.
+    /// </summary>
+    private static Dictionary<int, byte[]> ValidarEvidencias(RegistrarEntregaDto dto)
+    {
+        var decodificadas = new Dictionary<int, byte[]>();
+
+        for (var i = 0; i < dto.Cuyes.Count; i++)
+        {
+            var foto = dto.Cuyes[i].FotoBase64;
+            if (string.IsNullOrWhiteSpace(foto)) continue;
+
+            byte[] bytes;
+            try
+            {
+                bytes = Convert.FromBase64String(foto);
+            }
+            catch (FormatException)
+            {
+                throw new EvidenciaInvalidaException(
+                    $"La foto del cuy #{i + 1} no es base64 válido.");
+            }
+
+            if (bytes.Length > MaxBytesEvidencia)
+                throw new EvidenciaInvalidaException(
+                    $"La foto del cuy #{i + 1} pesa {bytes.Length / 1024} KB y " +
+                    $"el máximo es {MaxBytesEvidencia / 1024} KB.");
+
+            decodificadas[i] = bytes;
+        }
+
+        return decodificadas;
+    }
+
+    /// <summary>
+    /// Sube las fotos ya validadas por ValidarEvidenciasAsync y devuelve la
+    /// URL de cada una indexada por su posición en dto.Cuyes. Se salta los
+    /// cuyes sin SignosClinicos: sin novedad clínica a la que anclarla la
+    /// foto quedaría huérfana en el blob y la evidencia se perdería en
+    /// silencio (el front solo ofrece la cámara cuando hay signos, esto es
+    /// defensa en profundidad).
+    ///
+    /// Corre FUERA de la transacción a propósito. El registro de la entrega
+    /// va dentro de CreateExecutionStrategy, que REINTENTA el delegado ante
+    /// fallos transitorios de Neon: subir ahí dentro duplicaría blobs en cada
+    /// reintento y mantendría el advisory lock del CAT abierto durante una
+    /// subida de red. El coste es que una transacción fallida puede dejar un
+    /// blob huérfano — lo recoge la política de ciclo de vida a los 90 días.
+    /// Lo que NO puede quedar huérfana es una fila: la URL se escribe dentro
+    /// de la transacción.
+    /// </summary>
+    private async Task<Dictionary<int, string>> SubirEvidenciasAsync(
+        RegistrarEntregaDto dto, Dictionary<int, byte[]> evidenciasValidadas)
+    {
+        var urls = new Dictionary<int, string>();
+
+        foreach (var (indice, bytes) in evidenciasValidadas)
+        {
+            if (string.IsNullOrWhiteSpace(dto.Cuyes[indice].SignosClinicos))
+                continue;
+
+            var nombre = $"{DateTime.UtcNow:yyyy/MM}/{Guid.NewGuid():N}.jpg";
+            urls[indice] = await blobService.SubirEvidenciaAsync(nombre, bytes);
+        }
+
+        return urls;
+    }
+
     public async Task<EntregaResultadoDto> RegistrarEntregaAsync(RegistrarEntregaDto dto)
     {
         if (dto.Cuyes.Count == 0)
             throw new InvalidOperationException(
                 "La entrega debe incluir al menos un cuy.");
 
+        // Validar las fotos ANTES de resolver la productora: si esta entrega
+        // termina en la bandeja de vinculación, dto.Cuyes se serializa tal
+        // cual a CuyesJson (columna text, sin tope) y esa ruta no puede
+        // saltarse la validación de tamaño/formato. Ver ValidarEvidencias.
+        var evidenciasValidadas = ValidarEvidencias(dto);
+
         // Captura offline sin catálogo: resolver la productora por su cédula.
         // Puede lanzar EntregaEnVinculacionException (cédula válida sin
         // productora) para que el sync la reporte como pendiente de vincular.
         await ResolverProductoraPorCedulaAsync(dto);
+
+        // Fuera de la transacción: ver el comentario de SubirEvidenciasAsync.
+        var evidencias = await SubirEvidenciasAsync(dto, evidenciasValidadas);
 
         // Toda la entrega es atómica y las entregas del MISMO CAT se
         // serializan con un advisory lock de PostgreSQL: así no pueden
@@ -135,26 +233,35 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
                     $"Productora con Id {dto.ProductoraId} no encontrada.");
 
             var fechaUtc = ResolverFechaRecepcion(dto);
-            var pendientes = new Queue<CuyRegistroDto>(dto.Cuyes);
+            var pendientes = new Queue<(int Indice, CuyRegistroDto Cuy)>(
+                dto.Cuyes.Select((c, i) => (i, c)));
             var lotesAfectados = new List<Lote>();
             var seCompletoJaula = false;
 
             while (pendientes.Count > 0)
             {
                 var lote = await ObtenerOCrearJaulaAbiertaAsync(dto, fechaUtc);
-                if (!lotesAfectados.Contains(lote))
-                    lotesAfectados.Add(lote);
 
-                var espacio = CapacidadJaula - lote.CantidadAnimales;
+                // Math.Max(0, ...): una jaula heredada puede tener MÁS
+                // animales que la capacidad actual (venía de cuando eran 20).
+                // Sin esta guarda el espacio sale negativo; el bucle ya no
+                // itera, pero el lote se anotaba como afectado sin haber
+                // recibido nada. Se cierra más abajo y la vuelta siguiente
+                // abre una jaula nueva.
+                var espacio = Math.Max(0, ReglasRecepcion.CapacidadJaula - lote.CantidadAnimales);
                 var aTomar = Math.Min(espacio, pendientes.Count);
+
+                if (aTomar > 0 && !lotesAfectados.Contains(lote))
+                    lotesAfectados.Add(lote);
 
                 for (var i = 0; i < aTomar; i++)
                 {
-                    var cuyDto = pendientes.Dequeue();
+                    var (indice, cuyDto) = pendientes.Dequeue();
                     var numero = lote.CantidadAnimales + 1;
 
                     var (cuy, novedades) = EvaluarCuyIndividual(
-                        cuyDto, numero, dto.ResponsableRecepcion);
+                        cuyDto, numero, dto.ResponsableRecepcion,
+                        evidencias.GetValueOrDefault(indice), DiasRetencionEvidencia);
 
                     cuy.LoteId = lote.Id;
                     cuy.ProductoraId = dto.ProductoraId;
@@ -188,7 +295,7 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
 
                 RecalcularEstadoLote(lote);
 
-                if (lote.CantidadAnimales >= CapacidadJaula)
+                if (lote.CantidadAnimales >= ReglasRecepcion.CapacidadJaula)
                 {
                     lote.Cerrado = true;
                     lote.FechaCierre = DateTime.UtcNow;
@@ -257,6 +364,53 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
         await db.SaveChangesAsync();
 
         return await MapearLoteAsync(lote.Id);
+    }
+
+    public async Task<byte[]?> ObtenerFotoNovedadAsync(int novedadId, CentroAcopio? catEfectivo)
+    {
+        var novedad = await db.Novedades.AsNoTracking()
+            .Include(n => n.Lote)
+            .FirstOrDefaultAsync(n => n.Id == novedadId);
+
+        if (novedad?.FotoUrl is null) return null;
+
+        // Mismo filtro de centro que ObtenerLotePorId/ObtenerLotePorCodigo/
+        // ListarLotes: un OperadorCAT no debe poder bajarse la evidencia de
+        // otro centro solo por probar ids secuenciales.
+        if (catEfectivo is CentroAcopio cat && novedad.Lote?.CentroAcopio != cat)
+            return null;
+
+        // La fecha manda sobre el blob: en cuanto caduca dejamos de servirla,
+        // sin esperar a que pase el barrido de Azure.
+        if (novedad.FotoExpiraEn is null || novedad.FotoExpiraEn <= DateTime.UtcNow)
+            return null;
+
+        // El nombre del blob es lo que sigue al nombre del contenedor en la
+        // URI; se guarda la URI completa para poder diagnosticar desde la base.
+        string nombre;
+        try
+        {
+            var uri = new Uri(novedad.FotoUrl);
+
+            // Una URI corta y perfectamente parseable (p. ej. sin el segmento
+            // de contenedor) no lanza UriFormatException al construirla, pero
+            // Segments[^3..] sí revienta con ArgumentOutOfRangeException si
+            // hay menos de 3 segmentos. Se trata igual que "no hay foto" en
+            // vez de reventar un endpoint de solo lectura con un 500.
+            if (uri.Segments.Length < 3) return null;
+
+            nombre = uri.Segments[^3..]
+                .Aggregate(string.Empty, (acumulado, s) => acumulado + s)
+                .TrimStart('/');
+        }
+        catch (UriFormatException)
+        {
+            // FotoUrl corrupta: se trata igual que "no hay foto" en vez de
+            // reventar un endpoint de solo lectura con un 500.
+            return null;
+        }
+
+        return await blobService.DescargarEvidenciaAsync(nombre);
     }
 
     private async Task<Lote> ObtenerOCrearJaulaAbiertaAsync(
@@ -566,41 +720,32 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
     // ── Evaluación individual por cuy — SRS Apéndice 5.1 ─────────────
 
     private static (CuyRegistro cuy, List<Novedad> novedades) EvaluarCuyIndividual(
-        CuyRegistroDto c, int numero, string responsable)
+        CuyRegistroDto c, int numero, string responsable,
+        string? fotoUrl, int diasRetencion)
     {
         var novedades = new List<Novedad>();
         var motivos = new List<string>();
         var rechazado = false;
 
-        if (c.PesoGramos < 850)
+        if (c.PesoGramos < ReglasRecepcion.PesoMinimoGramos)
         {
             rechazado = true;
-            motivos.Add($"peso {c.PesoGramos:F0}g bajo el mínimo (850g)");
+            motivos.Add($"peso {c.PesoGramos:F0}g bajo el mínimo " +
+                        $"({ReglasRecepcion.PesoMinimoGramos:F0}g)");
             novedades.Add(NovedadDeCuy(numero, TipoNovedad.BajoPeso,
-                $"Peso {c.PesoGramos:F0}g por debajo del mínimo (850g). Animal rechazado.",
+                $"Peso {c.PesoGramos:F0}g por debajo del mínimo " +
+                $"({ReglasRecepcion.PesoMinimoGramos:F0}g). Animal rechazado.",
                 responsable, c.PesoGramos));
         }
-        else if (c.PesoGramos < 875)
+        else if (c.PesoGramos > ReglasRecepcion.PesoMaximoGramos)
         {
-            motivos.Add($"peso justo ({c.PesoGramos:F0}g)");
-            novedades.Add(NovedadDeCuy(numero, TipoNovedad.BajoPeso,
-                $"Peso {c.PesoGramos:F0}g entre 850g–874g. Pasa con observación.",
-                responsable, c.PesoGramos));
-        }
-        else if (c.PesoGramos > 1300)
-        {
+            // No rechaza: el animal está sano, solo queda fuera del rango
+            // comercial. Mezclarlo con el bajo peso borraría esa diferencia.
             motivos.Add($"sobre el rango operativo ({c.PesoGramos:F0}g)");
             novedades.Add(NovedadDeCuy(numero, TipoNovedad.SobrePeso,
-                $"Peso {c.PesoGramos:F0}g sobre el rango operativo (máx. 1300g).",
+                $"Peso {c.PesoGramos:F0}g sobre el rango operativo " +
+                $"(máx. {ReglasRecepcion.PesoMaximoGramos:F0}g).",
                 responsable, c.PesoGramos));
-        }
-
-        if (c.ColorPelaje.Equals("Negro", StringComparison.OrdinalIgnoreCase))
-        {
-            motivos.Add("piel negra");
-            novedades.Add(NovedadDeCuy(numero, TipoNovedad.ColorNoConforme,
-                "Piel completamente negra. No conforme para mercado formal.",
-                responsable, null));
         }
 
         if (c.EstadoOreja.Equals("Dura", StringComparison.OrdinalIgnoreCase))
@@ -614,9 +759,20 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
         if (!string.IsNullOrWhiteSpace(c.SignosClinicos))
         {
             motivos.Add($"signos clínicos: {c.SignosClinicos.Trim()}");
-            novedades.Add(NovedadDeCuy(numero, TipoNovedad.SignosClinicos,
+
+            var novedadClinica = NovedadDeCuy(numero, TipoNovedad.SignosClinicos,
                 $"Condición sanitaria con observación: {c.SignosClinicos.Trim()}",
-                responsable, null));
+                responsable, null);
+
+            // La evidencia se ancla a la novedad clínica, la única que se
+            // reclama al proveedor.
+            if (fotoUrl is not null)
+            {
+                novedadClinica.FotoUrl = fotoUrl;
+                novedadClinica.FotoExpiraEn = DateTime.UtcNow.AddDays(diasRetencion);
+            }
+
+            novedades.Add(novedadClinica);
         }
 
         var cuy = new CuyRegistro
@@ -746,7 +902,8 @@ public class RecepcionService(AppDbContext db) : IRecepcionService
             Novedades: lote.Novedades
                 .Select(n => new NovedadResponseDto(
                     n.Id, n.Tipo.ToString(), n.Descripcion,
-                    n.PesoRegistradoGramos, n.FechaRegistro, n.RegistradoPor))
+                    n.PesoRegistradoGramos, n.FechaRegistro, n.RegistradoPor,
+                    n.FotoUrl != null && n.FotoExpiraEn > DateTime.UtcNow))
                 .ToList(),
             Cuyes: lote.Cuyes
                 .OrderBy(c => c.NumeroEnLote)
