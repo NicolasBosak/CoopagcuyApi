@@ -35,8 +35,14 @@ public class AppDbContextFactory : IDesignTimeDbContextFactory<AppDbContext>
                 "user-secrets (local) o como variable de entorno " +
                 "ConnectionStrings__NeonDb (CI) para ejecutar migraciones.");
 
+        // Mismos reintentos que Program.cs, y por el mismo motivo: Neon es
+        // serverless y suspende el cómputo por inactividad, así que la primera
+        // conexión tras un rato paga un arranque en frío. Sin esto, las
+        // migraciones del pipeline fallaban con "Timeout during reading
+        // attempt" dentro de AuthenticateSASL mientras la aplicación, que sí
+        // reintentaba, funcionaba con esa misma cadena de conexión.
         var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseNpgsql(conn)
+            .UseNpgsql(conn, npgsql => npgsql.EnableRetryOnFailure(maxRetryCount: 3))
             .Options;
 
         return new AppDbContext(options);

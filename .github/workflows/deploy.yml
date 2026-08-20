@@ -306,10 +306,33 @@ jobs:
         env:
           ConnectionStrings__NeonDb: ${{ secrets.NEON_CONNECTION_STRING }}
           Jwt__Key: ${{ secrets.JWT_KEY }}
+        # Se reintenta porque Neon es serverless: si el cómputo lleva rato
+        # suspendido, la primera conexión puede agotar el tiempo de espera
+        # mientras la instancia arranca. `AppDbContextFactory` ya reintenta a
+        # nivel de EF, pero ese reintento no cubre todo el camino de apertura
+        # de la conexión, así que este bucle es la red de seguridad: basta con
+        # que un intento despierte la base para que el siguiente funcione.
+        #
+        # Reintentar migraciones es seguro: EF aplica solo las pendientes y
+        # registra cada una en __EFMigrationsHistory dentro de su transacción,
+        # así que un intento fallido no deja nada a medias.
         run: |
           dotnet tool install --global dotnet-ef --version 8.*
           export PATH="$PATH:$HOME/.dotnet/tools"
-          dotnet ef database update --project CoopagcuyApi.csproj
+
+          for intento in 1 2 3; do
+            if dotnet ef database update --project CoopagcuyApi.csproj; then
+              echo "Migraciones aplicadas (intento $intento)."
+              exit 0
+            fi
+            if [ "$intento" -lt 3 ]; then
+              echo "::warning::Intento $intento fallido. Si Neon estaba suspendido, este intento lo habrá despertado; reintentando en 20 s."
+              sleep 20
+            fi
+          done
+
+          echo "::error::Las migraciones fallaron en los 3 intentos. Revisa el error de arriba: si no es un tiempo de espera, el problema no es el arranque en frío de Neon."
+          exit 1
 
       # ── 2f. Actualizar la imagen del Container App ───────────────────
       - name: Desplegar nueva revisión
