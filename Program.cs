@@ -4,6 +4,7 @@ using CoopagcuyApi.Common.Auth.Recuperacion;
 using CoopagcuyApi.Common.Exceptions;
 using CoopagcuyApi.Features.Catalogos.Services;
 using CoopagcuyApi.Features.Faenamiento.Services;
+using CoopagcuyApi.Features.Pagos.Services;
 using CoopagcuyApi.Features.Productoras.Services;
 using CoopagcuyApi.Features.Productoras.Validators;
 using CoopagcuyApi.Features.QR.Services;

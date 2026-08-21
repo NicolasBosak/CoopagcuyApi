@@ -1,11 +1,11 @@
 using CoopagcuyApi.Common;
+using CoopagcuyApi.Features.Pagos.DTOs;
 using CoopagcuyApi.Features.Pagos.Models;
-using CoopagcuyApi.Features.Productoras.DTOs;
 using CoopagcuyApi.Features.Productoras.Models;
 using CoopagcuyApi.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
-namespace CoopagcuyApi.Features.Productoras.Services;
+namespace CoopagcuyApi.Features.Pagos.Services;
 
 public interface IPagoService
 {
@@ -36,54 +36,40 @@ public class PagoService(AppDbContext db) : IPagoService
             throw new UnauthorizedAccessException(
                 "Tu usuario solo puede registrar pagos de productoras de su centro.");
 
-        Lote? lote = null;
-        if (dto.LoteId is int loteId)
-        {
-            lote = await db.Lotes.FindAsync(loteId)
-                ?? throw new KeyNotFoundException(
-                    $"Lote con Id {loteId} no encontrado.");
+        // El ticket es por los cuyes de un lote concreto. Sin lote no hay nada
+        // que imprimir ni novedades que trazar después.
+        if (dto.LoteId is not int loteId)
+            throw new InvalidOperationException(
+                "El pago debe corresponder a un lote.");
 
-            // La jaula es multi-productora: el pago es válido si la
-            // productora entregó cuyes en ese lote (Lote.ProductoraId es
-            // solo la referencia histórica de quien abrió la jaula)
-            var participo = lote.ProductoraId == dto.ProductoraId
-                || await db.CuyRegistros.AnyAsync(c =>
-                    c.LoteId == loteId && c.ProductoraId == dto.ProductoraId);
+        var lote = await db.Lotes.FindAsync(loteId)
+            ?? throw new KeyNotFoundException($"Lote con Id {loteId} no encontrado.");
 
-            if (!participo)
-                throw new InvalidOperationException(
-                    "La productora no registra entregas en ese lote.");
-        }
+        // La jaula es multi-productora: el pago es válido si la productora
+        // entregó cuyes en ese lote (Lote.ProductoraId es solo la referencia
+        // histórica de quien abrió la jaula)
+        var participo = lote.ProductoraId == dto.ProductoraId
+            || await db.CuyRegistros.AnyAsync(c =>
+                c.LoteId == loteId && c.ProductoraId == dto.ProductoraId);
+
+        if (!participo)
+            throw new InvalidOperationException(
+                "La productora no registra entregas en ese lote.");
 
         if (dto.MontoUsd <= 0)
             throw new InvalidOperationException(
                 "El monto del pago debe ser mayor a cero.");
 
-        // A crédito: se difiere en N días (mínimo 2) y el valor de cada uno
-        // lo calcula el servidor. Al contado no lleva días.
-        var esCredito = dto.MetodoPago.Trim()
-            .Equals("Credito", StringComparison.OrdinalIgnoreCase);
-        int? numeroDias = null;
-        decimal? valorPorDia = null;
-
-        if (esCredito)
-        {
-            if (dto.NumeroDias is not int n || n < 2)
-                throw new InvalidOperationException(
-                    "Un pago a crédito debe diferirse en al menos 2 días.");
-            numeroDias = n;
-            valorPorDia = Math.Round(dto.MontoUsd / n, 2);
-        }
-
         var pago = new Pago
         {
             ProductoraId = dto.ProductoraId,
-            LoteId = dto.LoteId,
+            LoteId = loteId,
             MontoUsd = dto.MontoUsd,
             FechaPago = DateTime.UtcNow,
-            MetodoPago = dto.MetodoPago.Trim(),
-            NumeroDias = numeroDias,
-            ValorPorDia = valorPorDia,
+            // Fijado por el servidor, no por el cliente: desde el paso a
+            // transferencia única no hay nada que elegir.
+            MetodoPago = "Transferencia",
+            Estado = EstadoPago.Pendiente,
             Responsable = dto.Responsable.Trim(),
             Observaciones = dto.Observaciones
         };
@@ -91,7 +77,7 @@ public class PagoService(AppDbContext db) : IPagoService
         db.Pagos.Add(pago);
         await db.SaveChangesAsync();
 
-        return Mapear(pago, productora.NombreCompleto, lote?.CodigoLote);
+        return Mapear(pago, productora.NombreCompleto, lote.CodigoLote);
     }
 
     public async Task<IEnumerable<PagoResponseDto>> ListarAsync(
@@ -188,8 +174,13 @@ public class PagoService(AppDbContext db) : IPagoService
         MontoUsd: p.MontoUsd,
         FechaPago: p.FechaPago,
         MetodoPago: p.MetodoPago,
-        NumeroDias: p.NumeroDias,
-        ValorPorDia: p.ValorPorDia,
+        Estado: p.Estado.ToString(),
+        MontoPagadoUsd: p.MontoPagadoUsd,
+        FechaPagoEfectivo: p.FechaPagoEfectivo,
+        PagadoPor: p.PagadoPor,
+        TieneComprobante: p.ComprobanteUrl != null,
+        FechaVerificacion: p.FechaVerificacion,
+        VerificadoPor: p.VerificadoPor,
         Responsable: p.Responsable,
         Observaciones: p.Observaciones
     );

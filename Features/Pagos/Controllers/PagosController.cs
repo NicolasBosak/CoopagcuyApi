@@ -1,11 +1,11 @@
 using CoopagcuyApi.Common;
 using CoopagcuyApi.Common.Auth;
-using CoopagcuyApi.Features.Productoras.DTOs;
-using CoopagcuyApi.Features.Productoras.Services;
+using CoopagcuyApi.Features.Pagos.DTOs;
+using CoopagcuyApi.Features.Pagos.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
-namespace CoopagcuyApi.Features.Productoras.Controllers;
+namespace CoopagcuyApi.Features.Pagos.Controllers;
 
 /// <summary>
 /// Registro digital de pagos a productoras en el CAT.
