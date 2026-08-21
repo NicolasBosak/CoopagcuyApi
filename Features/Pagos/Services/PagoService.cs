@@ -213,6 +213,18 @@ public class PagoService(AppDbContext db) : IPagoService
         // necesita es el Id de la NOVEDAD: es lo que va a citar al descontar.
         return await db.Novedades
             .Where(n => n.LoteId == loteId
+                // Deliberadamente redundante con la comparación de
+                // ProductoraId de abajo: en SQL, si CuyRegistro es null (por
+                // el LEFT JOIN), TODAS sus columnas son null, y comparar una
+                // columna null contra un valor nunca da verdadero — esa fila
+                // ya queda excluida sin este chequeo. Se deja igual porque
+                // dice la regla en voz alta ("una novedad de la entrega, sin
+                // animal, jamás es descontable") en vez de obligar a
+                // deducirla de la semántica de NULL de SQL. Por eso mismo
+                // ninguna prueba puede pinnearla: no hay dato que haga que su
+                // presencia o ausencia cambie el resultado. Si una prueba no
+                // la detecta al borrarla, NO es una prueba floja — no la
+                // busques ni la borres pensando que es código muerto.
                 && n.CuyRegistro != null
                 && n.CuyRegistro.ProductoraId == pago.ProductoraId)
             .OrderBy(n => n.CuyRegistro!.NumeroEnLote)
