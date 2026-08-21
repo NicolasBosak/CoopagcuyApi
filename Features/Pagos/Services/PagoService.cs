@@ -267,7 +267,18 @@ public class PagoService(AppDbContext db, IBlobStorageService blobs) : IPagoServ
         // subida dejaría una captura huérfana que nadie va a limpiar.
 
         var comprobante = ValidarComprobante(dto.ComprobanteBase64);
-        var descuentos = await ValidarDescuentosAsync(pago, dto);
+
+        // Aquí y no en el Trim de más abajo: si el primer uso de PagadoPor
+        // fuera el que arma la fila, un valor en blanco se detectaría DESPUÉS
+        // de subir la captura y el blob quedaría huérfano. Y sin guardia
+        // alguna, "   " se guardaba tal cual: el ticket quedaba pagado sin
+        // decir por quién, que es lo que la CAT necesita para reclamar.
+        var pagadoPor = dto.PagadoPor?.Trim() ?? string.Empty;
+        if (pagadoPor.Length == 0)
+            throw new EvidenciaInvalidaException(
+                "El pago debe decir quién lo registró en la planta.");
+
+        var descuentos = await ValidarDescuentosAsync(pago, dto, pagadoPor);
 
         var total = descuentos.Sum(d => d.MontoUsd);
         if (total > pago.MontoUsd)
@@ -285,12 +296,32 @@ public class PagoService(AppDbContext db, IBlobStorageService blobs) : IPagoServ
         pago.Estado = EstadoPago.Pagado;
         pago.MontoPagadoUsd = pago.MontoUsd - total;
         pago.FechaPagoEfectivo = DateTime.UtcNow;
-        pago.PagadoPor = dto.PagadoPor.Trim();
+        pago.PagadoPor = pagadoPor;
         pago.ComprobanteUrl = url;
 
         foreach (var d in descuentos) db.Descuentos.Add(d);
 
-        await db.SaveChangesAsync();
+        try
+        {
+            await db.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            // La captura YA está subida. Si la base rechaza la escritura hay
+            // que retirarla o queda huérfana: es el mismo invariante que
+            // protege validar antes de subir, aplicado al único tramo que la
+            // validación previa no puede cubrir —el índice único de
+            // (PagoId, NovedadCatId) y demás reglas que solo conoce el motor—.
+            //
+            // El borrado va antes del throw y sin try propio: si fallara
+            // también, el pago ya está perdido de todos modos y la excepción
+            // de borrado dice más que la que la tapó.
+            await blobs.BorrarComprobanteAsync(nombre);
+
+            throw new TransicionInvalidaException(
+                "La base de datos rechazó el pago: es posible que el ticket " +
+                "o alguno de sus descuentos ya se hubiera registrado.");
+        }
 
         return Mapear(pago, pago.Productora.NombreCompleto, pago.Lote?.CodigoLote);
     }
@@ -331,7 +362,7 @@ public class PagoService(AppDbContext db, IBlobStorageService blobs) : IPagoServ
     /// suma. Devuelve las filas listas para guardar, sin guardarlas.
     /// </summary>
     private async Task<List<DescuentoPago>> ValidarDescuentosAsync(
-        Pago pago, RegistrarPagoEfectivoDto dto)
+        Pago pago, RegistrarPagoEfectivoDto dto, string pagadoPor)
     {
         if (dto.Descuentos.Count == 0) return [];
 
@@ -374,6 +405,17 @@ public class PagoService(AppDbContext db, IBlobStorageService blobs) : IPagoServ
                 throw new TransicionInvalidaException(
                     "Un descuento debe ser mayor a cero.");
 
+            // Ambas columnas son HasPrecision(10,2), y nada limita lo que
+            // entra: 10.005 se persiste redondeado a 10.01 mientras que el
+            // MontoPagadoUsd se calcula con 10.005, así que la resta deja de
+            // cuadrar con la fila que la justifica. Y 0.001 pasa el "> 0"
+            // para acabar guardado como un descuento de 0.00. El ticket se
+            // lleva en centavos: lo que no quepa en centavos se rechaza.
+            if (decimal.Round(d.MontoUsd, 2) != d.MontoUsd)
+                throw new TransicionInvalidaException(
+                    $"El descuento de {d.MontoUsd} tiene más de dos " +
+                    "decimales y el ticket se lleva en centavos.");
+
             if (string.IsNullOrWhiteSpace(d.Descripcion))
                 throw new TransicionInvalidaException(
                     "Cada descuento debe decir qué se observó en la planta.");
@@ -385,7 +427,7 @@ public class PagoService(AppDbContext db, IBlobStorageService blobs) : IPagoServ
             NovedadCatId = d.NovedadCatId,
             Descripcion = d.Descripcion.Trim(),
             MontoUsd = d.MontoUsd,
-            RegistradoPor = dto.PagadoPor.Trim()
+            RegistradoPor = pagadoPor
         })];
     }
 

@@ -60,6 +60,20 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
         pago.Estado.ShouldBe(EstadoPago.Pagado);
         pago.ComprobanteUrl.ShouldNotBeNull();
         pago.PagadoPor.ShouldBe("Operador de planta");
+
+        // La fila del descuento es EL artefacto de la feature: sin ella la
+        // CAT recibe un pago rebajado y ningún registro de qué defecto lo
+        // justifica. Que el ticket cuadre no prueba que se haya escrito;
+        // borrar el Add dejaba el resto de la clase en verde.
+        var descuentos = await db.Descuentos.AsNoTracking()
+            .Where(d => d.PagoId == pagoId)
+            .ToListAsync();
+
+        descuentos.Count.ShouldBe(1);
+        descuentos[0].NovedadCatId.ShouldBe(novedadId);
+        descuentos[0].MontoUsd.ShouldBe(17m);
+        descuentos[0].Descripcion.ShouldBe("llegó con la lesión abierta");
+        descuentos[0].RegistradoPor.ShouldBe("Operador de planta");
     }
 
     [Fact]
@@ -200,8 +214,12 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
                 pagadoPor = "Operador de planta"
             });
 
-        respuesta.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        // El conteo va ANTES del status a propósito: Shouldly corta en la
+        // primera aserción que falla, así que con el status delante una
+        // mutación que devuelva el código correcto y filtre el blob pasaría
+        // inadvertida. Esta mitad es la que fija el orden de las operaciones.
         (await ContarBlobsAsync()).ShouldBe(antes);
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
 
         // Segundo rechazo, con la captura BIEN formada y el descuento mal.
         // Sin este bloque la prueba solo fijaría que la captura se valida
@@ -222,8 +240,8 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
                 pagadoPor = "Operador de planta"
             });
 
-        conDescuentoAjeno.StatusCode.ShouldBe(HttpStatusCode.Conflict);
         (await ContarBlobsAsync()).ShouldBe(antes);
+        conDescuentoAjeno.StatusCode.ShouldBe(HttpStatusCode.Conflict);
     }
 
     [Fact]
@@ -254,13 +272,183 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
                 pagadoPor = "Operador de planta"
             });
 
-        respuesta.StatusCode.ShouldBe(HttpStatusCode.Conflict);
         (await ContarBlobsAsync()).ShouldBe(antes);
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.Conflict);
 
         await using var db = api.NuevoDbContext();
         var pago = await db.Pagos.AsNoTracking().FirstAsync(p => p.Id == pagoId);
         pago.Estado.ShouldBe(EstadoPago.Pendiente);
         pago.ComprobanteUrl.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task UnMismoDefectoNoSeDescuentaDosVeces()
+    {
+        // Sin la guardia de duplicados, las dos filas llegan juntas al mismo
+        // SaveChangesAsync, el índice único (PagoId, NovedadCatId) las
+        // rechaza y la DbUpdateException salta DESPUÉS de subir la captura.
+        //
+        // Se afirma el MENSAJE y no solo el 409 porque el rescate de
+        // DbUpdateException responde 409 también: mirando solo el código,
+        // quitar la guardia previa no se notaría.
+        var (pagoId, novedadId) = await TicketConNovedadAsync(CedulaA, 120m);
+
+        var antes = await ContarBlobsAsync();
+
+        var respuesta = await api.ComoOperadorFaenamiento()
+            .PostAsJsonAsync($"/api/pagos/{pagoId}/pagar", new
+            {
+                descuentos = new[]
+                {
+                    new { novedadCatId = novedadId,
+                          descripcion = "lesión abierta", montoUsd = 10m },
+                    new { novedadCatId = novedadId,
+                          descripcion = "la misma, otra vez", montoUsd = 5m }
+                },
+                comprobanteBase64 = Comprobante,
+                pagadoPor = "Operador de planta"
+            });
+
+        (await ContarBlobsAsync()).ShouldBe(antes);
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        (await respuesta.Content.ReadAsStringAsync())
+            .ShouldContain("Un mismo defecto no puede descontarse dos veces.");
+    }
+
+    [Fact]
+    public async Task UnDescuentoNegativoSeRechaza()
+    {
+        // Sin el "> 0" un monto negativo SUMA: -50 sobre un ticket de 120
+        // daría un MontoPagadoUsd de 170 y pasaría limpio por el tope, que
+        // solo compara la suma CONTRA el monto y nunca por debajo de cero.
+        var (pagoId, novedadId) = await TicketConNovedadAsync(CedulaA, 120m);
+
+        var respuesta = await api.ComoOperadorFaenamiento()
+            .PostAsJsonAsync($"/api/pagos/{pagoId}/pagar", new
+            {
+                descuentos = new[] { new
+                {
+                    novedadCatId = novedadId,
+                    descripcion = "descuento negativo",
+                    montoUsd = -50m
+                }},
+                comprobanteBase64 = Comprobante,
+                pagadoPor = "Operador de planta"
+            });
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+
+        await using var db = api.NuevoDbContext();
+        var pago = await db.Pagos.AsNoTracking().FirstAsync(p => p.Id == pagoId);
+        pago.Estado.ShouldBe(EstadoPago.Pendiente);
+        pago.MontoPagadoUsd.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task UnDescuentoSinDescripcionSeRechaza()
+    {
+        // La novedad del CAT dice lo que se vio al recibir; el descuento
+        // tiene que decir lo que se vio al faenar. En blanco, la productora
+        // recibe una rebaja que nadie explica.
+        var (pagoId, novedadId) = await TicketConNovedadAsync(CedulaA, 120m);
+
+        var respuesta = await api.ComoOperadorFaenamiento()
+            .PostAsJsonAsync($"/api/pagos/{pagoId}/pagar", new
+            {
+                descuentos = new[] { new
+                {
+                    novedadCatId = novedadId,
+                    descripcion = "   ",
+                    montoUsd = 10m
+                }},
+                comprobanteBase64 = Comprobante,
+                pagadoPor = "Operador de planta"
+            });
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+    }
+
+    [Fact]
+    public async Task UnDescuentoConMasDeDosDecimalesSeRechaza()
+    {
+        // MontoUsd y MontoPagadoUsd son HasPrecision(10,2): 10.005 se
+        // guardaría redondeado a 10.01 mientras la resta se calcula con
+        // 10.005, y la fila dejaría de justificar el monto que acompaña.
+        var (pagoId, novedadId) = await TicketConNovedadAsync(CedulaA, 120m);
+
+        var respuesta = await api.ComoOperadorFaenamiento()
+            .PostAsJsonAsync($"/api/pagos/{pagoId}/pagar", new
+            {
+                descuentos = new[] { new
+                {
+                    novedadCatId = novedadId,
+                    descripcion = "medio centavo",
+                    montoUsd = 10.005m
+                }},
+                comprobanteBase64 = Comprobante,
+                pagadoPor = "Operador de planta"
+            });
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+
+        await using var db = api.NuevoDbContext();
+        (await db.Descuentos.AsNoTracking().CountAsync(d => d.PagoId == pagoId))
+            .ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task UnPagoSinResponsableSeRechaza()
+    {
+        // 400 y no 409: el cuerpo viene mal, no llega a destiempo. El
+        // conteo de blobs comprueba que la guardia vive del lado correcto
+        // de la subida: en blanco se detectaba al armar la fila, ya con la
+        // captura arriba. Antes de esta guardia, "   " respondía 200 y
+        // dejaba el ticket pagado sin decir por quién.
+        var (pagoId, _) = await TicketConNovedadAsync(CedulaA, 120m);
+
+        var antes = await ContarBlobsAsync();
+
+        var respuesta = await api.ComoOperadorFaenamiento()
+            .PostAsJsonAsync($"/api/pagos/{pagoId}/pagar", new
+            {
+                descuentos = Array.Empty<object>(),
+                comprobanteBase64 = Comprobante,
+                pagadoPor = "   "
+            });
+
+        (await ContarBlobsAsync()).ShouldBe(antes);
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task ElPagoExitosoSubeExactamenteUnBlob()
+    {
+        // Control POSITIVO del contador. ContarBlobsAsync fija el nombre
+        // "comprobantes-pago" a mano, mientras el servicio lo resuelve desde
+        // AzureBlob:ContainerComprobantes. Si la configuración de pruebas
+        // llegara a definir esa clave, el ayudante crearía y contaría un
+        // contenedor ajeno y siempre vacío: todos los ShouldBe(antes) de esta
+        // clase pasarían valiendo 0 == 0, sin medir nada. Esta prueba se cae
+        // primero y delata la desconexión.
+        var (pagoId, novedadId) = await TicketConNovedadAsync(CedulaA, 120m);
+
+        var antes = await ContarBlobsAsync();
+
+        var respuesta = await api.ComoOperadorFaenamiento()
+            .PostAsJsonAsync($"/api/pagos/{pagoId}/pagar", new
+            {
+                descuentos = new[] { new
+                {
+                    novedadCatId = novedadId,
+                    descripcion = "lesión abierta",
+                    montoUsd = 10m
+                }},
+                comprobanteBase64 = Comprobante,
+                pagadoPor = "Operador de planta"
+            });
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await ContarBlobsAsync()).ShouldBe(antes + 1);
     }
 
     [Fact]
@@ -279,6 +467,12 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
             });
 
         respuesta.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+
+        // Se afirma el TEXTO del servicio, no solo el 400: es lo que separa
+        // esta guardia del [Required] implícito de MVC, que respondería un
+        // ProblemDetails con "errors" y dejaría la guardia sin fijar.
+        (await respuesta.Content.ReadAsStringAsync())
+            .ShouldContain("El pago debe adjuntar la captura de la transferencia.");
     }
 
     [Fact]
