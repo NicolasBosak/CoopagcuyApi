@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CoopagcuyApi.Infrastructure.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260821102241_CicloPagoPorTicket")]
+    [Migration("20260821104137_CicloPagoPorTicket")]
     partial class CicloPagoPorTicket
     {
         /// <inheritdoc />
@@ -604,7 +604,8 @@ namespace CoopagcuyApi.Infrastructure.Data.Migrations
                         .HasColumnType("timestamp without time zone");
 
                     b.Property<decimal>("MontoUsd")
-                        .HasColumnType("numeric");
+                        .HasPrecision(10, 2)
+                        .HasColumnType("numeric(10,2)");
 
                     b.Property<int>("NovedadCatId")
                         .HasColumnType("integer");
@@ -664,7 +665,8 @@ namespace CoopagcuyApi.Infrastructure.Data.Migrations
                         .HasColumnType("character varying(50)");
 
                     b.Property<decimal?>("MontoPagadoUsd")
-                        .HasColumnType("numeric");
+                        .HasPrecision(10, 2)
+                        .HasColumnType("numeric(10,2)");
 
                     b.Property<decimal>("MontoUsd")
                         .HasPrecision(10, 2)

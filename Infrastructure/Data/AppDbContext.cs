@@ -295,6 +295,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasKey(p => p.Id);
             e.Property(p => p.MontoUsd).HasPrecision(10, 2);
             e.Property(p => p.ValorPorDia).HasPrecision(10, 2);
+            e.Property(p => p.MontoPagadoUsd).HasPrecision(10, 2);
             e.Property(p => p.MetodoPago).HasMaxLength(50).IsRequired();
             e.Property(p => p.Responsable).HasMaxLength(150).IsRequired();
             e.Property(p => p.Observaciones).HasMaxLength(500);
@@ -305,6 +306,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
              .WithMany()
              .HasForeignKey(p => p.LoteId);
         });
+
+        modelBuilder.Entity<DescuentoPago>()
+            .Property(d => d.MontoUsd).HasPrecision(10, 2);
 
         // Un mismo defecto no se descuenta dos veces sobre el mismo ticket. Va en el
         // índice y no solo en el servicio: dos peticiones simultáneas pasarían las

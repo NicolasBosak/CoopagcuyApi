@@ -46,7 +46,9 @@ namespace CoopagcuyApi.Infrastructure.Data.Migrations
             migrationBuilder.AddColumn<decimal>(
                 name: "MontoPagadoUsd",
                 table: "Pagos",
-                type: "numeric",
+                type: "numeric(10,2)",
+                precision: 10,
+                scale: 2,
                 nullable: true);
 
             migrationBuilder.AddColumn<string>(
@@ -70,7 +72,7 @@ namespace CoopagcuyApi.Infrastructure.Data.Migrations
                     PagoId = table.Column<int>(type: "integer", nullable: false),
                     NovedadCatId = table.Column<int>(type: "integer", nullable: false),
                     Descripcion = table.Column<string>(type: "text", nullable: false),
-                    MontoUsd = table.Column<decimal>(type: "numeric", nullable: false),
+                    MontoUsd = table.Column<decimal>(type: "numeric(10,2)", precision: 10, scale: 2, nullable: false),
                     RegistradoPor = table.Column<string>(type: "text", nullable: false),
                     FechaRegistro = table.Column<DateTime>(type: "timestamp without time zone", nullable: false)
                 },
