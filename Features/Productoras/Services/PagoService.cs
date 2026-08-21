@@ -1,4 +1,5 @@
 using CoopagcuyApi.Common;
+using CoopagcuyApi.Features.Pagos.Models;
 using CoopagcuyApi.Features.Productoras.DTOs;
 using CoopagcuyApi.Features.Productoras.Models;
 using CoopagcuyApi.Infrastructure.Data;

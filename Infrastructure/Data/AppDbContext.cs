@@ -3,6 +3,7 @@ using CoopagcuyApi.Common.Auth;
 using CoopagcuyApi.Common.Auth.Recuperacion;
 using CoopagcuyApi.Features.Catalogos.Models;
 using CoopagcuyApi.Features.Faenamiento.Models;
+using CoopagcuyApi.Features.Pagos.Models;
 using CoopagcuyApi.Features.Productoras.Models;
 using CoopagcuyApi.Features.QR.Models;
 using CoopagcuyApi.Features.Recepcion.Models;
@@ -24,6 +25,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Comunidad> Comunidades => Set<Comunidad>();
     public DbSet<Movilizacion> Movilizaciones => Set<Movilizacion>();
     public DbSet<Pago> Pagos => Set<Pago>();
+    public DbSet<DescuentoPago> Descuentos => Set<DescuentoPago>();
     public DbSet<CuyRegistro> CuyRegistros => Set<CuyRegistro>();
     public DbSet<CuyFaenamiento> CuyFaenamientos => Set<CuyFaenamiento>();
     public DbSet<RetornoProductora> RetornosProductora => Set<RetornoProductora>();
@@ -303,6 +305,27 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
              .WithMany()
              .HasForeignKey(p => p.LoteId);
         });
+
+        // Un mismo defecto no se descuenta dos veces sobre el mismo ticket. Va en el
+        // índice y no solo en el servicio: dos peticiones simultáneas pasarían las
+        // dos por la validación y grabarían el descuento por duplicado.
+        modelBuilder.Entity<DescuentoPago>()
+            .HasIndex(d => new { d.PagoId, d.NovedadCatId })
+            .IsUnique();
+
+        // Restrict y no Cascade: borrar una novedad no puede llevarse por delante la
+        // justificación de un pago ya cobrado.
+        modelBuilder.Entity<DescuentoPago>()
+            .HasOne(d => d.NovedadCat)
+            .WithMany()
+            .HasForeignKey(d => d.NovedadCatId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<DescuentoPago>()
+            .HasOne(d => d.Pago)
+            .WithMany(p => p.Descuentos)
+            .HasForeignKey(d => d.PagoId)
+            .OnDelete(DeleteBehavior.Cascade);
 
         // Marca de idempotencia del sync offline — RF-211: la pareja
         // (dispositivo, id de cliente) solo puede procesarse una vez
