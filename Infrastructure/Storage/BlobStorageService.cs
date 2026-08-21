@@ -14,6 +14,18 @@ public interface IBlobStorageService
     /// Devuelve los bytes de la evidencia, o null si el blob ya no existe
     /// (caso normal tras el borrado por política de ciclo de vida).
     Task<byte[]?> DescargarEvidenciaAsync(string nombre);
+
+    /// Sube una captura de transferencia al contenedor PRIVADO de
+    /// comprobantes y devuelve su URI.
+    Task<string> SubirComprobanteAsync(string nombre, byte[] imagen);
+
+    /// Bytes de la captura, o null si el blob ya no existe.
+    Task<byte[]?> DescargarComprobanteAsync(string nombre);
+
+    /// Borra la captura. No lanza si ya no está: el barrido oportunista
+    /// puede pisarse consigo mismo y no puede tumbar la petición que lo
+    /// dispara.
+    Task BorrarComprobanteAsync(string nombre);
 }
 
 public class BlobStorageService(IConfiguration configuration) : IBlobStorageService
@@ -46,6 +58,16 @@ public class BlobStorageService(IConfiguration configuration) : IBlobStorageServ
         !string.IsNullOrWhiteSpace(configuration["AzureBlob:ContainerEvidencias"])
             ? configuration["AzureBlob:ContainerEvidencias"]!
             : "evidencias-clinicas";
+
+    // Tercer contenedor, y no una carpeta dentro de evidencias: la política
+    // de ciclo de vida se aplica POR CONTENEDOR. Compartirlo borraría las
+    // evidencias clínicas a los 30 días en vez de a los 90.
+    //
+    // IsNullOrWhiteSpace y no `??`, por lo mismo que los otros dos.
+    private readonly string _containerComprobantes =
+        !string.IsNullOrWhiteSpace(configuration["AzureBlob:ContainerComprobantes"])
+            ? configuration["AzureBlob:ContainerComprobantes"]!
+            : "comprobantes-pago";
 
     public async Task<string> SubirQRAsync(string codigoLote, byte[] imagenPng)
     {
@@ -100,6 +122,54 @@ public class BlobStorageService(IConfiguration configuration) : IBlobStorageServ
 
         // PublicAccessType.None, no Blob: la evidencia se sirve solo a través
         // del endpoint autenticado del API.
+        await contenedor.CreateIfNotExistsAsync(PublicAccessType.None);
+        return contenedor;
+    }
+
+    public async Task<string> SubirComprobanteAsync(string nombre, byte[] imagen)
+    {
+        var contenedor = await ContenedorComprobantesAsync();
+        var blob = contenedor.GetBlobClient(nombre);
+
+        using var stream = new MemoryStream(imagen);
+        await blob.UploadAsync(stream, overwrite: true);
+
+        return blob.Uri.ToString();
+    }
+
+    public async Task<byte[]?> DescargarComprobanteAsync(string nombre)
+    {
+        var contenedor = await ContenedorComprobantesAsync();
+        var blob = contenedor.GetBlobClient(nombre);
+
+        try
+        {
+            var respuesta = await blob.DownloadContentAsync();
+            return respuesta.Value.Content.ToArray();
+        }
+        catch (RequestFailedException ex) when (ex.Status == 404)
+        {
+            // Ya lo borró el barrido o la política de Azure. No es un error:
+            // la fila del pago sobrevive al binario por diseño.
+            return null;
+        }
+    }
+
+    public async Task BorrarComprobanteAsync(string nombre)
+    {
+        var contenedor = await ContenedorComprobantesAsync();
+        // DeleteIfExists y no Delete: dos consultas simultáneas pueden barrer
+        // el mismo blob, y la segunda no puede reventar por llegar tarde.
+        await contenedor.GetBlobClient(nombre).DeleteIfExistsAsync();
+    }
+
+    private async Task<BlobContainerClient> ContenedorComprobantesAsync()
+    {
+        var cliente = new BlobServiceClient(_connectionString);
+        var contenedor = cliente.GetBlobContainerClient(_containerComprobantes);
+
+        // None y no Blob: una captura de transferencia bancaria no puede ser
+        // pública. Se sirve solo por el endpoint autenticado del API.
         await contenedor.CreateIfNotExistsAsync(PublicAccessType.None);
         return contenedor;
     }

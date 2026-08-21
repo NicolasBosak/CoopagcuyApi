@@ -15,6 +15,22 @@
           }
         }
       }
+    },
+    {
+      "enabled": true,
+      "name": "borrar-comprobantes-pago-30d",
+      "type": "Lifecycle",
+      "definition": {
+        "filters": {
+          "blobTypes": [ "blockBlob" ],
+          "prefixMatch": [ "comprobantes-pago/" ]
+        },
+        "actions": {
+          "baseBlob": {
+            "delete": { "daysAfterCreationGreaterThan": 30 }
+          }
+        }
+      }
     }
   ]
 }
