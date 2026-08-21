@@ -1,8 +1,10 @@
 using CoopagcuyApi.Common;
+using CoopagcuyApi.Common.Exceptions;
 using CoopagcuyApi.Features.Pagos.DTOs;
 using CoopagcuyApi.Features.Pagos.Models;
 using CoopagcuyApi.Features.Productoras.Models;
 using CoopagcuyApi.Infrastructure.Data;
+using CoopagcuyApi.Infrastructure.Storage;
 using Microsoft.EntityFrameworkCore;
 
 namespace CoopagcuyApi.Features.Pagos.Services;
@@ -26,14 +28,21 @@ public interface IPagoService
 
     /// Cuyes de esa productora en ese lote que traen novedad del CAT.
     Task<IEnumerable<CuyConNovedadDto>> ListarCuyesConNovedadAsync(int pagoId);
+
+    /// Registra la transferencia de la planta: valida los descuentos, sube la
+    /// captura y pasa el ticket a Pagado. Todo o nada.
+    Task<PagoResponseDto> RegistrarPagoEfectivoAsync(
+        int pagoId, RegistrarPagoEfectivoDto dto);
 }
 
 /// <summary>
 /// Pagos a productoras por entregas en el CAT. Digitaliza el registro
 /// de pagos que hoy se lleva en cuaderno manual (brecha del diagnóstico).
 /// </summary>
-public class PagoService(AppDbContext db) : IPagoService
+public class PagoService(AppDbContext db, IBlobStorageService blobs) : IPagoService
 {
+    private const int MaxBytesComprobante = 2 * 1024 * 1024;
+
     public async Task<PagoResponseDto> RegistrarAsync(
         RegistrarPagoDto dto, CentroAcopio? filtroCat)
     {
@@ -238,6 +247,140 @@ public class PagoService(AppDbContext db) : IPagoService
                 n.FotoUrl != null && n.FotoExpiraEn > ahora))
             .AsNoTracking()
             .ToListAsync();
+    }
+
+    public async Task<PagoResponseDto> RegistrarPagoEfectivoAsync(
+        int pagoId, RegistrarPagoEfectivoDto dto)
+    {
+        var pago = await db.Pagos
+            .Include(p => p.Productora)
+            .Include(p => p.Lote)
+            .FirstOrDefaultAsync(p => p.Id == pagoId)
+            ?? throw new KeyNotFoundException($"Pago con Id {pagoId} no encontrado.");
+
+        if (pago.Estado != EstadoPago.Pendiente)
+            throw new TransicionInvalidaException(
+                $"El ticket ya está en estado {pago.Estado} y no admite un pago nuevo.");
+
+        // ── Validación completa ANTES de tocar el blob ───────────────
+        // Si se intercalara, un descuento inválido detectado después de la
+        // subida dejaría una captura huérfana que nadie va a limpiar.
+
+        var comprobante = ValidarComprobante(dto.ComprobanteBase64);
+        var descuentos = await ValidarDescuentosAsync(pago, dto);
+
+        var total = descuentos.Sum(d => d.MontoUsd);
+        if (total > pago.MontoUsd)
+            throw new TransicionInvalidaException(
+                $"Los descuentos suman {total:N2} y el ticket es de " +
+                $"{pago.MontoUsd:N2}. Un pago negativo no significa nada.");
+
+        // ── Subida, fuera de la transacción ──────────────────────────
+        // CreateExecutionStrategy REINTENTA el delegado ante fallos
+        // transitorios de Neon: subir ahí dentro duplicaría el blob en cada
+        // reintento.
+        var nombre = $"pago-{pago.Id:D6}-{Guid.NewGuid():N}.jpg";
+        var url = await blobs.SubirComprobanteAsync(nombre, comprobante);
+
+        pago.Estado = EstadoPago.Pagado;
+        pago.MontoPagadoUsd = pago.MontoUsd - total;
+        pago.FechaPagoEfectivo = DateTime.UtcNow;
+        pago.PagadoPor = dto.PagadoPor.Trim();
+        pago.ComprobanteUrl = url;
+
+        foreach (var d in descuentos) db.Descuentos.Add(d);
+
+        await db.SaveChangesAsync();
+
+        return Mapear(pago, pago.Productora.NombreCompleto, pago.Lote?.CodigoLote);
+    }
+
+    /// <summary>
+    /// Decodifica y mide la captura. Excepción propia y no ArgumentException:
+    /// esta última es la clase padre de ArgumentNullException, y capturarla a
+    /// ciegas convertiría cualquier bug ajeno en un 400 que además expone el
+    /// mensaje interno de .NET.
+    /// </summary>
+    private static byte[] ValidarComprobante(string base64)
+    {
+        if (string.IsNullOrWhiteSpace(base64))
+            throw new EvidenciaInvalidaException(
+                "El pago debe adjuntar la captura de la transferencia.");
+
+        byte[] bytes;
+        try
+        {
+            bytes = Convert.FromBase64String(base64);
+        }
+        catch (FormatException)
+        {
+            throw new EvidenciaInvalidaException(
+                "La captura de la transferencia no es base64 válido.");
+        }
+
+        if (bytes.Length > MaxBytesComprobante)
+            throw new EvidenciaInvalidaException(
+                $"La captura pesa {bytes.Length / 1024} KB y el máximo es " +
+                $"{MaxBytesComprobante / 1024} KB.");
+
+        return bytes;
+    }
+
+    /// <summary>
+    /// Las cuatro reglas del descuento, menos la del tope que necesita la
+    /// suma. Devuelve las filas listas para guardar, sin guardarlas.
+    /// </summary>
+    private async Task<List<DescuentoPago>> ValidarDescuentosAsync(
+        Pago pago, RegistrarPagoEfectivoDto dto)
+    {
+        if (dto.Descuentos.Count == 0) return [];
+
+        var citadas = dto.Descuentos.Select(d => d.NovedadCatId).ToList();
+
+        // Regla 3: no repetir la misma novedad dentro de la propia petición.
+        // El índice único cubre el caso de dos peticiones a la vez; esto
+        // cubre el de una petición mal formada, con un mensaje legible.
+        if (citadas.Distinct().Count() != citadas.Count)
+            throw new TransicionInvalidaException(
+                "Un mismo defecto no puede descontarse dos veces.");
+
+        // Reglas 1 y 2: la novedad tiene que pertenecer a un cuy de ESA
+        // productora en ESE lote. Las novedades sin cuy —las de entrega y las
+        // filas históricas— quedan fuera por el CuyRegistro != null.
+        var validas = await db.Novedades
+            .Where(n => citadas.Contains(n.Id)
+                && n.LoteId == pago.LoteId
+                && n.CuyRegistro != null
+                && n.CuyRegistro.ProductoraId == pago.ProductoraId)
+            .Select(n => n.Id)
+            .ToListAsync();
+
+        var invalida = citadas.FirstOrDefault(id => !validas.Contains(id));
+        if (invalida != 0)
+            throw new TransicionInvalidaException(
+                $"La novedad {invalida} no corresponde a un cuy de esta " +
+                "productora en este lote, así que no puede justificar un " +
+                "descuento.");
+
+        foreach (var d in dto.Descuentos)
+        {
+            if (d.MontoUsd <= 0)
+                throw new TransicionInvalidaException(
+                    "Un descuento debe ser mayor a cero.");
+
+            if (string.IsNullOrWhiteSpace(d.Descripcion))
+                throw new TransicionInvalidaException(
+                    "Cada descuento debe decir qué se observó en la planta.");
+        }
+
+        return [.. dto.Descuentos.Select(d => new DescuentoPago
+        {
+            PagoId = pago.Id,
+            NovedadCatId = d.NovedadCatId,
+            Descripcion = d.Descripcion.Trim(),
+            MontoUsd = d.MontoUsd,
+            RegistradoPor = dto.PagadoPor.Trim()
+        })];
     }
 
     private static PagoResponseDto Mapear(

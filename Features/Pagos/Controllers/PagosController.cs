@@ -1,5 +1,6 @@
 using CoopagcuyApi.Common;
 using CoopagcuyApi.Common.Auth;
+using CoopagcuyApi.Common.Exceptions;
 using CoopagcuyApi.Features.Pagos.DTOs;
 using CoopagcuyApi.Features.Pagos.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -117,6 +118,31 @@ public class PagosController(IPagoService service, ITicketPagoService tickets) :
     [Authorize(Roles = "OperadorFaenamiento,AdminCooperativa")]
     public async Task<IActionResult> PorPagar() =>
         Ok(await service.ListarPorPagarAsync());
+
+    [HttpPost("{id:int}/pagar")]
+    [Authorize(Roles = "OperadorFaenamiento,AdminCooperativa")]
+    public async Task<IActionResult> Pagar(
+        int id, [FromBody] RegistrarPagoEfectivoDto dto)
+    {
+        try
+        {
+            return Ok(await service.RegistrarPagoEfectivoAsync(id, dto));
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+        catch (EvidenciaInvalidaException ex)
+        {
+            // 400: el cuerpo viene mal
+            return BadRequest(new { mensaje = ex.Message });
+        }
+        catch (TransicionInvalidaException ex)
+        {
+            // 409: el cuerpo está bien, lo que no encaja es el momento
+            return Conflict(new { mensaje = ex.Message });
+        }
+    }
 
     [HttpGet("{id:int}/cuyes-con-novedad")]
     [Authorize(Roles = "OperadorFaenamiento,AdminCooperativa")]

@@ -81,3 +81,21 @@ public record CuyConNovedadDto(
     // Para decidir si pintar el visor de la foto sin pedirla de más
     bool TieneFoto
 );
+
+/// <summary>
+/// Rebaja que aplica la planta. `NovedadCatId` cita la novedad del CAT que la
+/// justifica; sin ella el descuento no se acepta.
+/// </summary>
+public record DescuentoDto(int NovedadCatId, string Descripcion, decimal MontoUsd);
+
+/// <summary>
+/// Pago efectivo por la planta. Descuentos, captura y cambio de estado viajan
+/// juntos a propósito: un ticket marcado como pagado sin su comprobante
+/// dejaría a la CAT sin nada que verificar.
+/// </summary>
+public class RegistrarPagoEfectivoDto
+{
+    public List<DescuentoDto> Descuentos { get; set; } = [];
+    public string ComprobanteBase64 { get; set; } = string.Empty;
+    public string PagadoPor { get; set; } = string.Empty;
+}
