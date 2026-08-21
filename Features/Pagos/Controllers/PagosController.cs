@@ -134,7 +134,13 @@ public class PagosController(IPagoService service, ITicketPagoService tickets) :
         }
         catch (EvidenciaInvalidaException ex)
         {
-            // 400: el cuerpo viene mal
+            // 400: la captura subida viene mal
+            return BadRequest(new { mensaje = ex.Message });
+        }
+        catch (CuerpoInvalidoException ex)
+        {
+            // 400 también: un campo del cuerpo trae un valor inservible.
+            // Se sabe leyendo la petición, sin consultar nada del servidor.
             return BadRequest(new { mensaje = ex.Message });
         }
         catch (TransicionInvalidaException ex)

@@ -311,8 +311,8 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
 
         (await ContarBlobsAsync()).ShouldBe(antes);
         respuesta.StatusCode.ShouldBe(HttpStatusCode.Conflict);
-        (await respuesta.Content.ReadAsStringAsync())
-            .ShouldContain("Un mismo defecto no puede descontarse dos veces.");
+        (await MensajeAsync(respuesta))
+            .ShouldBe("Un mismo defecto no puede descontarse dos veces.");
     }
 
     [Fact]
@@ -336,7 +336,11 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
                 pagadoPor = "Operador de planta"
             });
 
-        respuesta.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        // 400 y no 409: que -50 no es un descuento se sabe leyendo el cuerpo,
+        // sin preguntarle nada al servidor.
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await MensajeAsync(respuesta))
+            .ShouldBe("Un descuento debe ser mayor a cero.");
 
         await using var db = api.NuevoDbContext();
         var pago = await db.Pagos.AsNoTracking().FirstAsync(p => p.Id == pagoId);
@@ -365,7 +369,19 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
                 pagadoPor = "Operador de planta"
             });
 
-        respuesta.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await MensajeAsync(respuesta))
+            .ShouldBe("Cada descuento debe decir qué se observó en la planta.");
+
+        // Segunda palanca: el status por sí solo dice poco desde que el
+        // rescate de DbUpdateException responde también por su cuenta. Que el
+        // ticket siga pendiente y sin filas de descuento es lo que prueba que
+        // la petición murió antes de escribir nada.
+        await using var db = api.NuevoDbContext();
+        var pago = await db.Pagos.AsNoTracking().FirstAsync(p => p.Id == pagoId);
+        pago.Estado.ShouldBe(EstadoPago.Pendiente);
+        (await db.Descuentos.AsNoTracking().CountAsync(d => d.PagoId == pagoId))
+            .ShouldBe(0);
     }
 
     [Fact]
@@ -389,7 +405,8 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
                 pagadoPor = "Operador de planta"
             });
 
-        respuesta.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await MensajeAsync(respuesta)).ShouldContain("más de dos");
 
         await using var db = api.NuevoDbContext();
         (await db.Descuentos.AsNoTracking().CountAsync(d => d.PagoId == pagoId))
@@ -418,6 +435,68 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
 
         (await ContarBlobsAsync()).ShouldBe(antes);
         respuesta.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+
+        // El texto separa esta guardia del 400 de ModelState, que respondería
+        // un ProblemDetails con "errors" y dejaría la guardia sin fijar.
+        (await MensajeAsync(respuesta))
+            .ShouldBe("El pago debe decir quién lo registró en la planta.");
+    }
+
+    [Fact]
+    public async Task UnDescuentoYaRegistradoNoDejaLaCapturaHuerfana()
+    {
+        // Única vía por HTTP para que reviente el SaveChangesAsync con todas
+        // las guardias puestas: sembrar a mano la fila (PagoId, NovedadCatId)
+        // que protege el índice único, dejando el ticket PENDIENTE. La
+        // petición pasa las cinco reglas —la de duplicados solo mira dentro
+        // de la propia petición— y muere al guardar, cuando la captura ya
+        // está subida. Es el único tramo que la validación previa no puede
+        // cubrir, y el motivo de que el rescate borre el blob.
+        var (pagoId, novedadId) = await TicketConNovedadAsync(CedulaA, 120m);
+
+        await using (var siembra = api.NuevoDbContext())
+        {
+            siembra.Descuentos.Add(
+                new CoopagcuyApi.Features.Pagos.Models.DescuentoPago
+                {
+                    PagoId = pagoId,
+                    NovedadCatId = novedadId,
+                    Descripcion = "descuento ya registrado antes",
+                    MontoUsd = 3m,
+                    RegistradoPor = "Operadora de prueba"
+                });
+            await siembra.SaveChangesAsync();
+        }
+
+        var antes = await ContarBlobsAsync();
+
+        var respuesta = await api.ComoOperadorFaenamiento()
+            .PostAsJsonAsync($"/api/pagos/{pagoId}/pagar", new
+            {
+                descuentos = new[] { new
+                {
+                    novedadCatId = novedadId,
+                    descripcion = "la misma novedad, otra vez",
+                    montoUsd = 10m
+                }},
+                comprobanteBase64 = Comprobante,
+                pagadoPor = "Operador de planta"
+            });
+
+        // El conteo va primero: es la mitad que fija que el rescate retire la
+        // captura que ya había subido.
+        (await ContarBlobsAsync()).ShouldBe(antes);
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+
+        // El mensaje no adivina la causa y dice que se puede reintentar. El
+        // anterior afirmaba que quizá ya estaba registrado, que para media
+        // docena de fallos distintos era falso y desaconsejaba el reintento.
+        (await MensajeAsync(respuesta)).ShouldContain("sigue pendiente");
+
+        await using var db = api.NuevoDbContext();
+        var pago = await db.Pagos.AsNoTracking().FirstAsync(p => p.Id == pagoId);
+        pago.Estado.ShouldBe(EstadoPago.Pendiente);
+        pago.ComprobanteUrl.ShouldBeNull();
     }
 
     [Fact]
@@ -471,8 +550,8 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
         // Se afirma el TEXTO del servicio, no solo el 400: es lo que separa
         // esta guardia del [Required] implícito de MVC, que respondería un
         // ProblemDetails con "errors" y dejaría la guardia sin fijar.
-        (await respuesta.Content.ReadAsStringAsync())
-            .ShouldContain("El pago debe adjuntar la captura de la transferencia.");
+        (await MensajeAsync(respuesta))
+            .ShouldBe("El pago debe adjuntar la captura de la transferencia.");
     }
 
     [Fact]
@@ -493,6 +572,18 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
         await using var db = api.NuevoDbContext();
         var pago = await db.Pagos.AsNoTracking().FirstAsync(p => p.Id == pagoId);
         pago.MontoPagadoUsd.ShouldBe(120m);
+    }
+
+    /// Mensaje del cuerpo, ya decodificado. Se lee como JSON y no como texto
+    /// crudo porque el serializador escapa los no-ASCII —"quién" viaja como
+    /// "quién"—: comparar contra el cuerpo en bruto obligaría a escribir
+    /// los acentos escapados dentro de la prueba.
+    private static async Task<string> MensajeAsync(HttpResponseMessage respuesta)
+    {
+        var cuerpo = await respuesta.Content
+            .ReadFromJsonAsync<Dictionary<string, string>>();
+        return cuerpo is not null && cuerpo.TryGetValue("mensaje", out var m)
+            ? m : string.Empty;
     }
 
     private static async Task<int> ContarBlobsAsync()

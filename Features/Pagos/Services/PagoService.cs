@@ -275,7 +275,7 @@ public class PagoService(AppDbContext db, IBlobStorageService blobs) : IPagoServ
         // decir por quién, que es lo que la CAT necesita para reclamar.
         var pagadoPor = dto.PagadoPor?.Trim() ?? string.Empty;
         if (pagadoPor.Length == 0)
-            throw new EvidenciaInvalidaException(
+            throw new CuerpoInvalidoException(
                 "El pago debe decir quién lo registró en la planta.");
 
         var descuentos = await ValidarDescuentosAsync(pago, dto, pagadoPor);
@@ -305,7 +305,7 @@ public class PagoService(AppDbContext db, IBlobStorageService blobs) : IPagoServ
         {
             await db.SaveChangesAsync();
         }
-        catch (DbUpdateException)
+        catch (DbUpdateException ex)
         {
             // La captura YA está subida. Si la base rechaza la escritura hay
             // que retirarla o queda huérfana: es el mismo invariante que
@@ -318,9 +318,20 @@ public class PagoService(AppDbContext db, IBlobStorageService blobs) : IPagoServ
             // de borrado dice más que la que la tapó.
             await blobs.BorrarComprobanteAsync(nombre);
 
+            // El mensaje NO adivina la causa. Antes decía "es posible que ya
+            // se hubiera registrado", que para un NOT NULL, una restricción
+            // de comprobación o un corte de conexión a mitad del guardado era
+            // sencillamente falso, y encima invitaba a NO reintentar un pago
+            // que no se había guardado. Dice lo único que consta: la
+            // escritura no entró y el ticket sigue pendiente.
+            //
+            // La excepción original viaja encadenada: el cliente ve el texto
+            // de arriba, pero el log conserva el error real de Postgres. Sin
+            // encadenarla se perdía entero.
             throw new TransicionInvalidaException(
-                "La base de datos rechazó el pago: es posible que el ticket " +
-                "o alguno de sus descuentos ya se hubiera registrado.");
+                "No se pudo guardar el pago: la base de datos rechazó la " +
+                "escritura. La captura se retiró y el ticket sigue pendiente.",
+                ex);
         }
 
         return Mapear(pago, pago.Productora.NombreCompleto, pago.Lote?.CodigoLote);
@@ -358,8 +369,14 @@ public class PagoService(AppDbContext db, IBlobStorageService blobs) : IPagoServ
     }
 
     /// <summary>
-    /// Las cuatro reglas del descuento, menos la del tope que necesita la
+    /// Las cinco reglas del descuento, menos la del tope que necesita la
     /// suma. Devuelve las filas listas para guardar, sin guardarlas.
+    ///
+    /// Reparto de códigos: lo que se sabe leyendo el cuerpo (monto no
+    /// positivo, decimales de más, descripción en blanco) sale como
+    /// CuerpoInvalidoException → 400; lo que exige mirar el servidor (a qué
+    /// productora y lote pertenece la novedad, y la unicidad de la cita)
+    /// sale como TransicionInvalidaException → 409.
     /// </summary>
     private async Task<List<DescuentoPago>> ValidarDescuentosAsync(
         Pago pago, RegistrarPagoEfectivoDto dto, string pagadoPor)
@@ -402,7 +419,7 @@ public class PagoService(AppDbContext db, IBlobStorageService blobs) : IPagoServ
         foreach (var d in dto.Descuentos)
         {
             if (d.MontoUsd <= 0)
-                throw new TransicionInvalidaException(
+                throw new CuerpoInvalidoException(
                     "Un descuento debe ser mayor a cero.");
 
             // Ambas columnas son HasPrecision(10,2), y nada limita lo que
@@ -412,12 +429,12 @@ public class PagoService(AppDbContext db, IBlobStorageService blobs) : IPagoServ
             // para acabar guardado como un descuento de 0.00. El ticket se
             // lleva en centavos: lo que no quepa en centavos se rechaza.
             if (decimal.Round(d.MontoUsd, 2) != d.MontoUsd)
-                throw new TransicionInvalidaException(
+                throw new CuerpoInvalidoException(
                     $"El descuento de {d.MontoUsd} tiene más de dos " +
                     "decimales y el ticket se lleva en centavos.");
 
             if (string.IsNullOrWhiteSpace(d.Descripcion))
-                throw new TransicionInvalidaException(
+                throw new CuerpoInvalidoException(
                     "Cada descuento debe decir qué se observó en la planta.");
         }
 
