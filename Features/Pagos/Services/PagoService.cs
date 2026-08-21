@@ -16,6 +16,10 @@ public interface IPagoService
         int? productoraId, DateTime? desde, DateTime? hasta, CentroAcopio? filtroCat);
     Task<IEnumerable<LotePendientePagoDto>> ListarLotesPendientesAsync(
         int productoraId, CentroAcopio? filtroCat);
+
+    /// Si el pago pertenece a una productora de ese centro. Sirve para
+    /// responder 404 sin revelar la existencia del recurso.
+    Task<bool> EsDeCentroAsync(int pagoId, CentroAcopio cat);
 }
 
 /// <summary>
@@ -163,6 +167,9 @@ public class PagoService(AppDbContext db) : IPagoService
             .AsNoTracking()
             .ToListAsync();
     }
+
+    public Task<bool> EsDeCentroAsync(int pagoId, CentroAcopio cat) =>
+        db.Pagos.AnyAsync(p => p.Id == pagoId && p.Productora.CatAsignado == cat);
 
     private static PagoResponseDto Mapear(
         Pago p, string nombreProductora, string? codigoLote) => new(

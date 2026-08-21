@@ -13,14 +13,19 @@ namespace CoopagcuyApi.Features.Pagos.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/pagos")]
-[Authorize(Roles = "OperadorCAT,AdminCooperativa")]
-public class PagosController(IPagoService service) : ControllerBase
+// Sin [Authorize] a nivel de clase: ASP.NET Core combina (con Y, no
+// reemplaza) el Authorize de la clase con el de cada acción, así que un
+// [Authorize(Roles=...)] aquí arriba bloquearía a OperadorFaenamiento en el
+// endpoint del ticket aunque su propio atributo lo admita. Cada acción
+// declara su propia lista de roles.
+public class PagosController(IPagoService service, ITicketPagoService tickets) : ControllerBase
 {
     // CAT al que está acotado el operador (null = admin, sin restricción)
     private CentroAcopio? FiltroCat() =>
         Enum.TryParse<CentroAcopio>(User.CatRestringido(), out var c) ? c : null;
 
     [HttpPost]
+    [Authorize(Roles = "OperadorCAT,AdminCooperativa")]
     public async Task<IActionResult> Registrar([FromBody] RegistrarPagoDto dto)
     {
         try
@@ -43,6 +48,7 @@ public class PagosController(IPagoService service) : ControllerBase
     }
 
     [HttpGet]
+    [Authorize(Roles = "OperadorCAT,AdminCooperativa")]
     public async Task<IActionResult> Listar(
         [FromQuery] int? productoraId,
         [FromQuery] DateTime? desde,
@@ -59,6 +65,7 @@ public class PagosController(IPagoService service) : ControllerBase
     /// a ofrecerse.
     /// </summary>
     [HttpGet("lotes-pendientes/{productoraId:int}")]
+    [Authorize(Roles = "OperadorCAT,AdminCooperativa")]
     public async Task<IActionResult> LotesPendientes(int productoraId)
     {
         try
@@ -69,6 +76,34 @@ public class PagosController(IPagoService service) : ControllerBase
         catch (UnauthorizedAccessException ex)
         {
             return StatusCode(StatusCodes.Status403Forbidden, new { mensaje = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Ticket imprimible. Lo descarga tanto el CAT que lo emite como la planta
+    /// que va a pagarlo, así que el rol de faenamiento entra aquí — pero sin
+    /// acotarse por centro: la planta es única y atiende a los tres CAT.
+    /// </summary>
+    [HttpGet("{id:int}/ticket")]
+    [Authorize(Roles = "OperadorCAT,AdminCooperativa,OperadorFaenamiento")]
+    public async Task<IActionResult> Ticket(int id)
+    {
+        var filtro = FiltroCat();
+        if (filtro is CentroAcopio cat)
+        {
+            var suyo = await service.EsDeCentroAsync(id, cat);
+            // 404 y no 403: confirmar que existe ya sería filtrar el dato
+            if (!suyo) return NotFound();
+        }
+
+        try
+        {
+            var pdf = await tickets.GenerarAsync(id);
+            return File(pdf, "application/pdf", $"ticket-{id:D6}.pdf");
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
         }
     }
 }
