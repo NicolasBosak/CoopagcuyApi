@@ -127,7 +127,7 @@ public class BlobStorageService(IConfiguration configuration) : IBlobStorageServ
         // pública. Se sirve solo por el endpoint autenticado del API.
         await ContenedorAsync(_containerComprobantes, PublicAccessType.None);
 
-    // Machinery compartida por los tres contenedores. El incidente del
+    // Maquinaria compartida por los tres contenedores. El incidente del
     // 2026-08-20 (nombre de contenedor leído con `??` en vez de
     // IsNullOrWhiteSpace, cadena vacía en la URL, Azure respondiendo
     // InvalidQueryParameterValue en cada entrega con foto) se arregló en un
