@@ -106,4 +106,29 @@ public class PagosController(IPagoService service, ITicketPagoService tickets) :
             return NotFound();
         }
     }
+
+    /// <summary>
+    /// Bandeja de la planta. Deliberadamente distinta de `lotes-pendientes`,
+    /// que es de la CAT y responde a otra pregunta: qué lotes le faltan por
+    /// cobrar a una productora, no qué tickets le tocan pagar a la planta.
+    /// Sin FiltroCat: la planta atiende a los tres centros.
+    /// </summary>
+    [HttpGet("por-pagar")]
+    [Authorize(Roles = "OperadorFaenamiento,AdminCooperativa")]
+    public async Task<IActionResult> PorPagar() =>
+        Ok(await service.ListarPorPagarAsync());
+
+    [HttpGet("{id:int}/cuyes-con-novedad")]
+    [Authorize(Roles = "OperadorFaenamiento,AdminCooperativa")]
+    public async Task<IActionResult> CuyesConNovedad(int id)
+    {
+        try
+        {
+            return Ok(await service.ListarCuyesConNovedadAsync(id));
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+    }
 }

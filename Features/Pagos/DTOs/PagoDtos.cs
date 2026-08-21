@@ -47,3 +47,37 @@ public record PagoResponseDto(
     string Responsable,
     string? Observaciones
 );
+
+/// <summary>
+/// Ticket que la planta tiene pendiente de pagar. Sin filtro por centro: la
+/// planta es única y atiende a los tres CAT.
+/// </summary>
+public record TicketPorPagarDto(
+    int PagoId,
+    int ProductoraId,
+    string NombreProductora,
+    string Cedula,
+    int LoteId,
+    string CodigoLote,
+    string CentroAcopio,
+    DateTime FechaRecepcion,
+    int CuyesEntregados,
+    decimal MontoUsd,
+    DateTime FechaEmision
+);
+
+/// <summary>
+/// Cuy de esa productora en ese lote que llegó con novedad del CAT. Es la
+/// única lista sobre la que la planta puede descontar: `NovedadId` es lo que
+/// después va a `DescuentoPago.NovedadCatId`.
+/// </summary>
+public record CuyConNovedadDto(
+    int CuyRegistroId,
+    int NumeroEnLote,
+    decimal PesoGramos,
+    int NovedadId,
+    string TipoNovedad,
+    string Descripcion,
+    // Para decidir si pintar el visor de la foto sin pedirla de más
+    bool TieneFoto
+);

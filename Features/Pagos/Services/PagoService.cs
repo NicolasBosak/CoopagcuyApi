@@ -20,6 +20,12 @@ public interface IPagoService
     /// Si el pago pertenece a una productora de ese centro. Sirve para
     /// responder 404 sin revelar la existencia del recurso.
     Task<bool> EsDeCentroAsync(int pagoId, CentroAcopio cat);
+
+    /// Tickets pendientes de pago, de TODOS los centros.
+    Task<IEnumerable<TicketPorPagarDto>> ListarPorPagarAsync();
+
+    /// Cuyes de esa productora en ese lote que traen novedad del CAT.
+    Task<IEnumerable<CuyConNovedadDto>> ListarCuyesConNovedadAsync(int pagoId);
 }
 
 /// <summary>
@@ -170,6 +176,57 @@ public class PagoService(AppDbContext db) : IPagoService
 
     public Task<bool> EsDeCentroAsync(int pagoId, CentroAcopio cat) =>
         db.Pagos.AnyAsync(p => p.Id == pagoId && p.Productora.CatAsignado == cat);
+
+    public async Task<IEnumerable<TicketPorPagarDto>> ListarPorPagarAsync() =>
+        await db.Pagos
+            .Where(p => p.Estado == EstadoPago.Pendiente && p.LoteId != null)
+            .OrderBy(p => p.FechaPago)
+            .Select(p => new TicketPorPagarDto(
+                p.Id,
+                p.ProductoraId,
+                p.Productora.NombreCompleto,
+                p.Productora.Cedula,
+                p.LoteId!.Value,
+                p.Lote!.CodigoLote,
+                p.Lote.CentroAcopio.ToString(),
+                p.Lote.FechaRecepcion,
+                // Aporte de ESTA productora, no el total de la jaula
+                p.Lote.Cuyes.Count(c => c.ProductoraId == p.ProductoraId),
+                p.MontoUsd,
+                p.FechaPago))
+            .AsNoTracking()
+            .ToListAsync();
+
+    public async Task<IEnumerable<CuyConNovedadDto>> ListarCuyesConNovedadAsync(
+        int pagoId)
+    {
+        var pago = await db.Pagos.AsNoTracking()
+            .FirstOrDefaultAsync(p => p.Id == pagoId)
+            ?? throw new KeyNotFoundException($"Pago con Id {pagoId} no encontrado.");
+
+        if (pago.LoteId is not int loteId)
+            return [];
+
+        var ahora = DateTime.UtcNow;
+
+        // Se parte de Novedades y no de CuyRegistros porque lo que la planta
+        // necesita es el Id de la NOVEDAD: es lo que va a citar al descontar.
+        return await db.Novedades
+            .Where(n => n.LoteId == loteId
+                && n.CuyRegistro != null
+                && n.CuyRegistro.ProductoraId == pago.ProductoraId)
+            .OrderBy(n => n.CuyRegistro!.NumeroEnLote)
+            .Select(n => new CuyConNovedadDto(
+                n.CuyRegistroId!.Value,
+                n.CuyRegistro!.NumeroEnLote,
+                n.CuyRegistro.PesoGramos,
+                n.Id,
+                n.Tipo.ToString(),
+                n.Descripcion,
+                n.FotoUrl != null && n.FotoExpiraEn > ahora))
+            .AsNoTracking()
+            .ToListAsync();
+    }
 
     private static PagoResponseDto Mapear(
         Pago p, string nombreProductora, string? codigoLote) => new(
