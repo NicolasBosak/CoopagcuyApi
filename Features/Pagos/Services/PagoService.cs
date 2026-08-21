@@ -355,10 +355,16 @@ public class PagoService(AppDbContext db, IBlobStorageService blobs) : IPagoServ
             .Select(n => n.Id)
             .ToListAsync();
 
-        var invalida = citadas.FirstOrDefault(id => !validas.Contains(id));
-        if (invalida != 0)
+        // Except y no FirstOrDefault: sobre int, FirstOrDefault devuelve 0
+        // cuando no encuentra nada, y ese 0 no se distingue de una cita
+        // legítima del id 0 —el valor por defecto de un int, que llega solo
+        // con que el cliente omita el campo—. Con el centinela anterior esa
+        // cita se colaba hasta el INSERT y reventaba contra la FK: 500 y
+        // captura huérfana, justo lo que validar antes de subir evita.
+        var invalidas = citadas.Except(validas).ToList();
+        if (invalidas.Count > 0)
             throw new TransicionInvalidaException(
-                $"La novedad {invalida} no corresponde a un cuy de esta " +
+                $"La novedad {invalidas[0]} no corresponde a un cuy de esta " +
                 "productora en este lote, así que no puede justificar un " +
                 "descuento.");
 

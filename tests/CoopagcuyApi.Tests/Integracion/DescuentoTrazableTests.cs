@@ -227,6 +227,43 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task UnaNovedadConIdCeroSeRechazaSinDejarBlob()
+    {
+        // El id 0 no es un caso de laboratorio: es el valor por defecto de un
+        // int, así que un cliente que omita el campo lo manda sin querer. Con
+        // el centinela FirstOrDefault/!= 0 esta cita se colaba —"no encontré
+        // ninguna inválida" y "la inválida es el 0" eran el MISMO valor—, se
+        // subía el blob y el INSERT reventaba contra la FK: 500 y captura
+        // huérfana. Se afirman las DOS mitades porque solo la del conteo
+        // distingue el arreglo del fallo: un 500 y un 409 dejan la misma fila
+        // (ninguna), pero no el mismo blob.
+        var (pagoId, _) = await TicketConNovedadAsync(CedulaA, 120m);
+
+        var antes = await ContarBlobsAsync();
+
+        var respuesta = await api.ComoOperadorFaenamiento()
+            .PostAsJsonAsync($"/api/pagos/{pagoId}/pagar", new
+            {
+                descuentos = new[] { new
+                {
+                    novedadCatId = 0,
+                    descripcion = "cita una novedad que no existe",
+                    montoUsd = 10m
+                }},
+                comprobanteBase64 = Comprobante,
+                pagadoPor = "Operador de planta"
+            });
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        (await ContarBlobsAsync()).ShouldBe(antes);
+
+        await using var db = api.NuevoDbContext();
+        var pago = await db.Pagos.AsNoTracking().FirstAsync(p => p.Id == pagoId);
+        pago.Estado.ShouldBe(EstadoPago.Pendiente);
+        pago.ComprobanteUrl.ShouldBeNull();
+    }
+
+    [Fact]
     public async Task SinComprobanteNoSePuedeMarcarComoPagado()
     {
         // Un pago marcado sin su captura es peor que un error: la CAT no
