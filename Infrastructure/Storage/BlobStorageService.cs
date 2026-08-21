@@ -71,88 +71,47 @@ public class BlobStorageService(IConfiguration configuration) : IBlobStorageServ
 
     public async Task<string> SubirQRAsync(string codigoLote, byte[] imagenPng)
     {
-        var cliente = new BlobServiceClient(_connectionString);
-        var contenedor = cliente.GetBlobContainerClient(_containerName);
-
-        // Crear el contenedor si no existe, con acceso público de lectura
-        await contenedor.CreateIfNotExistsAsync(PublicAccessType.Blob);
-
-        var blobNombre = $"qr/{codigoLote}.png";
-        var blob = contenedor.GetBlobClient(blobNombre);
-
-        using var stream = new MemoryStream(imagenPng);
-        await blob.UploadAsync(stream, overwrite: true);
-
-        return blob.Uri.ToString();
+        // PublicAccessType.Blob: público A PROPÓSITO. Es el único de los tres
+        // contenedores que lo es, porque el QR se escanea desde fuera del
+        // sistema. Si esto se invierte con el de comprobantes, se publican
+        // capturas de transferencias bancarias.
+        var contenedor = await ContenedorAsync(_containerName, PublicAccessType.Blob);
+        return await SubirAsync(contenedor, $"qr/{codigoLote}.png", imagenPng);
     }
 
     public async Task<string> SubirEvidenciaAsync(string nombre, byte[] jpeg)
     {
         var contenedor = await ContenedorEvidenciasAsync();
-        var blob = contenedor.GetBlobClient(nombre);
-
-        using var stream = new MemoryStream(jpeg);
-        await blob.UploadAsync(stream, overwrite: true);
-
-        return blob.Uri.ToString();
+        return await SubirAsync(contenedor, nombre, jpeg);
     }
 
     public async Task<byte[]?> DescargarEvidenciaAsync(string nombre)
     {
         var contenedor = await ContenedorEvidenciasAsync();
-        var blob = contenedor.GetBlobClient(nombre);
-
-        try
-        {
-            var respuesta = await blob.DownloadContentAsync();
-            return respuesta.Value.Content.ToArray();
-        }
-        catch (RequestFailedException ex) when (ex.Status == 404)
-        {
-            // La política de ciclo de vida ya borró el blob. No es un error:
-            // la fila de la novedad sobrevive al binario por diseño.
-            return null;
-        }
+        // null en 404 y no excepción: la política de ciclo de vida ya borró
+        // el blob. No es un error: la fila de la novedad sobrevive al
+        // binario por diseño.
+        return await DescargarAsync(contenedor, nombre);
     }
 
-    private async Task<BlobContainerClient> ContenedorEvidenciasAsync()
-    {
-        var cliente = new BlobServiceClient(_connectionString);
-        var contenedor = cliente.GetBlobContainerClient(_containerEvidencias);
-
+    private async Task<BlobContainerClient> ContenedorEvidenciasAsync() =>
         // PublicAccessType.None, no Blob: la evidencia se sirve solo a través
         // del endpoint autenticado del API.
-        await contenedor.CreateIfNotExistsAsync(PublicAccessType.None);
-        return contenedor;
-    }
+        await ContenedorAsync(_containerEvidencias, PublicAccessType.None);
 
     public async Task<string> SubirComprobanteAsync(string nombre, byte[] imagen)
     {
         var contenedor = await ContenedorComprobantesAsync();
-        var blob = contenedor.GetBlobClient(nombre);
-
-        using var stream = new MemoryStream(imagen);
-        await blob.UploadAsync(stream, overwrite: true);
-
-        return blob.Uri.ToString();
+        return await SubirAsync(contenedor, nombre, imagen);
     }
 
     public async Task<byte[]?> DescargarComprobanteAsync(string nombre)
     {
         var contenedor = await ContenedorComprobantesAsync();
-        var blob = contenedor.GetBlobClient(nombre);
-
-        try
-        {
-            var respuesta = await blob.DownloadContentAsync();
-            return respuesta.Value.Content.ToArray();
-        }
-        catch (RequestFailedException ex) when (ex.Status == 404)
-        {
-            // Ya lo borró el barrido o la política de Azure. No es un error:
-            // la fila del pago sobrevive al binario por diseño.
-            return null;
-        }
+        // null en 404 y no excepción: ya lo borró el barrido o la política
+        // de Azure. No es un error: la fila del pago sobrevive al binario
+        // por diseño.
+        return await DescargarAsync(contenedor, nombre);
     }
 
     public async Task BorrarComprobanteAsync(string nombre)
@@ -163,14 +122,50 @@ public class BlobStorageService(IConfiguration configuration) : IBlobStorageServ
         await contenedor.GetBlobClient(nombre).DeleteIfExistsAsync();
     }
 
-    private async Task<BlobContainerClient> ContenedorComprobantesAsync()
-    {
-        var cliente = new BlobServiceClient(_connectionString);
-        var contenedor = cliente.GetBlobContainerClient(_containerComprobantes);
-
+    private async Task<BlobContainerClient> ContenedorComprobantesAsync() =>
         // None y no Blob: una captura de transferencia bancaria no puede ser
         // pública. Se sirve solo por el endpoint autenticado del API.
-        await contenedor.CreateIfNotExistsAsync(PublicAccessType.None);
+        await ContenedorAsync(_containerComprobantes, PublicAccessType.None);
+
+    // Machinery compartida por los tres contenedores. El incidente del
+    // 2026-08-20 (nombre de contenedor leído con `??` en vez de
+    // IsNullOrWhiteSpace, cadena vacía en la URL, Azure respondiendo
+    // InvalidQueryParameterValue en cada entrega con foto) se arregló en un
+    // único sitio en vez de tres precisamente porque esto está centralizado
+    // aquí: cada contenedor nuevo hereda la guardia sin poder olvidarla.
+    private async Task<BlobContainerClient> ContenedorAsync(
+        string nombre, PublicAccessType acceso)
+    {
+        var cliente = new BlobServiceClient(_connectionString);
+        var contenedor = cliente.GetBlobContainerClient(nombre);
+        await contenedor.CreateIfNotExistsAsync(acceso);
         return contenedor;
+    }
+
+    private static async Task<string> SubirAsync(
+        BlobContainerClient contenedor, string blobNombre, byte[] datos)
+    {
+        var blob = contenedor.GetBlobClient(blobNombre);
+
+        using var stream = new MemoryStream(datos);
+        await blob.UploadAsync(stream, overwrite: true);
+
+        return blob.Uri.ToString();
+    }
+
+    private static async Task<byte[]?> DescargarAsync(
+        BlobContainerClient contenedor, string nombre)
+    {
+        var blob = contenedor.GetBlobClient(nombre);
+
+        try
+        {
+            var respuesta = await blob.DownloadContentAsync();
+            return respuesta.Value.Content.ToArray();
+        }
+        catch (RequestFailedException ex) when (ex.Status == 404)
+        {
+            return null;
+        }
     }
 }
