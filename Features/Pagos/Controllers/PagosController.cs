@@ -164,6 +164,30 @@ public class PagosController(IPagoService service, ITicketPagoService tickets) :
         return bytes is null ? NotFound() : File(bytes, "image/jpeg");
     }
 
+    /// <summary>
+    /// La CAT confirma que el dinero llegó. Sin OperadorFaenamiento a
+    /// propósito: quien paga no confirma que pagó, esa es la razón de ser
+    /// del paso.
+    /// </summary>
+    [HttpPost("{id:int}/verificar")]
+    [Authorize(Roles = "OperadorCAT,AdminCooperativa")]
+    public async Task<IActionResult> Verificar(
+        int id, [FromBody] VerificarPagoDto dto)
+    {
+        try
+        {
+            return Ok(await service.VerificarAsync(id, dto, FiltroCat()));
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+        catch (TransicionInvalidaException ex)
+        {
+            return Conflict(new { mensaje = ex.Message });
+        }
+    }
+
     [HttpGet("{id:int}/cuyes-con-novedad")]
     [Authorize(Roles = "OperadorFaenamiento,AdminCooperativa")]
     public async Task<IActionResult> CuyesConNovedad(int id)

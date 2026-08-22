@@ -152,4 +152,92 @@ public class VerificacionPagoTests(ApiFactory api) : IAsyncLifetime
 
         return pagoId;
     }
+
+    [Fact]
+    public async Task AlVerificarSeFijaLaCaducidadACincoDias()
+    {
+        var pagoId = await TicketPagadoAsync();
+
+        var respuesta = await api.ComoOperadorCat("PAT")
+            .PostAsJsonAsync($"/api/pagos/{pagoId}/verificar", new
+            {
+                verificadoPor = "Operadora de prueba"
+            });
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        await using var db = api.NuevoDbContext();
+        var pago = await db.Pagos.AsNoTracking().FirstAsync(p => p.Id == pagoId);
+
+        pago.Estado.ShouldBe(EstadoPago.Recibido);
+        pago.VerificadoPor.ShouldBe("Operadora de prueba");
+        pago.FechaVerificacion.ShouldNotBeNull();
+        pago.ComprobanteExpiraEn.ShouldNotBeNull();
+
+        // Cinco días desde la verificación, con holgura de un minuto para no
+        // atarse al instante exacto del reloj.
+        var esperado = pago.FechaVerificacion!.Value.AddDays(5);
+        pago.ComprobanteExpiraEn!.Value
+            .ShouldBe(esperado, TimeSpan.FromMinutes(1));
+    }
+
+    [Fact]
+    public async Task NoSePuedeVerificarUnTicketQueNadieHaPagado()
+    {
+        var pagoId = await TicketSinPagarAsync();
+
+        var respuesta = await api.ComoOperadorCat("PAT")
+            .PostAsJsonAsync($"/api/pagos/{pagoId}/verificar", new
+            {
+                verificadoPor = "Operadora de prueba"
+            });
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+    }
+
+    [Fact]
+    public async Task NoSePuedeVerificarDosVeces()
+    {
+        var pagoId = await TicketPagadoAsync();
+
+        object Cuerpo() => new { verificadoPor = "Operadora de prueba" };
+
+        var primera = await api.ComoOperadorCat("PAT")
+            .PostAsJsonAsync($"/api/pagos/{pagoId}/verificar", Cuerpo());
+        primera.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var segunda = await api.ComoOperadorCat("PAT")
+            .PostAsJsonAsync($"/api/pagos/{pagoId}/verificar", Cuerpo());
+        segunda.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+    }
+
+    [Fact]
+    public async Task LaPlantaNoPuedeVerificarSuPropioPago()
+    {
+        // Quien paga no confirma que pagó: la verificación existe justamente
+        // para que sea otro quien lo diga.
+        var pagoId = await TicketPagadoAsync();
+
+        var respuesta = await api.ComoOperadorFaenamiento()
+            .PostAsJsonAsync($"/api/pagos/{pagoId}/verificar", new
+            {
+                verificadoPor = "Operador de planta"
+            });
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task UnaCatAjenaNoPuedeVerificar()
+    {
+        var pagoId = await TicketPagadoAsync();
+
+        var respuesta = await api.ComoOperadorCat("NIE")
+            .PostAsJsonAsync($"/api/pagos/{pagoId}/verificar", new
+            {
+                verificadoPor = "Operadora de otro centro"
+            });
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+    }
 }

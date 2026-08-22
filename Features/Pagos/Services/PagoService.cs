@@ -38,6 +38,10 @@ public interface IPagoService
     /// otro centro. Un solo null para los tres casos: el controlador responde
     /// 404 sin distinguirlos, que es justo lo que se quiere.
     Task<byte[]?> ObtenerComprobanteAsync(int pagoId, CentroAcopio? filtroCat);
+
+    /// Marca el pago como recibido y arranca la cuenta atrás de la captura.
+    Task<PagoResponseDto> VerificarAsync(
+        int pagoId, VerificarPagoDto dto, CentroAcopio? filtroCat);
 }
 
 /// <summary>
@@ -47,6 +51,11 @@ public interface IPagoService
 public class PagoService(AppDbContext db, IBlobStorageService blobs) : IPagoService
 {
     private const int MaxBytesComprobante = 2 * 1024 * 1024;
+
+    // Días que la captura sigue disponible tras la verificación. Lo que la
+    // borra de verdad es el barrido; esta fecha es lo que decide cuándo el
+    // API deja de servirla.
+    private const int DiasGraciaComprobante = 5;
 
     public async Task<PagoResponseDto> RegistrarAsync(
         RegistrarPagoDto dto, CentroAcopio? filtroCat)
@@ -498,6 +507,37 @@ public class PagoService(AppDbContext db, IBlobStorageService blobs) : IPagoServ
             MontoUsd = d.MontoUsd,
             RegistradoPor = pagadoPor
         })];
+    }
+
+    public async Task<PagoResponseDto> VerificarAsync(
+        int pagoId, VerificarPagoDto dto, CentroAcopio? filtroCat)
+    {
+        var pago = await db.Pagos
+            .Include(p => p.Productora)
+            .Include(p => p.Lote)
+            .FirstOrDefaultAsync(p => p.Id == pagoId)
+            ?? throw new KeyNotFoundException($"Pago con Id {pagoId} no encontrado.");
+
+        // Centro ajeno: KeyNotFound y no Unauthorized, para que el controlador
+        // responda 404. Confirmar la existencia filtraría datos de otro CAT.
+        if (filtroCat is CentroAcopio cat && pago.Productora.CatAsignado != cat)
+            throw new KeyNotFoundException($"Pago con Id {pagoId} no encontrado.");
+
+        if (pago.Estado != EstadoPago.Pagado)
+            throw new TransicionInvalidaException(
+                pago.Estado == EstadoPago.Pendiente
+                    ? "No se puede verificar un pago que la planta todavía no ha hecho."
+                    : "Este pago ya estaba verificado.");
+
+        var ahora = DateTime.UtcNow;
+        pago.Estado = EstadoPago.Recibido;
+        pago.FechaVerificacion = ahora;
+        pago.VerificadoPor = dto.VerificadoPor.Trim();
+        pago.ComprobanteExpiraEn = ahora.AddDays(DiasGraciaComprobante);
+
+        await db.SaveChangesAsync();
+
+        return Mapear(pago, pago.Productora.NombreCompleto, pago.Lote?.CodigoLote);
     }
 
     private static PagoResponseDto Mapear(

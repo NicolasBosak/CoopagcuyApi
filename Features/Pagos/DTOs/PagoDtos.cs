@@ -99,3 +99,12 @@ public class RegistrarPagoEfectivoDto
     public string ComprobanteBase64 { get; set; } = string.Empty;
     public string PagadoPor { get; set; } = string.Empty;
 }
+
+/// <summary>
+/// Confirmación de la CAT de que el dinero llegó. Solo el nombre de quien
+/// confirma: la fecha la sella el servidor, como todas las del sistema.
+/// </summary>
+public class VerificarPagoDto
+{
+    public string VerificadoPor { get; set; } = string.Empty;
+}
