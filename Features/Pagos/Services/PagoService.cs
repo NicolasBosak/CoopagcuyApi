@@ -799,24 +799,6 @@ public class PagoService(
                 $"Estos cuyes no pertenecen a la productora en ese lote, o ya se " +
                 $"vendieron: {string.Join(", ", invalidos)}.");
 
-        var pago = new Pago
-        {
-            ProductoraId = dto.ProductoraId,
-            LoteId = dto.LoteId,
-            MontoUsd = dto.MontoUsd,
-            // Nace cobrada: el dinero lo recibió la propia CAT y no queda
-            // nada que nadie tenga que hacer dentro del sistema.
-            MontoPagadoUsd = dto.MontoUsd,
-            Estado = EstadoPago.Recibido,
-            EsVentaLocal = true,
-            FechaPago = DateTime.UtcNow,
-            MetodoPago = dto.MetodoPago,
-            NumeroDias = esCuotas ? dto.NumeroDias : null,
-            ValorPorDia = esCuotas ? dto.ValorPorDia : null,
-            Responsable = dto.Responsable.Trim(),
-            Observaciones = dto.Observaciones
-        };
-
         // La transacción explícita debe correr dentro de la estrategia de
         // reintentos de Npgsql (EnableRetryOnFailure): un BeginTransactionAsync
         // suelto revienta con "The configured execution strategy does not
@@ -824,13 +806,39 @@ public class PagoService(
         // RecepcionService y FaenamientoService.
         var estrategia = db.Database.CreateExecutionStrategy();
 
-        await estrategia.ExecuteAsync(async () =>
+        var pago = await estrategia.ExecuteAsync(async () =>
         {
             db.ChangeTracker.Clear();
 
+            // El Pago se construye AQUÍ DENTRO y no antes: el delegado puede
+            // reejecutarse entero ante un fallo transitorio de Npgsql, y un
+            // objeto creado fuera llegaría al segundo intento con Id ya
+            // asignado y todavía rastreado por el contexto del intento
+            // abortado — la no-idempotencia que este patrón existe para
+            // evitar. No lo "simplifiques" sacándolo fuera otra vez: cada
+            // intento tiene que partir de un objeto limpio, igual que hacen
+            // RecepcionService y FaenamientoService con las suyas.
+            var nuevoPago = new Pago
+            {
+                ProductoraId = dto.ProductoraId,
+                LoteId = dto.LoteId,
+                MontoUsd = dto.MontoUsd,
+                // Nace cobrada: el dinero lo recibió la propia CAT y no queda
+                // nada que nadie tenga que hacer dentro del sistema.
+                MontoPagadoUsd = dto.MontoUsd,
+                Estado = EstadoPago.Recibido,
+                EsVentaLocal = true,
+                FechaPago = DateTime.UtcNow,
+                MetodoPago = dto.MetodoPago,
+                NumeroDias = esCuotas ? dto.NumeroDias : null,
+                ValorPorDia = esCuotas ? dto.ValorPorDia : null,
+                Responsable = dto.Responsable.Trim(),
+                Observaciones = dto.Observaciones
+            };
+
             await using var tx = await db.Database.BeginTransactionAsync();
 
-            db.Pagos.Add(pago);
+            db.Pagos.Add(nuevoPago);
             await db.SaveChangesAsync();
 
             // El marcado es CONDICIONAL y se compara por filas afectadas. La
@@ -840,7 +848,7 @@ public class PagoService(
             var afectadas = await db.CuyRegistros
                 .Where(c => ids.Contains(c.Id) && c.VentaLocalPagoId == null)
                 .ExecuteUpdateAsync(s => s.SetProperty(
-                    c => c.VentaLocalPagoId, pago.Id));
+                    c => c.VentaLocalPagoId, nuevoPago.Id));
 
             if (afectadas != ids.Count)
             {
@@ -851,6 +859,7 @@ public class PagoService(
             }
 
             await tx.CommitAsync();
+            return nuevoPago;
         });
 
         return Mapear(pago, productora.NombreCompleto, lote.CodigoLote);
