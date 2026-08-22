@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace CoopagcuyApi.Common;
 
 public static class FechaUtc
@@ -40,4 +42,41 @@ public static class FechaUtc
         DateTimeKind.Local => valor.ToUniversalTime(),
         _ => DateTime.SpecifyKind(valor, DateTimeKind.Utc)
     };
+
+    /// <summary>
+    /// El mismo instante, expresado en la hora local del piloto.
+    ///
+    /// Normaliza el Kind antes de restar: un valor que llegue como
+    /// Unspecified —una ruta que no venga de Npgsql, un objeto construido en
+    /// memoria— hay que tratarlo como UTC y no como hora del servidor.
+    ///
+    /// El resultado se marca Unspecified a propósito: ya NO es un instante
+    /// UTC, y dejarlo marcado como Utc invitaría a que alguien lo volviera a
+    /// convertir más abajo.
+    /// </summary>
+    public static DateTime ALocal(DateTime valor) =>
+        DateTime.SpecifyKind(Normalizar(valor) + DesfasePiloto,
+            DateTimeKind.Unspecified);
+
+    /// <summary>
+    /// "21/08/2026 15:30" en hora local del piloto, o "—" si no hay fecha.
+    ///
+    /// InvariantCulture no es una precaución vacía: en un formato
+    /// personalizado la barra es el MARCADOR de separador de fecha, no una
+    /// barra literal, así que la misma línea saldría distinta según la
+    /// cultura activa del contenedor.
+    ///
+    /// El guion tampoco es adorno: interpolar un DateTime? nulo produce
+    /// cadena vacía, y en el papel eso deja un rótulo sin valor detrás.
+    /// </summary>
+    public static string FechaHoraLocal(DateTime? valor) =>
+        valor is DateTime v
+            ? ALocal(v).ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture)
+            : "—";
+
+    /// <summary>Igual que <see cref="FechaHoraLocal"/> pero sin la hora.</summary>
+    public static string FechaLocal(DateTime? valor) =>
+        valor is DateTime v
+            ? ALocal(v).ToString("dd/MM/yyyy", CultureInfo.InvariantCulture)
+            : "—";
 }
