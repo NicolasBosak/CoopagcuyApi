@@ -589,10 +589,19 @@ public class PagoService(
                     ? "No se puede verificar un pago que la planta todavía no ha hecho."
                     : "Este pago ya estaba verificado.");
 
+        // Mismo motivo que PagadoPor en RegistrarPagoEfectivoAsync: es el
+        // registro de QUIÉN confirmó que el dinero llegó, y sin guardia
+        // "   " se guardaba tal cual como la verificadora de un pago que
+        // nadie verificó de verdad.
+        var verificadoPor = dto.VerificadoPor?.Trim() ?? string.Empty;
+        if (verificadoPor.Length == 0)
+            throw new CuerpoInvalidoException(
+                "La verificación debe decir quién confirmó que el pago llegó.");
+
         var ahora = DateTime.UtcNow;
         pago.Estado = EstadoPago.Recibido;
         pago.FechaVerificacion = ahora;
-        pago.VerificadoPor = dto.VerificadoPor.Trim();
+        pago.VerificadoPor = verificadoPor;
         pago.ComprobanteExpiraEn = ahora.AddDays(DiasGraciaComprobante);
 
         await db.SaveChangesAsync();

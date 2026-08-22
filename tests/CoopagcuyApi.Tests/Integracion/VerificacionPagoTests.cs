@@ -240,4 +240,27 @@ public class VerificacionPagoTests(ApiFactory api) : IAsyncLifetime
 
         respuesta.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
+
+    [Fact]
+    public async Task UnaVerificacionEnBlancoSeRechaza()
+    {
+        // 400 y no 409: el cuerpo viene mal, no llega a destiempo. Sin esta
+        // guardia, "   " se guardaba tal cual como la verificadora de un pago
+        // que nadie confirmó de verdad — el mismo problema que PagadoPor en
+        // RegistrarPagoEfectivoAsync, aplicado a quien recibe el dinero.
+        var pagoId = await TicketPagadoAsync();
+
+        var respuesta = await api.ComoOperadorCat("PAT")
+            .PostAsJsonAsync($"/api/pagos/{pagoId}/verificar", new
+            {
+                verificadoPor = "   "
+            });
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+
+        await using var db = api.NuevoDbContext();
+        var pago = await db.Pagos.AsNoTracking().FirstAsync(p => p.Id == pagoId);
+        pago.Estado.ShouldBe(EstadoPago.Pagado);
+        pago.VerificadoPor.ShouldBeNull();
+    }
 }

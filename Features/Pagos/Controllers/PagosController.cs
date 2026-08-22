@@ -182,6 +182,12 @@ public class PagosController(IPagoService service, ITicketPagoService tickets) :
         {
             return NotFound();
         }
+        catch (CuerpoInvalidoException ex)
+        {
+            // 400: el cuerpo trae un VerificadoPor en blanco, se sabe sin
+            // consultar nada del servidor. Mismo criterio que Pagar.
+            return BadRequest(new { mensaje = ex.Message });
+        }
         catch (TransicionInvalidaException ex)
         {
             return Conflict(new { mensaje = ex.Message });
