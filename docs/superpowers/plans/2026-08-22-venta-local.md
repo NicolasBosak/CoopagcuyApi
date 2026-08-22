@@ -1233,11 +1233,32 @@ docker compose -f docker-compose.tests.yml run --rm tests dotnet test tests/Coop
 
 Esperado: `Passed: 3, Failed: 0`.
 
-Mutaciones, restaurando después de cada una:
-1. Quitar la guarda de `RegistrarPagoEfectivoAsync` → falla `LaPlantaNoPuedePagarUnaVentaLocal`.
-2. Quitar la guarda de `VerificarAsync` → falla `LaCatNoPuedeVerificarUnaVentaLocal`.
+> **Corrección salida de ejecutar este plan.** El borrador daba por hecho que
+> las dos primeras mutaciones pondrían rojas sus pruebas. **No lo hacen**, y el
+> motivo vale la pena entenderlo: una venta local nace `Recibido`, y la máquina
+> de estados que ya existía —`RegistrarPagoEfectivoAsync` exige `Pendiente`,
+> `VerificarAsync` exige `Pagado`— bloquea los tres caminos por su cuenta, con
+> el mismo 409. **Las tres guardas son redundantes en cuanto al resultado.**
+>
+> Lo que sí aportan, y la máquina de estados no, es **el mensaje**: sin ellas el
+> operador de planta lee «El ticket ya está en estado Recibido y no admite un
+> pago nuevo», una frase sobre estados internos que no explica nada. Por eso se
+> conservan, y por eso las dos pruebas **afirman también el cuerpo de la
+> respuesta** — que es lo que las hace capaces de fallar.
 
-**La tercera —quitar `&& !p.EsVentaLocal` de la cola— NO pondrá roja ninguna prueba**, porque el filtro por estado ya la excluye. Eso es esperado y está bien: la línea es una segunda defensa deliberada, no la única. Déjalo anotado en el informe en vez de fingir que tiene dientes.
+Las dos primeras pruebas afirman, además del 409 y del estado de la base, que el
+mensaje habla de una venta local:
+
+```csharp
+        var cuerpo = await respuesta.Content.ReadAsStringAsync();
+        cuerpo.ShouldContain("venta local", Case.Insensitive);
+```
+
+Mutaciones, restaurando después de cada una:
+1. Quitar la guarda de `RegistrarPagoEfectivoAsync` → falla `LaPlantaNoPuedePagarUnaVentaLocal` **por el mensaje**, no por el código de estado.
+2. Quitar la guarda de `VerificarAsync` → falla `LaCatNoPuedeVerificarUnaVentaLocal`, igual.
+
+**La tercera —quitar `&& !p.EsVentaLocal` de la cola— NO pondrá roja ninguna prueba**, porque el filtro por estado ya la excluye y ahí no hay ningún mensaje que afirmar. Es una segunda defensa deliberada, no la única. Déjalo anotado en el informe en vez de fingir que tiene dientes.
 
 - [ ] **Step 6: Commit**
 
