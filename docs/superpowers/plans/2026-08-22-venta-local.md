@@ -1251,7 +1251,7 @@ mensaje habla de una venta local:
 
 ```csharp
         var cuerpo = await respuesta.Content.ReadAsStringAsync();
-        cuerpo.ShouldContain("venta local", Case.Insensitive);
+        cuerpo.ShouldContain("venta local");
 ```
 
 Mutaciones, restaurando después de cada una:
