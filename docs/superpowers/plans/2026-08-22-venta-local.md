@@ -1766,12 +1766,25 @@ En `TicketPagoService.GenerarAsync`:
 1. Sustituir el subtítulo fijo `"Comprobante de pago"` por
    `TextosVentaLocal.Encabezado(pago)`.
 2. Sustituir `TextoEstado(pago.Estado)` por `TextosVentaLocal.TextoEstado(pago)`.
-3. Añadir, justo debajo del rótulo de estado:
+3. Añadir, justo debajo del rótulo de estado, **condicionada a la venta local**:
 
 ```csharp
-                    col.Item().AlignCenter()
-                        .Text(TextosVentaLocal.LineaMetodo(pago)).FontSize(8);
+                    // Solo en la venta local. En el ticket de la planta el
+                    // metodo es siempre transferencia desde que se retiro el
+                    // pago a credito, asi que nombrarlo no aporta nada y
+                    // ensucia un documento que ya esta en uso. En una venta
+                    // local es justo lo que la productora necesita saber,
+                    // sobre todo si fue a cuotas.
+                    if (pago.EsVentaLocal)
+                        col.Item().AlignCenter()
+                            .Text(TextosVentaLocal.LineaMetodo(pago)).FontSize(8);
 ```
+
+> **Corrección salida de ejecutar este plan.** El borrador ponía esta línea sin
+> condicionar, y eso añadía al ticket de la planta un renglón que dice
+> «Transferencia» — el único método posible ahí. Rompía la garantía de que el
+> ticket del ciclo con la planta no cambia, y la unitaria de no regresión no lo
+> detectaba porque solo cubre el encabezado.
 
 4. Cuando el pago es una venta local, añadir un bloque con los animales
    vendidos, después del bloque LOTE:
