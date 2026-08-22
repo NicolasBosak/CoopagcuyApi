@@ -980,9 +980,14 @@ En `AlcanceProductorasTests.cs`, sustituir **el método completo**
     public async Task UnaComunidadInexistenteSeSigueRechazando()
     {
         // La guarda retirada también cubría este caso de rebote: devolvía 403
-        // cuando la comunidad no existía. Al quitarla, quien lo rechaza es
-        // ProductoraService, y hay que asegurarse de que sigue habiendo un
-        // rechazo limpio y no un 500 de la clave foránea.
+        // cuando la comunidad no existía. Al quitarla hay que asegurarse de
+        // que sigue habiendo un rechazo limpio y no un 500 de la clave
+        // foránea.
+        //
+        // Quien lo rechaza ahora es CrearProductoraValidator, con una regla
+        // MustAsync que comprueba que la comunidad exista y esté activa. Por
+        // eso es 400 y no 404: es un error del cuerpo de la petición, que es
+        // justo el criterio 400/409 que sigue este proyecto.
         var respuesta = await api.ComoOperadorCat("PAT")
             .PostAsJsonAsync("/api/productoras", new
             {
@@ -993,9 +998,66 @@ En `AlcanceProductorasTests.cs`, sustituir **el método completo**
                 telefono = (string?)null
             });
 
-        respuesta.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
 ```
+
+Y sustituir **el cuerpo completo** de `OperadorCat_noMueveUnaProductoraAOtroCentro`
+por este, conservando el nombre del método:
+
+```csharp
+    [Fact]
+    public async Task OperadorCat_noMueveUnaProductoraAOtroCentro()
+    {
+        // La propiedad sigue siendo verdad; lo que caducó es cómo se
+        // comprobaba. Antes esta prueba esperaba un 403, pero ese 403 lo daba
+        // la guarda de comunidad, no el alcance por centro: era incidental.
+        //
+        // Con el criterio de 2026-08 la edición se acepta —una productora de
+        // PAT puede vivir en una comunidad de Las Nieves— y lo que impide el
+        // traslado es el sellado del CAT con el token. Así que se afirma el
+        // resultado, no el código de estado: entra siendo de PAT y sigue
+        // siendo de PAT, por mucho que el cuerpo pida "NIE".
+        var productora = await Sembrador.ProductoraAsync(
+            api, CedulaUno, CentroAcopio.PAT, comunidadId: 1);
+
+        var respuesta = await api.ComoOperadorCat("PAT")
+            .PutAsJsonAsync($"/api/productoras/{productora.Id}", new
+            {
+                nombreCompleto = "Intento de traslado",
+                cedula = CedulaUno,
+                comunidadId = 2,          // Las Nieves, de otro cantón
+                catAsignado = "NIE",      // …y el cuerpo pide otro centro
+                telefono = (string?)null
+            });
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+
+        await using var db = api.NuevoDbContext();
+        var actualizada = await db.Productoras.AsNoTracking()
+            .FirstAsync(p => p.Id == productora.Id);
+
+        actualizada.CatAsignado.ShouldBe(CentroAcopio.PAT);   // no se movió
+        actualizada.ComunidadId.ShouldBe(2);                  // sí cambió de comunidad
+    }
+```
+
+> **Corrección sobre el borrador de este plan.** El borrador daba por hecho que
+> `UnaComunidadInexistenteSeSigueRechazando` respondería 404 desde
+> `ProductoraService`, y no contaba con que
+> `OperadorCat_noMueveUnaProductoraAOtroCentro` se pondría roja. Las dos
+> suposiciones eran falsas y las detectó el implementador:
+>
+> - El rechazo de la comunidad inexistente lo da **el validador**, una capa
+>   antes del servicio, con 400.
+> - El 403 de «no mueve una productora» **lo producía la guarda de comunidad**,
+>   no el alcance por centro. Retirarla lo convierte en 204 — y la productora
+>   sigue en PAT, que es la propiedad que de verdad importaba.
+>
+> Ambas pruebas se reescriben para afirmar la conducta real. Ninguna se ajusta
+> «a lo que haga el código»: la primera sigue exigiendo un rechazo limpio, y la
+> segunda pasa a exigir algo **más fuerte** que antes — el estado final de la
+> fila, en vez de un código de estado que resultó ser incidental.
 
 - [ ] **Step 2: Ejecutar y ver que fallan**
 
@@ -1074,7 +1136,7 @@ Volver a ejecutar el `grep`. Esperado: **sin salida**.
 docker compose -f docker-compose.tests.yml run --rm tests
 ```
 
-Esperado: `Passed: 228, Failed: 0` (227 + 1 prueba nueva neta).
+Esperado: `Passed: 228, Failed: 0` (227 + 1 prueba nueva neta; dos reescritas, que no suman).
 
 - [ ] **Step 7: Commit**
 
