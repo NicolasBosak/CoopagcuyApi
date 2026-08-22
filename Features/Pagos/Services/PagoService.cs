@@ -42,13 +42,19 @@ public interface IPagoService
     /// Marca el pago como recibido y arranca la cuenta atrás de la captura.
     Task<PagoResponseDto> VerificarAsync(
         int pagoId, VerificarPagoDto dto, CentroAcopio? filtroCat);
+
+    /// Borra los blobs de las capturas ya caducadas y limpia su referencia.
+    /// Devuelve cuántas borró. Se invoca desde el listado: el contenedor del
+    /// API se apaga sin tráfico, así que una tarea programada no correría.
+    Task<int> BarrerComprobantesCaducadosAsync();
 }
 
 /// <summary>
 /// Pagos a productoras por entregas en el CAT. Digitaliza el registro
 /// de pagos que hoy se lleva en cuaderno manual (brecha del diagnóstico).
 /// </summary>
-public class PagoService(AppDbContext db, IBlobStorageService blobs) : IPagoService
+public class PagoService(
+    AppDbContext db, IBlobStorageService blobs, ILogger<PagoService> log) : IPagoService
 {
     private const int MaxBytesComprobante = 2 * 1024 * 1024;
 
@@ -116,6 +122,12 @@ public class PagoService(AppDbContext db, IBlobStorageService blobs) : IPagoServ
     public async Task<IEnumerable<PagoResponseDto>> ListarAsync(
         int? productoraId, DateTime? desde, DateTime? hasta, CentroAcopio? filtroCat)
     {
+        // Barrido oportunista. Va aquí y no en una tarea programada porque el
+        // contenedor del API escala a cero: sin tráfico no hay proceso vivo
+        // que ejecute nada. La CAT y la planta entran a diario, así que en la
+        // práctica la captura se borra al día siguiente de vencer.
+        await BarrerComprobantesCaducadosAsync();
+
         var query = db.Pagos
             .Include(p => p.Productora)
             .Include(p => p.Lote)
@@ -308,6 +320,54 @@ public class PagoService(AppDbContext db, IBlobStorageService blobs) : IPagoServ
         {
             return null;
         }
+    }
+
+    public async Task<int> BarrerComprobantesCaducadosAsync()
+    {
+        var ahora = DateTime.UtcNow;
+
+        var caducados = await db.Pagos
+            .Where(p => p.ComprobanteUrl != null
+                && p.ComprobanteExpiraEn != null
+                && p.ComprobanteExpiraEn <= ahora)
+            // Tope por pasada: el barrido va colgado de una consulta que un
+            // operador está esperando. Mejor barrer 20 por vez, muchas veces,
+            // que dejar la lista congelada mientras se limpian doscientos.
+            .Take(20)
+            .ToListAsync();
+
+        if (caducados.Count == 0) return 0;
+
+        var borrados = 0;
+        foreach (var pago in caducados)
+        {
+            var nombre = NombreDeBlob(pago.ComprobanteUrl!);
+            if (nombre is null)
+            {
+                // Fila corrupta: se limpia la referencia igual, o volvería a
+                // intentarlo en cada consulta para siempre.
+                pago.ComprobanteUrl = null;
+                continue;
+            }
+
+            try
+            {
+                await blobs.BorrarComprobanteAsync(nombre);
+                pago.ComprobanteUrl = null;
+                borrados++;
+            }
+            catch (Exception ex)
+            {
+                // La consulta de pagos NO puede caerse por un borrado. Si
+                // Blob está caído o faltan permisos, se registra y se sigue:
+                // la política de Azure lo borrará igual el día 30.
+                log.LogWarning(ex,
+                    "No se pudo borrar la captura del pago {PagoId}", pago.Id);
+            }
+        }
+
+        await db.SaveChangesAsync();
+        return borrados;
     }
 
     public async Task<PagoResponseDto> RegistrarPagoEfectivoAsync(
