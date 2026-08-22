@@ -2339,6 +2339,13 @@ afirmar desde código.
    recibida.
 4. **Imprimir la guía de un lote sin ventas locales.** Debe salir **idéntica** a
    las de antes: es la garantía de no regresión.
+5. **Imprimir un ticket de pago a la planta** (no de venta local). **No debe
+   aparecer ninguna línea con el método de pago.** Ninguna prueba puede fijar
+   esto: se comprobó por mutación que quitar la condición no pone roja ninguna
+   aserción, y el tamaño del PDF tampoco sirve de indicio —medido: la versión
+   con la línea de más salía 244 bytes **más pequeña**, porque el subconjunto de
+   fuentes embebido cambia con los glifos usados—. Es verificación humana o no
+   es nada.
 
 - [ ] **Abrir los dos PR**, el del API primero: el front consume dos endpoints
       y un campo del DTO que no existen todavía en producción.
