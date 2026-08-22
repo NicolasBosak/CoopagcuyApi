@@ -117,6 +117,12 @@ public class FechaLocalTests
 
             var utc = new DateTime(2026, 8, 21, 20, 30, 0, DateTimeKind.Utc);
             FechaUtc.FechaLocal(utc).ShouldBe("21/08/2026");
+
+            // Mismo riesgo en FechaHoraLocal, pero con el separador de HORA:
+            // ":" es el marcador de hora de un formato personalizado igual
+            // que "/" lo es de fecha. Quitar InvariantCulture solo de este
+            // método no lo detectaría la aserción de arriba, que no lo llama.
+            FechaUtc.FechaHoraLocal(utc).ShouldBe("21/08/2026 15:30");
         }
         finally
         {
