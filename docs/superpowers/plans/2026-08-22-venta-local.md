@@ -857,6 +857,14 @@ Y a `PagoService`:
             Observaciones = dto.Observaciones
         };
 
+        // La transaccion va DENTRO de la estrategia de ejecucion. Este
+        // DbContext tiene EnableRetryOnFailure, y Npgsql prohibe abrir una
+        // transaccion manual fuera de la estrategia: sin esto revienta con
+        // 500. Mismo patron que ya usan RecepcionService, FaenamientoService
+        // y RecuperacionService.
+        var estrategia = db.Database.CreateExecutionStrategy();
+        await estrategia.ExecuteAsync(async () =>
+        {
         await using var tx = await db.Database.BeginTransactionAsync();
 
         db.Pagos.Add(pago);
@@ -880,6 +888,7 @@ Y a `PagoService`:
         }
 
         await tx.CommitAsync();
+        });
 
         return Mapear(pago, productora.NombreCompleto, lote.CodigoLote);
     }
