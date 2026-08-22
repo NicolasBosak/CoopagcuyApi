@@ -1497,9 +1497,30 @@ docker compose -f docker-compose.tests.yml run --rm tests dotnet test tests/Coop
 
 Esperado: `Passed: 8, Failed: 0`.
 
+> **Corrección salida de ejecutar este plan — la tercera del mismo tipo.** El
+> borrador daba por hecho que quitar el `if (disponibles <= 0)` pondría roja su
+> prueba. **No lo hace:** `RegistrarMovilizacionValidator` ya exige
+> `CantidadMovilizada > 0`, así que con cero disponibles la comprobación de
+> cantidad de abajo cubre el caso sola y devuelve el mismo 409.
+>
+> La guarda se conserva **por el mensaje**, y la prueba pasa a afirmarlo. A
+> diferencia de la Tarea 3 —donde el mensaje de reserva era **falso**— aquí es
+> correcto e informativo; lo que aporta la guarda es nombrar la situación («el
+> lote se vendió completo en la comunidad») en vez de presentarla como una
+> resta que la operadora tiene que interpretar. Como el dueño del producto pidió
+> explícitamente que un lote vendido entero no se pueda enviar, la claridad de
+> esa frase **es** la funcionalidad.
+
+`UnLoteVendidoEnteroYaNoSePuedeEnviar` afirma también el cuerpo de la respuesta:
+
+```csharp
+        var cuerpo = await respuesta.Content.ReadAsStringAsync();
+        cuerpo.ShouldContain("completo en la comunidad");
+```
+
 Mutaciones, restaurando después de cada una:
 1. Volver `disponibles` a `lote.CantidadAnimales` → falla `ElEnvioSeLimitaALosCuyesQueQuedan`.
-2. Quitar el `if (disponibles == 0)` → falla `UnLoteVendidoEnteroYaNoSePuedeEnviar`.
+2. Quitar el `if (disponibles <= 0)` → falla `UnLoteVendidoEnteroYaNoSePuedeEnviar` **por el mensaje**.
 3. Quitar `&& !p.EsVentaLocal` de `pagados` → falla `UnaVentaParcialNoDaElLotePorPagado`.
 
 - [ ] **Step 6: Batería completa y commit**
