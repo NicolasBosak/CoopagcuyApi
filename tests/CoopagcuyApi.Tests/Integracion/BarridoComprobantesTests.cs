@@ -116,6 +116,54 @@ public class BarridoComprobantesTests(ApiFactory api) : IAsyncLifetime
         (await ContarBlobsAsync()).ShouldBe(antes);
     }
 
+    [Fact]
+    public async Task UnaUrlCorruptaSeLimpiaEnVezDeReintentarseSiempre()
+    {
+        // NombreDeBlob (PagoService) devuelve null ante cualquier cosa que no
+        // sea una URI válida con contenedor y nombre, y el barrido limpia
+        // ComprobanteUrl igual en ese caso, sin intentar tocar Blob. Esto es
+        // lo que evita que una fila corrupta —una URL que quedó mal grabada—
+        // se reintente en CADA consulta de /api/pagos para siempre: el
+        // predicado del barrido exige ComprobanteUrl no nulo, así que en
+        // cuanto se limpia, la fila deja de calificar. Se siembra directo,
+        // sin ningún fake: no hace falta que el blob exista de verdad para
+        // ejercitar esta rama.
+        var productora = await Sembrador.ProductoraAsync(
+            api, CedulaProductora, CentroAcopio.PAT);
+
+        int pagoId;
+        await using (var db = api.NuevoDbContext())
+        {
+            var pago = new CoopagcuyApi.Features.Pagos.Models.Pago
+            {
+                ProductoraId = productora.Id,
+                MontoUsd = 120m,
+                FechaPago = DateTime.UtcNow,
+                MetodoPago = "Transferencia",
+                Responsable = "Operadora de prueba",
+                Estado = EstadoPago.Pagado,
+                MontoPagadoUsd = 120m,
+                FechaPagoEfectivo = DateTime.UtcNow,
+                PagadoPor = "Operador de planta",
+                ComprobanteUrl = "no-es-una-uri",
+                ComprobanteExpiraEn = DateTime.UtcNow.AddMinutes(-1)
+            };
+            db.Pagos.Add(pago);
+            await db.SaveChangesAsync();
+            pagoId = pago.Id;
+        }
+
+        // La consulta normal de la CAT es la que dispara el barrido. Si
+        // NombreDeBlob no tolerara la URL corrupta, esta petición devolvería
+        // 500 en vez de la lista.
+        var respuesta = await api.ComoOperadorCat("PAT").GetAsync("/api/pagos");
+        respuesta.EnsureSuccessStatusCode();
+
+        await using var dbFinal = api.NuevoDbContext();
+        var final = await dbFinal.Pagos.AsNoTracking().FirstAsync(p => p.Id == pagoId);
+        final.ComprobanteUrl.ShouldBeNull();
+    }
+
     private static async Task<int> ContarBlobsAsync()
     {
         var cliente = new BlobServiceClient(ApiFactory.CadenaBlob);
