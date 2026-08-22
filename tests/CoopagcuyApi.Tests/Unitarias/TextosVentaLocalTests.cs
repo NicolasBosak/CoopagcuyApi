@@ -39,9 +39,17 @@ public class TextosVentaLocalTests
     {
         // Garantía de no regresión: el ticket del ciclo con la planta no
         // cambia ni una letra.
+        //
+        // El literal de abajo es el histórico — el que ya salió impreso
+        // antes de esta feature (ver TicketPagoService.cs anterior a esta
+        // rama: col.Item()...Text("Comprobante de pago")), NO el valor que
+        // hoy devuelve la función. Compararla contra lo que la propia
+        // implementación produce la volvería incapaz de fallar: cualquier
+        // cambio de caja o de texto pasaría igual, porque la aserción se
+        // movería junto con el bug.
         var dePlanta = new Pago { EsVentaLocal = false, MontoUsd = 120m };
 
-        TextosVentaLocal.Encabezado(dePlanta).ShouldBe("COMPROBANTE DE PAGO");
+        TextosVentaLocal.Encabezado(dePlanta).ShouldBe("Comprobante de pago");
     }
 
     [Fact]

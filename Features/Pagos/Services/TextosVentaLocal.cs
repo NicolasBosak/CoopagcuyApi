@@ -13,8 +13,19 @@ namespace CoopagcuyApi.Features.Pagos.Services;
 /// </summary>
 public static class TextosVentaLocal
 {
+    /// <summary>
+    /// "VENTA LOCAL" para la venta en la comunidad, o el literal histórico
+    /// "Comprobante de pago" para el ciclo con la planta.
+    ///
+    /// Ese segundo literal NO SE TOCA: es el texto que ya salió impreso en
+    /// tickets que circulan hoy. Devolver "COMPROBANTE DE PAGO" en
+    /// mayúsculas parece un detalle cosmético pero es exactamente la
+    /// regresión que esta tarea prometía no cometer — cada letra salvo la
+    /// primera habría cambiado de caja frente al ticket que la planta ya
+    /// conoce.
+    /// </summary>
     public static string Encabezado(Pago pago) =>
-        pago.EsVentaLocal ? "VENTA LOCAL" : "COMPROBANTE DE PAGO";
+        pago.EsVentaLocal ? "VENTA LOCAL" : "Comprobante de pago";
 
     /// <summary>
     /// Rótulo de estado.
