@@ -102,6 +102,17 @@ public class AlcanceProductorasTests(ApiFactory api) : IAsyncLifetime
             });
 
         respuesta.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+
+        // El código por sí solo no distingue esta guardia de cualquier otro
+        // fallo de validación del cuerpo (nombre vacío, cédula inválida…),
+        // que también responden 400. El mensaje exacto —copiado literal de
+        // CrearProductoraValidator— es lo que fija que el rechazo vino de la
+        // regla MustAsync de la comunidad.
+        var cuerpo = await respuesta.Content
+            .ReadFromJsonAsync<Dictionary<string, string>>();
+        cuerpo.ShouldNotBeNull();
+        cuerpo["mensaje"].ShouldBe(
+            "La comunidad seleccionada no existe o está inactiva.");
     }
 
     [Fact]
