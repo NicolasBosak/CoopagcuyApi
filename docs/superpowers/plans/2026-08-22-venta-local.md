@@ -1485,9 +1485,22 @@ Y añadir al `Where` de la consulta, para que un lote sin nada pendiente
 desaparezca del selector:
 
 ```csharp
-                && l.Cuyes.Any(c => c.ProductoraId == productoraId
-                    && c.VentaLocalPagoId == null)
+                // Una jaula histórica cargada sin detalle por animal no tiene
+                // filas en Cuyes: ahí no hay nada vendido que descontar, y el
+                // lote sigue pendiente. Sin la primera rama, Any(...) seria
+                // falso y el lote desapareceria del selector — el mismo caso
+                // que MovilizacionService respeta restando en vez de contar.
+                && (!l.Cuyes.Any(c => c.ProductoraId == productoraId)
+                    || l.Cuyes.Any(c => c.ProductoraId == productoraId
+                        && c.VentaLocalPagoId == null))
 ```
+
+> **Corrección salida de la revisión.** El borrador ponía solo la segunda rama, y
+> eso rompía el mismo caso que el cálculo de disponibles fue diseñado para
+> respetar: con `l.Cuyes` vacío, `Any(...)` es falso pase lo que pase y el lote
+> se caía del selector, dejando a esa productora sin poder cobrar ese lote. El
+> propio comentario del método ya advertía de ello: «escondería lotes que sí
+> acepta». Lleva su prueba, con una jaula sembrada sin filas de cuyes.
 
 - [ ] **Step 5: Ejecutar y comprobar por mutación**
 
