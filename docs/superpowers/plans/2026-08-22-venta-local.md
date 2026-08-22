@@ -1627,7 +1627,10 @@ public class TextosVentaLocalTests
         // cambia ni una letra.
         var dePlanta = new Pago { EsVentaLocal = false, MontoUsd = 120m };
 
-        TextosVentaLocal.Encabezado(dePlanta).ShouldBe("COMPROBANTE DE PAGO");
+        // Contra el literal HISTORICO, no contra lo que devuelva la funcion:
+        // compararla consigo misma la volveria incapaz de fallar, que es
+        // justo lo contrario de lo que una prueba de no regresion es.
+        TextosVentaLocal.Encabezado(dePlanta).ShouldBe("Comprobante de pago");
     }
 
     [Fact]
@@ -1712,8 +1715,14 @@ namespace CoopagcuyApi.Features.Pagos.Services;
 /// </summary>
 public static class TextosVentaLocal
 {
+    /// <summary>
+    /// El rotulo de cabecera. "Comprobante de pago" es el literal HISTORICO
+    /// del ticket de la planta, en caja de titulo: no se toca. Cambiarlo
+    /// —aunque solo sea la caja— altera un documento que ya esta impreso y en
+    /// circulacion, y esta feature promete no hacerlo.
+    /// </summary>
     public static string Encabezado(Pago pago) =>
-        pago.EsVentaLocal ? "VENTA LOCAL" : "COMPROBANTE DE PAGO";
+        pago.EsVentaLocal ? "VENTA LOCAL" : "Comprobante de pago";
 
     /// <summary>
     /// Rótulo de estado.
