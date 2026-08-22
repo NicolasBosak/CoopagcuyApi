@@ -1,4 +1,5 @@
 using CoopagcuyApi.Common;
+using CoopagcuyApi.Features.Pagos.Models;
 using CoopagcuyApi.Features.Productoras.Models;
 
 namespace CoopagcuyApi.Features.Recepcion.Models;
@@ -31,4 +32,14 @@ public class CuyRegistro
     // Estado individual del animal según los parámetros de aceptación
     public EstadoLote Estado { get; set; }
     public string? MotivoNovedad { get; set; }
+
+    // Venta local: la CAT vendió este animal en la comunidad en vez de
+    // enviarlo a la planta, y queda atado al pago de esa venta. Nulo = sigue
+    // disponible para movilizar.
+    //
+    // Vive aquí y no en una tabla intermedia porque la relación no tiene
+    // ningún dato propio: el Pago ya lleva monto, fecha, responsable y
+    // método, y lo único que faltaba era QUÉ animales.
+    public int? VentaLocalPagoId { get; set; }
+    public Pago? VentaLocalPago { get; set; }
 }

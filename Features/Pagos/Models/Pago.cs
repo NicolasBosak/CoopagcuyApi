@@ -43,6 +43,18 @@ public class Pago
 
     public EstadoPago Estado { get; set; } = EstadoPago.Pendiente;
 
+    // La CAT vendió estos animales en la comunidad en vez de enviarlos a la
+    // planta. Explícita y NO derivada de "tiene cuyes marcados": la cola de
+    // trabajo de la planta se filtra con esto, y hacer esa decisión depender
+    // de un Any() sobre otra tabla la vuelve una consulta en vez de un dato.
+    //
+    // Un pago de venta local nace ya cobrado (Estado = Recibido) porque no
+    // queda nada que nadie tenga que hacer dentro del sistema: el dinero lo
+    // recibió la propia CAT. PagadoPor, ComprobanteUrl, FechaVerificacion y
+    // VerificadoPor se quedan nulos a propósito — rellenarlos afirmaría que
+    // alguien transfirió y alguien verificó, y no ocurrió ninguna de las dos.
+    public bool EsVentaLocal { get; set; } = false;
+
     // ── Lo que escribe la planta al transferir ───────────────────────
 
     // MontoUsd menos la suma de descuentos. Lo calcula SIEMPRE el servidor:
