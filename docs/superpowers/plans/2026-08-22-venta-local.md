@@ -445,7 +445,7 @@ public class VentaLocalTests(ApiFactory api) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task DosVentasSimultaneasNoVendenElMismoCuyDosVeces()
+    public async Task VariasVentasSimultaneasNoVendenElMismoCuyDosVeces()
     {
         // Comprobar que el cuy está libre y guardar después deja una ventana:
         // el último en escribir se lleva el animal y el otro pago cobra por
@@ -464,15 +464,20 @@ public class VentaLocalTests(ApiFactory api) : IAsyncLifetime
             responsable = "Operadora de prueba"
         };
 
-        var a = api.ComoOperadorCat("PAT")
-            .PostAsJsonAsync("/api/pagos/venta-local", Cuerpo(15m));
-        var b = api.ComoOperadorCat("PAT")
-            .PostAsJsonAsync("/api/pagos/venta-local", Cuerpo(20m));
+        // OCHO contendientes, no dos. Con dos, en caliente —que es como corre
+        // esta prueba dentro de la batería completa— la ventana se cierra
+        // sola y la prueba deja de detectar que falte la guarda: iba verde
+        // con y sin ella. Con ocho, quitar el predicado condicional o la
+        // comparación de filas se detecta de forma consistente.
+        var peticiones = Enumerable.Range(0, 8)
+            .Select(i => api.ComoOperadorCat("PAT")
+                .PostAsJsonAsync("/api/pagos/venta-local", Cuerpo(10m + i)))
+            .ToArray();
 
-        var respuestas = await Task.WhenAll(a, b);
+        var respuestas = await Task.WhenAll(peticiones);
 
         respuestas.Count(r => r.StatusCode == HttpStatusCode.Created).ShouldBe(1);
-        respuestas.Count(r => r.StatusCode == HttpStatusCode.Conflict).ShouldBe(1);
+        respuestas.Count(r => r.StatusCode == HttpStatusCode.Conflict).ShouldBe(7);
 
         await using var db = api.NuevoDbContext();
 
@@ -839,6 +844,19 @@ Y a `PagoService`:
                 $"Estos cuyes no pertenecen a la productora en ese lote, o ya se " +
                 $"vendieron: {string.Join(", ", invalidos)}.");
 
+        Pago? creado = null;
+
+        // La transaccion va DENTRO de la estrategia de ejecucion, y el Pago se
+        // construye DENTRO del delegado. Este DbContext tiene
+        // EnableRetryOnFailure: Npgsql prohibe abrir una transaccion manual
+        // fuera de la estrategia, y ademas puede REEJECUTAR el delegado ante un
+        // fallo transitorio. Un objeto construido fuera llegaria al segundo
+        // intento con su Id ya asignado y todavia rastreado por el contexto, que
+        // es justo la no-idempotencia que este patron existe para evitar. Mismo
+        // criterio que RecepcionService, FaenamientoService y el de recuperacion.
+        var estrategia = db.Database.CreateExecutionStrategy();
+        await estrategia.ExecuteAsync(async () =>
+        {
         var pago = new Pago
         {
             ProductoraId = dto.ProductoraId,
@@ -857,14 +875,6 @@ Y a `PagoService`:
             Observaciones = dto.Observaciones
         };
 
-        // La transaccion va DENTRO de la estrategia de ejecucion. Este
-        // DbContext tiene EnableRetryOnFailure, y Npgsql prohibe abrir una
-        // transaccion manual fuera de la estrategia: sin esto revienta con
-        // 500. Mismo patron que ya usan RecepcionService, FaenamientoService
-        // y RecuperacionService.
-        var estrategia = db.Database.CreateExecutionStrategy();
-        await estrategia.ExecuteAsync(async () =>
-        {
         await using var tx = await db.Database.BeginTransactionAsync();
 
         db.Pagos.Add(pago);
@@ -888,9 +898,10 @@ Y a `PagoService`:
         }
 
         await tx.CommitAsync();
+        creado = pago;
         });
 
-        return Mapear(pago, productora.NombreCompleto, lote.CodigoLote);
+        return Mapear(creado!, productora.NombreCompleto, lote.CodigoLote);
     }
 ```
 
@@ -964,7 +975,7 @@ docker compose -f docker-compose.tests.yml run --rm tests dotnet test tests/Coop
 
 Esperado: `Passed: 11, Failed: 0`.
 
-Si `DosVentasSimultaneasNoVendenElMismoCuyDosVeces` sale inestable —a veces dos 201—, **no la relajes**: significa que el marcado no es condicional de verdad. Revisa que el `ExecuteUpdateAsync` lleve el predicado `VentaLocalPagoId == null`.
+Si `VariasVentasSimultaneasNoVendenElMismoCuyDosVeces` sale inestable —a veces dos 201—, **no la relajes**: significa que el marcado no es condicional de verdad. Revisa que el `ExecuteUpdateAsync` lleve el predicado `VentaLocalPagoId == null`.
 
 - [ ] **Step 9: Comprobar por mutación**
 
@@ -973,9 +984,9 @@ Tres mutaciones, restaurando después de cada una:
 1. Quitar `&& c.ProductoraId == dto.ProductoraId` del `Where` de validación.
    Esperado: falla `NoSePuedenVenderCuyesDeOtraProductora`.
 2. Quitar `&& c.VentaLocalPagoId == null` del `ExecuteUpdateAsync`.
-   Esperado: falla `DosVentasSimultaneasNoVendenElMismoCuyDosVeces`.
+   Esperado: falla `VariasVentasSimultaneasNoVendenElMismoCuyDosVeces`.
 3. Sustituir el `if (afectadas != ids.Count)` por `if (false)`.
-   Esperado: falla `DosVentasSimultaneasNoVendenElMismoCuyDosVeces`.
+   Esperado: falla `VariasVentasSimultaneasNoVendenElMismoCuyDosVeces`.
 
 - [ ] **Step 10: Batería completa y commit**
 
