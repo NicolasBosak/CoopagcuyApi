@@ -105,12 +105,30 @@ ningún `DateTime.Now` en el código de documentos.
   captura, no documentos. El primero ya rotula «UTC» explícitamente, así que no
   miente; el segundo compara días y un desfase de cinco horas es inmaterial
   ahí. Tocarlos solo añadiría riesgo de romper una aserción de mensaje.
-- **`RecepcionService.cs:826` — el código de lote.** `GenerarCodigoLoteAsync`
-  usa la fecha UTC tanto para componer `PAT-AAAAMMDD-SEC` como para contar el
-  secuencial del día. Una jaula recibida a las 20:00 del 21 de agosto se llama
+- **Los códigos de lote y de lote faenado.** `GenerarCodigoLoteAsync`
+  (`RecepcionService.cs:826`) y `GenerarCodigoFaenadoAsync`
+  (`FaenamientoService.cs:170`) usan la fecha UTC tanto para componer
+  `PAT-AAAAMMDD-SEC` / `FAE-AAAAMMDD-SEC` como para contar el secuencial del
+  día. Una jaula recibida a las 20:00 del 21 de agosto se llama
   `PAT-20260822-001`. **Es el mismo fallo de fondo**, pero arreglarlo cambia
-  identificadores y la semántica del contador, no texto impreso. Queda
-  registrado aquí como deuda conocida, para decidirse aparte.
+  identificadores ya emitidos y la semántica del contador diario, no texto
+  impreso.
+
+  **Decisión tomada (2026-08-22): no se tocan, y se declara qué son.** El
+  segmento `AAAAMMDD` de estos códigos es parte de un **identificador**, no una
+  fecha: nombra el día UTC en que se abrió la fila y sirve para que el
+  secuencial no colisione. No es un dato que se lea como «el día en que pasó
+  esto», y no debe usarse como tal en ningún informe.
+
+  **Lo que esto cuesta, dicho sin adornos.** Al corregir la hora de los
+  documentos, esta contradicción pasó de invisible a visible: antes todo mentía
+  igual, y ahora un ticket puede decir `PAT-20260822-001` y dos renglones más
+  abajo «Recibido: 21/08/2026». Lo mismo en la etiqueta que se imprime sobre el
+  producto, donde `FAE-20260822-001` convive con «Faenado: 21/08/2026». Afecta
+  solo a los registros de después de las 19:00 hora local, y solo a quien
+  compare el código con la fecha. Se acepta a sabiendas; corregirlo es un
+  proyecto propio, con su migración y su decisión sobre los códigos ya
+  emitidos.
 
 ### Límite honesto de la verificación
 
@@ -375,8 +393,20 @@ Control bloquea la carga del DLL desde OneDrive.
   cerrado. Es una verificación manual, y es obligatoria.
 - **A1 no puede garantizar que no falte un sitio de llamada.** Ver el límite
   honesto de A1.
-- **El código de lote sigue usando la fecha UTC.** Deuda registrada, decidida
-  aparte.
+- **Los dos códigos —de jaula y de lote faenado— siguen usando la fecha UTC**, y
+  esta rama volvió la contradicción visible en el papel. Decisión tomada y
+  documentada arriba: son identificadores, no fechas.
+- **Un truncado reintroducido sobre `descuento.Descripcion` no lo detectaría
+  ninguna prueba**, porque el texto de un PDF no es afirmable. Se descartó a
+  propósito meterlo en una función pura: el truncado se reintroduciría en el
+  sitio de la maquetación, donde esa función no lo vería, así que solo daría
+  falsa seguridad. La mitigación real es el comentario puesto justo donde
+  alguien lo rompería.
+- **Olvidar `.ThenInclude(n => n.CuyRegistro)` en el ticket** haría perder el
+  «Cuy #3 · » de cada línea sin que nada avise. Se acepta: la degradación es
+  cosmética y el motivo y el monto del descuento siguen imprimiéndose. Su
+  hermano mayor —perder el `Include(p => p.Descuentos)` entero— sí quedó
+  cubierto, comparando la longitud del PDF antes y después de pagar.
 - **El front no tiene Vitest ni Playwright.** El cambio de `FormProductora` y
   el de `QRPublico` se verifican a mano, además de `pnpm lint`,
   `pnpm exec tsc -b` y `pnpm build`.
