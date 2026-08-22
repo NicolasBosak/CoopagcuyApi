@@ -228,8 +228,14 @@ public class PagoService(
                 (l.ProductoraId == productoraId
                  || l.Cuyes.Any(c => c.ProductoraId == productoraId))
                 && !pagados.Contains(l.Id)
-                && l.Cuyes.Any(c => c.ProductoraId == productoraId
-                    && c.VentaLocalPagoId == null))
+                // Una jaula histórica cargada sin detalle por animal no tiene
+                // filas en Cuyes: ahí no hay nada vendido que descontar, y el
+                // lote sigue pendiente. Sin esta primera rama, Any(...) sería
+                // falso y el lote desaparecería del selector — el mismo caso
+                // que MovilizacionService respeta restando en vez de contar.
+                && (!l.Cuyes.Any(c => c.ProductoraId == productoraId)
+                    || l.Cuyes.Any(c => c.ProductoraId == productoraId
+                        && c.VentaLocalPagoId == null)))
             .OrderByDescending(l => l.FechaRecepcion)
             .Select(l => new LotePendientePagoDto(
                 l.Id,

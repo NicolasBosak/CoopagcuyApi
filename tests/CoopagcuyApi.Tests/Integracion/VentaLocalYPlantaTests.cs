@@ -199,6 +199,45 @@ public class VentaLocalYPlantaTests(ApiFactory api) : IAsyncLifetime
         cuerpo.ShouldNotContain($"\"loteId\":{venta.LoteId}");
     }
 
+    [Fact]
+    public async Task UnaJaulaHistoricaSinDetalleSigueApareciendoComoPendiente()
+    {
+        // Jaula histórica: cargada con CantidadAnimales a mano y sin ninguna
+        // fila en CuyRegistros, igual que siembra AlcancePagosTests. Ahí
+        // l.Cuyes está vacío, así que cualquier Any(c => ...) sobre esa
+        // colección da false pase lo que pase. Si el filtro de "lote vendido
+        // entero" no distingue este caso del de una jaula con detalle por
+        // animal, el lote desaparece del selector aunque nadie haya vendido
+        // nada, y la productora se queda sin poder cobrarlo.
+        var productora = await Sembrador.ProductoraAsync(
+            api, Cedula, CentroAcopio.PAT);
+
+        const string codigoLote = "PAT-20260822-900";
+        await using (var db = api.NuevoDbContext())
+        {
+            var lote = new CoopagcuyApi.Features.Productoras.Models.Lote
+            {
+                CodigoLote = codigoLote,
+                ProductoraId = productora.Id,
+                CentroAcopio = CentroAcopio.PAT,
+                CantidadAnimales = 4,
+                PesoTotalGramos = 5200,
+                FechaRecepcion = DateTime.UtcNow,
+                Estado = EstadoLote.Aceptado
+            };
+            db.Lotes.Add(lote);
+            await db.SaveChangesAsync();
+        }
+
+        var respuesta = await api.ComoOperadorCat("PAT")
+            .GetAsync($"/api/pagos/lotes-pendientes/{productora.Id}");
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var cuerpo = await respuesta.Content.ReadAsStringAsync();
+        cuerpo.ShouldContain($"\"codigoLote\":\"{codigoLote}\"");
+    }
+
     private async Task<string> CerrarYCodigoAsync(int loteId)
     {
         await using var db = api.NuevoDbContext();
