@@ -243,7 +243,13 @@ public class PagoService(
 
     public async Task<IEnumerable<TicketPorPagarDto>> ListarPorPagarAsync() =>
         await db.Pagos
-            .Where(p => p.Estado == EstadoPago.Pendiente && p.LoteId != null)
+            .Where(p => p.Estado == EstadoPago.Pendiente
+                && p.LoteId != null
+                // Segunda defensa. Hoy basta con el estado —una venta local
+                // nace Recibido— pero la cola es lo que decide qué trabajo ve
+                // el operador de faenamiento, y no puede depender de un solo
+                // predicado indirecto.
+                && !p.EsVentaLocal)
             .OrderBy(p => p.FechaPago)
             .Select(p => new TicketPorPagarDto(
                 p.Id,
@@ -470,6 +476,14 @@ public class PagoService(
             .FirstOrDefaultAsync(p => p.Id == pagoId)
             ?? throw new KeyNotFoundException($"Pago con Id {pagoId} no encontrado.");
 
+        // La planta no participa en una venta local: el dinero ya lo recibió
+        // la CAT. Sin esta guarda, un ticket de venta local aceptaría una
+        // captura de transferencia y pasaría a un estado que no le
+        // corresponde.
+        if (pago.EsVentaLocal)
+            throw new TransicionInvalidaException(
+                "Es una venta local: la planta no tiene nada que pagar aquí.");
+
         if (pago.Estado != EstadoPago.Pendiente)
             throw new TransicionInvalidaException(
                 $"El ticket ya está en estado {pago.Estado} y no admite un pago nuevo.");
@@ -683,6 +697,11 @@ public class PagoService(
         // responda 404. Confirmar la existencia filtraría datos de otro CAT.
         if (filtroCat is CentroAcopio cat && pago.Productora.CatAsignado != cat)
             throw new KeyNotFoundException($"Pago con Id {pagoId} no encontrado.");
+
+        // Nada que verificar: no hubo transferencia ni captura.
+        if (pago.EsVentaLocal)
+            throw new TransicionInvalidaException(
+                "Es una venta local: no hay pago de la planta que verificar.");
 
         if (pago.Estado != EstadoPago.Pagado)
             throw new TransicionInvalidaException(
