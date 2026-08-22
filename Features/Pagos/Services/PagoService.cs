@@ -33,6 +33,11 @@ public interface IPagoService
     /// captura y pasa el ticket a Pagado. Todo o nada.
     Task<PagoResponseDto> RegistrarPagoEfectivoAsync(
         int pagoId, RegistrarPagoEfectivoDto dto);
+
+    /// Bytes de la captura, o null si no hay, si caducó, o si el pago es de
+    /// otro centro. Un solo null para los tres casos: el controlador responde
+    /// 404 sin distinguirlos, que es justo lo que se quiere.
+    Task<byte[]?> ObtenerComprobanteAsync(int pagoId, CentroAcopio? filtroCat);
 }
 
 /// <summary>
@@ -247,6 +252,53 @@ public class PagoService(AppDbContext db, IBlobStorageService blobs) : IPagoServ
                 n.FotoUrl != null && n.FotoExpiraEn > ahora))
             .AsNoTracking()
             .ToListAsync();
+    }
+
+    public async Task<byte[]?> ObtenerComprobanteAsync(
+        int pagoId, CentroAcopio? filtroCat)
+    {
+        var pago = await db.Pagos
+            .Include(p => p.Productora)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.Id == pagoId);
+
+        if (pago is null) return null;
+
+        // Centro ajeno: null, no excepción. El controlador responde 404 y no
+        // 403 porque confirmar la existencia ya sería filtrar el dato.
+        if (filtroCat is CentroAcopio cat && pago.Productora.CatAsignado != cat)
+            return null;
+
+        if (string.IsNullOrWhiteSpace(pago.ComprobanteUrl)) return null;
+
+        // Caducada: el API deja de servirla en el momento exacto, sin esperar
+        // a que pase el barrido ni la política de Azure.
+        if (pago.ComprobanteExpiraEn is DateTime expira
+            && expira <= DateTime.UtcNow)
+            return null;
+
+        var nombre = NombreDeBlob(pago.ComprobanteUrl);
+        if (nombre is null) return null;
+
+        return await blobs.DescargarComprobanteAsync(nombre);
+    }
+
+    /// <summary>
+    /// Último segmento de la URI del blob. Devuelve null ante cualquier cosa
+    /// que no sea una URI con contenedor y nombre: una fila corrupta no puede
+    /// convertirse en un 500.
+    /// </summary>
+    private static string? NombreDeBlob(string url)
+    {
+        try
+        {
+            var uri = new Uri(url);
+            return uri.Segments.Length < 3 ? null : uri.Segments[^1];
+        }
+        catch (UriFormatException)
+        {
+            return null;
+        }
     }
 
     public async Task<PagoResponseDto> RegistrarPagoEfectivoAsync(

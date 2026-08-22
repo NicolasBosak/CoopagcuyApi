@@ -150,6 +150,20 @@ public class PagosController(IPagoService service, ITicketPagoService tickets) :
         }
     }
 
+    /// <summary>
+    /// Captura de la transferencia. La ve la CAT que tiene que verificarla y
+    /// la planta que la subió. Se sirve por endpoint autenticado y no por URL
+    /// pública: es una imagen de una operación bancaria.
+    /// </summary>
+    [HttpGet("{id:int}/comprobante")]
+    [Authorize(Roles = "OperadorCAT,AdminCooperativa,OperadorFaenamiento")]
+    public async Task<IActionResult> Comprobante(int id)
+    {
+        var bytes = await service.ObtenerComprobanteAsync(id, FiltroCat());
+        // Un solo 404 para no existe, caducada y centro ajeno
+        return bytes is null ? NotFound() : File(bytes, "image/jpeg");
+    }
+
     [HttpGet("{id:int}/cuyes-con-novedad")]
     [Authorize(Roles = "OperadorFaenamiento,AdminCooperativa")]
     public async Task<IActionResult> CuyesConNovedad(int id)
