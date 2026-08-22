@@ -1011,7 +1011,12 @@ public class TicketPagoService(AppDbContext db) : ITicketPagoService
             {
                 page.ContinuousSize(AnchoMm, Unit.Millimetre);
                 page.Margin(MargenMm, Unit.Millimetre);
-                page.DefaultTextStyle(t => t.FontSize(8).FontFamily(Fonts.Calibri));
+                // BrandingAssets.FamiliaTipografica y no Fonts.Calibri: la imagen
+                // de pruebas y la de producción solo instalan fonts-liberation.
+                // Pedir una fuente ausente da un PDF sin una sola letra, y del
+                // binario no se puede afirmar nada en una prueba.
+                page.DefaultTextStyle(t => t.FontSize(8)
+                    .FontFamily(BrandingAssets.FamiliaTipografica));
 
                 page.Content().Column(col =>
                 {
@@ -1996,7 +2001,7 @@ En `PagosController`:
     }
 ```
 
-**Importante:** el `[Authorize(Roles = "OperadorCAT,AdminCooperativa")]` de la clase debe seguir presente para los endpoints que no declaran el suyo. Los atributos de método lo sustituyen, no lo acumulan.
+**Importante — corregido durante la ejecución (Task 4):** en ASP.NET Core los `[Authorize]` de clase y de método **se acumulan**, no se sustituyen. Un atributo de método con `Roles = "OperadorFaenamiento"` bajo una clase con `Roles = "OperadorCAT,AdminCooperativa"` exige *ambas* cosas, así que la planta quedaría fuera. La Task 4 ya retiró el atributo de clase y lo repartió por acción; al añadir endpoints nuevos, declara el rol en cada uno.
 
 - [ ] **Step 6: Ejecutar y comprobar que pasa**
 
