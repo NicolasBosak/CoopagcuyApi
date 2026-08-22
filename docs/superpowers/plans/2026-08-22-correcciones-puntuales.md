@@ -880,9 +880,20 @@ Esperado: `Passed: 6, Failed: 0`.
 
 - [ ] **Step 8: Comprobar por mutación que la prueba nueva sirve de algo**
 
-Quitar `.ThenInclude(n => n.CuyRegistro)` del `Include`. Volver a ejecutar.
+Quitar `.ThenInclude(d => d.NovedadCat)` del `Include`. Volver a ejecutar.
 Esperado: **falla** `UnTicketConDescuentosSeSigueDescargando` con un 500 —
 ninguna unitaria se entera. **Restaurar el `ThenInclude`.**
+
+> **Corrección sobre el borrador de este plan.** Aquí decía originalmente que
+> la mutación fuera quitar `.ThenInclude(n => n.CuyRegistro)`. **Eso no rompe
+> nada**, y descubrirlo importa: `TextosTicket.LineaNovedad` accede a esa
+> navegación con `?.`, así que un `CuyRegistro` sin cargar no lanza — el ticket
+> imprime «Oreja dura» en lugar de «Cuy #3 · Oreja dura» y nadie se entera.
+>
+> Es decir: **el olvido de ese `ThenInclude` concreto es una degradación
+> silenciosa que ninguna prueba detecta.** Queda anotado como límite conocido,
+> igual que el de la Tarea 2. El `Include` correcto sí está puesto; lo que no
+> hay es una red que avise si alguien lo quita.
 
 - [ ] **Step 9: Batería completa**
 
