@@ -322,25 +322,68 @@ public class PagoService(
         }
     }
 
+    // Presupuesto de tiempo para la fase de borrado en Blob dentro de una
+    // pasada del barrido. Con la política de reintentos por defecto del SDK
+    // de Azure, un Blob caído puede hacer que una sola llamada tarde del
+    // orden de 100 segundos antes de agotar sus reintentos; sin este tope,
+    // 20 filas secuenciales podrían colgar ListarAsync varios minutos. 5
+    // segundos es deliberadamente pequeño frente a eso: es tiempo suficiente
+    // para que las ~20 llamadas normales (que tardan milisegundos) terminen
+    // sin recortarse, pero corto para quien está esperando la lista de
+    // pagos. Si se agota, las filas que quedaron sin procesar simplemente se
+    // reintentan en la siguiente pasada (la siguiente consulta a
+    // /api/pagos) — no se pierden ni quedan corruptas.
+    private const int PresupuestoBarridoBlobMs = 5000;
+
     public async Task<int> BarrerComprobantesCaducadosAsync()
     {
         var ahora = DateTime.UtcNow;
 
-        var caducados = await db.Pagos
-            .Where(p => p.ComprobanteUrl != null
-                && p.ComprobanteExpiraEn != null
-                && p.ComprobanteExpiraEn <= ahora)
-            // Tope por pasada: el barrido va colgado de una consulta que un
-            // operador está esperando. Mejor barrer 20 por vez, muchas veces,
-            // que dejar la lista congelada mientras se limpian doscientos.
-            .Take(20)
-            .ToListAsync();
+        List<Pago> caducados;
+        try
+        {
+            caducados = await db.Pagos
+                .Where(p => p.ComprobanteUrl != null
+                    && p.ComprobanteExpiraEn != null
+                    && p.ComprobanteExpiraEn <= ahora)
+                // Orden explícito y no implícito: sin él, Postgres no
+                // garantiza qué 20 filas caducadas trae el Take, y eso puede
+                // variar de una pasada a otra. No es para procesar en orden
+                // de llegada (FIFO) — es solo para que el resultado sea
+                // determinista; las filas que no entren en esta pasada las
+                // recoge la siguiente igual.
+                .OrderBy(p => p.Id)
+                // Tope por pasada: el barrido va colgado de una consulta que
+                // un operador está esperando. Mejor barrer 20 por vez, muchas
+                // veces, que dejar la lista congelada mientras se limpian
+                // doscientos.
+                .Take(20)
+                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            // La consulta de pagos NO puede caerse porque el SELECT del
+            // barrido falle. Un problema transitorio de Postgres aislado a
+            // esta consulta (una desconexión puntual, el pool agotado) no
+            // tiene por qué tumbar el SELECT de abajo, que es el que de
+            // verdad le importa al operador: se registra y se sigue como si
+            // no hubiera nada que barrer esta vez.
+            log.LogWarning(ex,
+                "No se pudo obtener los comprobantes caducados a barrer");
+            return 0;
+        }
 
         if (caducados.Count == 0) return 0;
 
         var borrados = 0;
+        using var presupuesto = new CancellationTokenSource(PresupuestoBarridoBlobMs);
+
         foreach (var pago in caducados)
         {
+            // El presupuesto ya se agotó: se deja el resto tal cual, sin
+            // intentar más llamadas a Blob. La siguiente pasada las recoge.
+            if (presupuesto.IsCancellationRequested) break;
+
             var nombre = NombreDeBlob(pago.ComprobanteUrl!);
             if (nombre is null)
             {
@@ -352,21 +395,40 @@ public class PagoService(
 
             try
             {
-                await blobs.BorrarComprobanteAsync(nombre);
+                await blobs.BorrarComprobanteAsync(nombre, presupuesto.Token);
                 pago.ComprobanteUrl = null;
                 borrados++;
             }
             catch (Exception ex)
             {
                 // La consulta de pagos NO puede caerse por un borrado. Si
-                // Blob está caído o faltan permisos, se registra y se sigue:
+                // Blob está caído, faltan permisos, o se agotó el
+                // presupuesto de tiempo de arriba, se registra y se sigue:
                 // la política de Azure lo borrará igual el día 30.
                 log.LogWarning(ex,
                     "No se pudo borrar la captura del pago {PagoId}", pago.Id);
             }
         }
 
-        await db.SaveChangesAsync();
+        try
+        {
+            await db.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            // Mismo motivo que el SELECT de arriba: un fallo de guardado
+            // aislado a esta escritura (deadlock, conexión que se cae a
+            // mitad del commit) no puede propagarse hacia ListarAsync. Los
+            // blobs que sí se lograron borrar quedan borrados en Azure —eso
+            // no se deshace— pero sin el commit sus filas siguen apuntando
+            // al blob que ya no existe, así que se reintentan (y
+            // DeleteIfExists ya tolera reintentar un borrado) en la próxima
+            // pasada en vez de reportarse como borradas ahora.
+            log.LogWarning(ex,
+                "No se pudo guardar el resultado del barrido de comprobantes");
+            return 0;
+        }
+
         return borrados;
     }
 

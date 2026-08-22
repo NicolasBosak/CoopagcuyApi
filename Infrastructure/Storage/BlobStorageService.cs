@@ -25,7 +25,12 @@ public interface IBlobStorageService
     /// Borra la captura. No lanza si ya no está: el barrido oportunista
     /// puede pisarse consigo mismo y no puede tumbar la petición que lo
     /// dispara.
-    Task BorrarComprobanteAsync(string nombre);
+    ///
+    /// cancellationToken: el barrido le pasa un token con presupuesto de
+    /// tiempo propio, para que una caída de Blob no cuelgue la petición que
+    /// lo arrastra (ver PagoService.BarrerComprobantesCaducadosAsync).
+    Task BorrarComprobanteAsync(
+        string nombre, CancellationToken cancellationToken = default);
 }
 
 public class BlobStorageService(IConfiguration configuration) : IBlobStorageService
@@ -114,12 +119,19 @@ public class BlobStorageService(IConfiguration configuration) : IBlobStorageServ
         return await DescargarAsync(contenedor, nombre);
     }
 
-    public async Task BorrarComprobanteAsync(string nombre)
+    public async Task BorrarComprobanteAsync(
+        string nombre, CancellationToken cancellationToken = default)
     {
         var contenedor = await ContenedorComprobantesAsync();
         // DeleteIfExists y no Delete: dos consultas simultáneas pueden barrer
         // el mismo blob, y la segunda no puede reventar por llegar tarde.
-        await contenedor.GetBlobClient(nombre).DeleteIfExistsAsync();
+        //
+        // El token viaja hasta aquí porque la política de reintentos por
+        // defecto del SDK de Azure es la que decide cuánto puede tardar esta
+        // llamada si Blob no responde; sin el token, ese tiempo lo paga
+        // ListarAsync entero (ver el comentario en el barrido).
+        await contenedor.GetBlobClient(nombre)
+            .DeleteIfExistsAsync(cancellationToken: cancellationToken);
     }
 
     private async Task<BlobContainerClient> ContenedorComprobantesAsync() =>
