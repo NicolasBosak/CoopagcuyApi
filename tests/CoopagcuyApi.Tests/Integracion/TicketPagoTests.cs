@@ -155,6 +155,73 @@ public class TicketPagoTests(ApiFactory api) : IAsyncLifetime
         (bytesDespues.Length - bytesAntes.Length).ShouldBeGreaterThan(1000);
     }
 
+    [Fact]
+    public async Task ElTicketDeUnaVentaLocalSeDescargaYEsMasLargo()
+    {
+        // Las unitarias de TextosVentaLocal construyen el Pago en memoria:
+        // pasarían aunque la consulta de los animales vendidos faltara. Aquí
+        // se comprueba que el bloque llega al documento.
+        var productora = await Sembrador.ProductoraAsync(
+            api, CedulaProductora, CentroAcopio.PAT);
+
+        var cuyes = Enumerable.Range(0, 3).Select(_ => new
+        {
+            pesoGramos = 1300m,
+            colorPelaje = "Blanco",
+            estadoOreja = "Blanda",
+            tamanoAnimal = "Normal"
+        }).ToArray();
+
+        var entrega = await api.ComoOperadorCat("PAT")
+            .PostAsJsonAsync("/api/recepcion/entregas", new
+            {
+                centroAcopio = "PAT",
+                productoraId = productora.Id,
+                cuyes,
+                enAyunas = true,
+                responsableRecepcion = "Operadora de prueba"
+            });
+        entrega.EnsureSuccessStatusCode();
+
+        int loteId;
+        int[] ids;
+        await using (var db = api.NuevoDbContext())
+        {
+            ids = await db.CuyRegistros
+                .Where(c => c.ProductoraId == productora.Id)
+                .OrderBy(c => c.Id).Select(c => c.Id).ToArrayAsync();
+            loteId = await db.CuyRegistros
+                .Where(c => c.Id == ids[0]).Select(c => c.LoteId).FirstAsync();
+        }
+
+        var venta = await api.ComoOperadorCat("PAT")
+            .PostAsJsonAsync("/api/pagos/venta-local", new
+            {
+                productoraId = productora.Id,
+                loteId,
+                cuyRegistroIds = ids,
+                montoUsd = 45m,
+                metodoPago = "Cuotas",
+                numeroDias = 30,
+                valorPorDia = 1.5m,
+                responsable = "Operadora de prueba"
+            });
+        venta.EnsureSuccessStatusCode();
+
+        int pagoId;
+        await using (var db = api.NuevoDbContext())
+            pagoId = await db.Pagos.Where(p => p.EsVentaLocal)
+                .Select(p => p.Id).FirstAsync();
+
+        var respuesta = await api.ComoOperadorCat("PAT")
+            .GetAsync($"/api/pagos/{pagoId}/ticket");
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var bytes = await respuesta.Content.ReadAsByteArrayAsync();
+        bytes.Length.ShouldBeGreaterThan(1000);
+        bytes[0..4].ShouldBe(new byte[] { 0x25, 0x50, 0x44, 0x46 });
+    }
+
     /// <summary>
     /// Igual que Sembrador.PagoConNovedadAsync pero con DOS cuyes con signos
     /// clínicos en la misma entrega, para poder citar dos novedades distintas

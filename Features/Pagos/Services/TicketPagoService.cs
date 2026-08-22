@@ -72,6 +72,16 @@ public class TicketPagoService(AppDbContext db) : ITicketPagoService
                 .ToListAsync()
             : [];
 
+        // Números de los animales que cubre esta venta. Van al papel para que
+        // la productora pueda contrastarlos con los que entregó.
+        var vendidos = pago.EsVentaLocal
+            ? await db.CuyRegistros
+                .Where(c => c.VentaLocalPagoId == pago.Id)
+                .OrderBy(c => c.NumeroEnLote)
+                .Select(c => c.NumeroEnLote)
+                .ToListAsync()
+            : [];
+
         var documento = Document.Create(contenedor =>
         {
             contenedor.Page(page =>
@@ -92,7 +102,7 @@ public class TicketPagoService(AppDbContext db) : ITicketPagoService
 
                     col.Item().AlignCenter().Text("COOPAGCUY")
                         .FontSize(13).Bold();
-                    col.Item().AlignCenter().Text("Comprobante de pago")
+                    col.Item().AlignCenter().Text(TextosVentaLocal.Encabezado(pago))
                         .FontSize(8);
                     col.Item().LineHorizontal(0.5f);
 
@@ -116,6 +126,14 @@ public class TicketPagoService(AppDbContext db) : ITicketPagoService
                     col.Item().Text($"Cuyes aportados: {cuyes.Count}");
                     col.Item().Text($"Peso total: {cuyes.Sum():N0} g");
                     col.Item().LineHorizontal(0.5f);
+
+                    if (pago.EsVentaLocal)
+                    {
+                        col.Item().Text("ANIMALES VENDIDOS").Bold();
+                        col.Item().Text(string.Join(", ",
+                            vendidos.Select(n => $"#{n}")));
+                        col.Item().LineHorizontal(0.5f);
+                    }
 
                     if (TextosTicket.HayDesglose(pago))
                     {
@@ -153,8 +171,10 @@ public class TicketPagoService(AppDbContext db) : ITicketPagoService
                         .Text(string.Create(CultureInfo.InvariantCulture,
                             $"USD {TextosTicket.MontoDestacado(pago):N2}"))
                         .FontSize(18).Bold();
-                    col.Item().AlignCenter().Text(TextoEstado(pago.Estado))
+                    col.Item().AlignCenter().Text(TextosVentaLocal.TextoEstado(pago))
                         .FontSize(9).Bold();
+                    col.Item().AlignCenter()
+                        .Text(TextosVentaLocal.LineaMetodo(pago)).FontSize(8);
 
                     col.Item().LineHorizontal(0.5f);
                     col.Item().Text($"Responsable: {pago.Responsable}").FontSize(7);
