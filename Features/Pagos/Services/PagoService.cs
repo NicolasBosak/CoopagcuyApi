@@ -213,26 +213,36 @@ public class PagoService(
                     "Tu usuario solo puede consultar productoras de su centro.");
         }
 
+        // Solo los pagos de la PLANTA saldan el lote. Una venta local cobra
+        // los animales que se quedaron en la comunidad; los que viajan siguen
+        // pendientes de que alguien los pague, y sin esta distinción el lote
+        // desaparecía del selector y esos animales no se le cobraban a nadie.
         var pagados = db.Pagos
-            .Where(p => p.ProductoraId == productoraId && p.LoteId != null)
+            .Where(p => p.ProductoraId == productoraId
+                && p.LoteId != null
+                && !p.EsVentaLocal)
             .Select(p => p.LoteId!.Value);
 
         return await db.Lotes
             .Where(l =>
                 (l.ProductoraId == productoraId
                  || l.Cuyes.Any(c => c.ProductoraId == productoraId))
-                && !pagados.Contains(l.Id))
+                && !pagados.Contains(l.Id)
+                && l.Cuyes.Any(c => c.ProductoraId == productoraId
+                    && c.VentaLocalPagoId == null))
             .OrderByDescending(l => l.FechaRecepcion)
             .Select(l => new LotePendientePagoDto(
                 l.Id,
                 l.CodigoLote,
                 l.CentroAcopio.ToString(),
                 l.FechaRecepcion,
-                // Lo que aportó ESTA productora, no el total de la jaula:
-                // es la base sobre la que se le paga
-                l.Cuyes.Count(c => c.ProductoraId == productoraId),
+                // Lo que queda por enviar de ESTA productora: es la base
+                // sobre la que la planta va a pagar.
+                l.Cuyes.Count(c => c.ProductoraId == productoraId
+                    && c.VentaLocalPagoId == null),
                 l.Cuyes
-                    .Where(c => c.ProductoraId == productoraId)
+                    .Where(c => c.ProductoraId == productoraId
+                        && c.VentaLocalPagoId == null)
                     .Sum(c => (decimal?)c.PesoGramos) ?? 0))
             .AsNoTracking()
             .ToListAsync();

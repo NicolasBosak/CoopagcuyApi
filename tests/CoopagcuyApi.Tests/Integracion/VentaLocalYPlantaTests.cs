@@ -97,6 +97,117 @@ public class VentaLocalYPlantaTests(ApiFactory api) : IAsyncLifetime
         pago.FechaVerificacion.ShouldBeNull();
     }
 
+    [Fact]
+    public async Task ElEnvioSeLimitaALosCuyesQueQuedan()
+    {
+        // 5 entregados, 2 vendidos: la planta no puede recibir más de 3.
+        var venta = await VenderAsync(2);
+        var codigo = await CerrarYCodigoAsync(venta.LoteId);
+
+        var respuesta = await api.ComoOperadorCat("PAT")
+            .PostAsJsonAsync($"/api/recepcion/lotes/{codigo}/movilizacion", new
+            {
+                conductor = "Conductor de prueba",
+                cantidadMovilizada = 4,
+                condicionesTransporte = new[] { "JaulasLimpias" },
+                sinAntibioticos7Dias = true,
+                responsableDespacho = "Responsable de prueba"
+            });
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+    }
+
+    [Fact]
+    public async Task ConLoQueQuedaElEnvioSeAcepta()
+    {
+        var venta = await VenderAsync(2);
+        var codigo = await CerrarYCodigoAsync(venta.LoteId);
+
+        var respuesta = await api.ComoOperadorCat("PAT")
+            .PostAsJsonAsync($"/api/recepcion/lotes/{codigo}/movilizacion", new
+            {
+                conductor = "Conductor de prueba",
+                cantidadMovilizada = 3,
+                condicionesTransporte = new[] { "JaulasLimpias" },
+                sinAntibioticos7Dias = true,
+                responsableDespacho = "Responsable de prueba"
+            });
+
+        respuesta.EnsureSuccessStatusCode();
+    }
+
+    [Fact]
+    public async Task UnLoteVendidoEnteroYaNoSePuedeEnviar()
+    {
+        var venta = await VenderAsync(5);          // los cinco
+        var codigo = await CerrarYCodigoAsync(venta.LoteId);
+
+        var respuesta = await api.ComoOperadorCat("PAT")
+            .PostAsJsonAsync($"/api/recepcion/lotes/{codigo}/movilizacion", new
+            {
+                conductor = "Conductor de prueba",
+                cantidadMovilizada = 1,
+                condicionesTransporte = new[] { "JaulasLimpias" },
+                sinAntibioticos7Dias = true,
+                responsableDespacho = "Responsable de prueba"
+            });
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+
+        // El 409 por sí solo lo daría igual la comprobación de cantidad
+        // (CantidadMovilizada > disponibles): con disponibles = 0 y el
+        // validador exigiendo CantidadMovilizada >= 1, esa comprobación ya
+        // dispara sola. Lo que esta guarda aporta de más —y lo único que
+        // puede ponerla roja— es que la operadora lea que el lote se vendió
+        // entero en la comunidad, en vez de una resta de cantidades que no
+        // explica nada.
+        var cuerpo = await respuesta.Content.ReadAsStringAsync();
+        cuerpo.ShouldContain("completo en la comunidad");
+
+        await using var db = api.NuevoDbContext();
+        (await db.Movilizaciones.AnyAsync()).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task UnaVentaParcialNoDaElLotePorPagado()
+    {
+        // Vender 2 de 5 no salda lo que la planta debe pagar por los otros 3:
+        // sin esto el lote desaparecía del selector de pago y esos animales
+        // no se le cobraban a nadie.
+        var venta = await VenderAsync(2);
+
+        var respuesta = await api.ComoOperadorCat("PAT")
+            .GetAsync($"/api/pagos/lotes-pendientes/{venta.ProductoraId}");
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var cuerpo = await respuesta.Content.ReadAsStringAsync();
+        cuerpo.ShouldContain($"\"loteId\":{venta.LoteId}");
+        // Y el conteo que ofrece es el de los que quedan, no el de la entrega.
+        cuerpo.ShouldContain("\"cuyesEntregados\":3");
+    }
+
+    [Fact]
+    public async Task UnLoteVendidoEnteroDejaDeEstarPendienteDePago()
+    {
+        var venta = await VenderAsync(5);
+
+        var respuesta = await api.ComoOperadorCat("PAT")
+            .GetAsync($"/api/pagos/lotes-pendientes/{venta.ProductoraId}");
+
+        var cuerpo = await respuesta.Content.ReadAsStringAsync();
+        cuerpo.ShouldNotContain($"\"loteId\":{venta.LoteId}");
+    }
+
+    private async Task<string> CerrarYCodigoAsync(int loteId)
+    {
+        await using var db = api.NuevoDbContext();
+        var lote = await db.Lotes.FirstAsync(l => l.Id == loteId);
+        lote.Cerrado = true;
+        await db.SaveChangesAsync();
+        return lote.CodigoLote;
+    }
+
     // ── Sembrado compartido con la Tarea 4 ────────────────────────────
 
     private sealed record Venta(int PagoId, int LoteId, int ProductoraId, int[] CuyIds);

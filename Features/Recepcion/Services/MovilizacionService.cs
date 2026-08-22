@@ -37,10 +37,31 @@ public class MovilizacionService(AppDbContext db) : IMovilizacionService
             throw new InvalidOperationException(
                 $"El lote {codigoLote} ya tiene una movilización registrada.");
 
-        if (dto.CantidadMovilizada > lote.CantidadAnimales)
+        // Lo que se vendió en la comunidad ya no está en el centro. El
+        // cálculo es POR ANIMAL y no por productora: eso es lo que resuelve
+        // solo la jaula compartida, donde una vendió lo suyo y la otra no.
+        //
+        // Se cuenta lo VENDIDO y se resta, en vez de contar lo disponible.
+        // Parece lo mismo y no lo es: una jaula histórica cargada sin detalle
+        // por animal no tiene filas en CuyRegistros, y contar disponibles ahí
+        // daría cero — bloqueando el envío de un lote que nadie vendió.
+        // Restando, esa jaula da vendidos = 0 y conserva exactamente la
+        // conducta de hoy.
+        var vendidos = await db.CuyRegistros
+            .CountAsync(c => c.LoteId == lote.Id && c.VentaLocalPagoId != null);
+
+        var disponibles = lote.CantidadAnimales - vendidos;
+
+        if (disponibles <= 0)
             throw new InvalidOperationException(
-                $"La cantidad movilizada ({dto.CantidadMovilizada}) supera la " +
-                $"cantidad recibida en el lote ({lote.CantidadAnimales}).");
+                $"El lote {codigoLote} se vendió completo en la comunidad: " +
+                $"no queda ningún animal que enviar a la planta.");
+
+        if (dto.CantidadMovilizada > disponibles)
+            throw new InvalidOperationException(
+                $"La cantidad movilizada ({dto.CantidadMovilizada}) supera los " +
+                $"animales disponibles del lote ({disponibles}): " +
+                $"{vendidos} se vendieron en la comunidad.");
 
         // Solo entran claves del catálogo: si el front manda cualquier otra
         // cosa se rechaza en vez de guardarla, que es justo lo que hacía el
