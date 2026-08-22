@@ -16,21 +16,10 @@ public interface IProductoraService
     Task<bool> ActualizarAsync(int id, CrearProductoraDto dto, string modificadoPor);
     Task<bool> CambiarEstadoAsync(int id, bool activa);
     Task<IEnumerable<ProductoraCambioDto>> ObtenerHistorialAsync(int id);
-
-    /// CAT de referencia de una comunidad del catálogo, o null si no existe.
-    Task<CentroAcopio?> CatDeComunidadAsync(int comunidadId);
 }
 
 public class ProductoraService(AppDbContext db) : IProductoraService
 {
-    public async Task<CentroAcopio?> CatDeComunidadAsync(int comunidadId)
-    {
-        var comunidad = await db.Comunidades
-            .AsNoTracking()
-            .FirstOrDefaultAsync(c => c.Id == comunidadId);
-        return comunidad?.CatReferencia;
-    }
-
     public async Task<ProductoraResponseDto> CrearAsync(CrearProductoraDto dto)
     {
         var cedula = dto.Cedula.Trim();
