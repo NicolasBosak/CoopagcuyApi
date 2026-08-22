@@ -43,3 +43,14 @@ public enum CentroAcopio
     NAB, // Nabón/El Progreso
     PEL  // Pelincay
 }
+
+/// <summary>
+/// Ciclo de vida de un pago. Las transiciones son de un solo sentido: no se
+/// anula un pago, se corrige con otro.
+/// </summary>
+public enum EstadoPago
+{
+    Pendiente,  // la CAT lo emitió, la planta aún no transfiere
+    Pagado,     // la planta transfirió y subió la captura
+    Recibido    // la CAT confirmó que el dinero llegó
+}

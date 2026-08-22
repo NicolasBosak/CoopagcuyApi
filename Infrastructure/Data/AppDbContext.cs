@@ -3,6 +3,7 @@ using CoopagcuyApi.Common.Auth;
 using CoopagcuyApi.Common.Auth.Recuperacion;
 using CoopagcuyApi.Features.Catalogos.Models;
 using CoopagcuyApi.Features.Faenamiento.Models;
+using CoopagcuyApi.Features.Pagos.Models;
 using CoopagcuyApi.Features.Productoras.Models;
 using CoopagcuyApi.Features.QR.Models;
 using CoopagcuyApi.Features.Recepcion.Models;
@@ -24,6 +25,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Comunidad> Comunidades => Set<Comunidad>();
     public DbSet<Movilizacion> Movilizaciones => Set<Movilizacion>();
     public DbSet<Pago> Pagos => Set<Pago>();
+    public DbSet<DescuentoPago> Descuentos => Set<DescuentoPago>();
     public DbSet<CuyRegistro> CuyRegistros => Set<CuyRegistro>();
     public DbSet<CuyFaenamiento> CuyFaenamientos => Set<CuyFaenamiento>();
     public DbSet<RetornoProductora> RetornosProductora => Set<RetornoProductora>();
@@ -293,9 +295,25 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasKey(p => p.Id);
             e.Property(p => p.MontoUsd).HasPrecision(10, 2);
             e.Property(p => p.ValorPorDia).HasPrecision(10, 2);
+            e.Property(p => p.MontoPagadoUsd).HasPrecision(10, 2);
             e.Property(p => p.MetodoPago).HasMaxLength(50).IsRequired();
             e.Property(p => p.Responsable).HasMaxLength(150).IsRequired();
             e.Property(p => p.Observaciones).HasMaxLength(500);
+
+            // Token de concurrencia optimista: dos /pagar simultáneos sobre el
+            // MISMO ticket (con novedades distintas) pasan los dos el chequeo
+            // "Estado == Pendiente" en memoria, y sin esto el UPDATE de abajo
+            // es last-writer-wins — el perdedor pisa MontoPagadoUsd del
+            // ganador mientras las filas de Descuentos de ambos ya quedaron
+            // guardadas (el índice único solo bloquea repetir la MISMA
+            // novedad). El monto persistido y la suma de sus propios
+            // descuentos dejan de cuadrar. Con el Estado como token, EF
+            // agrega el valor original a la cláusula WHERE del UPDATE: el
+            // segundo en llegar afecta cero filas y RegistrarPagoEfectivoAsync
+            // ya sabe convertir eso en 409 (DbUpdateConcurrencyException
+            // hereda de DbUpdateException).
+            e.Property(p => p.Estado).IsConcurrencyToken();
+
             e.HasOne(p => p.Productora)
              .WithMany()
              .HasForeignKey(p => p.ProductoraId);
@@ -303,6 +321,30 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
              .WithMany()
              .HasForeignKey(p => p.LoteId);
         });
+
+        modelBuilder.Entity<DescuentoPago>()
+            .Property(d => d.MontoUsd).HasPrecision(10, 2);
+
+        // Un mismo defecto no se descuenta dos veces sobre el mismo ticket. Va en el
+        // índice y no solo en el servicio: dos peticiones simultáneas pasarían las
+        // dos por la validación y grabarían el descuento por duplicado.
+        modelBuilder.Entity<DescuentoPago>()
+            .HasIndex(d => new { d.PagoId, d.NovedadCatId })
+            .IsUnique();
+
+        // Restrict y no Cascade: borrar una novedad no puede llevarse por delante la
+        // justificación de un pago ya cobrado.
+        modelBuilder.Entity<DescuentoPago>()
+            .HasOne(d => d.NovedadCat)
+            .WithMany()
+            .HasForeignKey(d => d.NovedadCatId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<DescuentoPago>()
+            .HasOne(d => d.Pago)
+            .WithMany(p => p.Descuentos)
+            .HasForeignKey(d => d.PagoId)
+            .OnDelete(DeleteBehavior.Cascade);
 
         // Marca de idempotencia del sync offline — RF-211: la pareja
         // (dispositivo, id de cliente) solo puede procesarse una vez
