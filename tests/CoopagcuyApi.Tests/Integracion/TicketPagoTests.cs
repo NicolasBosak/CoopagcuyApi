@@ -87,6 +87,40 @@ public class TicketPagoTests(ApiFactory api) : IAsyncLifetime
         respuesta.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
+    [Fact]
+    public async Task UnTicketConDescuentosSeSigueDescargando()
+    {
+        // Las unitarias de TextosTicket construyen los objetos en memoria con
+        // la navegación ya poblada: pasarían igual aunque el Include faltara.
+        // Lo que ocurre en ese caso no es un texto feo, es un
+        // NullReferenceException al componer el PDF — un 500 al pulsar
+        // "Imprimir", y justo en el ticket que sí lleva descuentos.
+        var (pagoId, novedadId) = await Sembrador.PagoConNovedadAsync(
+            api, CedulaProductora, 120m);
+
+        var pagado = await api.ComoOperadorFaenamiento()
+            .PostAsJsonAsync($"/api/pagos/{pagoId}/pagar", new
+            {
+                descuentos = new[] { new
+                {
+                    novedadCatId = novedadId,
+                    descripcion = "oreja calcificada, canal fuera de norma",
+                    montoUsd = 17m
+                }},
+                comprobanteBase64 = Sembrador.ComprobanteBase64,
+                pagadoPor = "Operador de planta"
+            });
+        pagado.EnsureSuccessStatusCode();
+
+        var respuesta = await api.ComoOperadorCat("PAT")
+            .GetAsync($"/api/pagos/{pagoId}/ticket");
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var bytes = await respuesta.Content.ReadAsByteArrayAsync();
+        bytes.Length.ShouldBeGreaterThan(1000);
+        bytes[0..4].ShouldBe(new byte[] { 0x25, 0x50, 0x44, 0x46 });
+    }
+
     /// Entrega real de 3 cuyes en PAT + su ticket de $120. Devuelve el Id.
     private async Task<int> PagoSembradoAsync()
     {

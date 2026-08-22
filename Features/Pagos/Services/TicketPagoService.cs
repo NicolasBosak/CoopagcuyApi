@@ -56,6 +56,8 @@ public class TicketPagoService(AppDbContext db) : ITicketPagoService
         var pago = await db.Pagos
             .Include(p => p.Productora).ThenInclude(pr => pr.Comunidad)
             .Include(p => p.Lote)
+            .Include(p => p.Descuentos).ThenInclude(d => d.NovedadCat)
+                .ThenInclude(n => n.CuyRegistro)
             .AsNoTracking()
             .FirstOrDefaultAsync(p => p.Id == pagoId)
             ?? throw new KeyNotFoundException($"Pago con Id {pagoId} no encontrado.");
@@ -114,7 +116,33 @@ public class TicketPagoService(AppDbContext db) : ITicketPagoService
                     col.Item().Text($"Peso total: {cuyes.Sum():N0} g");
                     col.Item().LineHorizontal(0.5f);
 
-                    col.Item().AlignCenter().Text($"USD {pago.MontoUsd:N2}")
+                    if (TextosTicket.HayDesglose(pago))
+                    {
+                        col.Item().Text($"Subtotal: USD {pago.MontoUsd:N2}");
+                        col.Item().PaddingTop(2).Text("DESCUENTOS").Bold();
+
+                        // Orden por Id: dos reimpresiones del mismo ticket
+                        // tienen que salir iguales.
+                        foreach (var descuento in pago.Descuentos.OrderBy(d => d.Id))
+                        {
+                            col.Item().Text(TextosTicket.LineaNovedad(descuento));
+
+                            // Sin truncar. Es el motivo por el que se le pagó
+                            // menos: media frase la deja sin poder reclamar, y
+                            // eso es peor que no imprimirlo. QuestPDF envuelve
+                            // solo dentro del ancho del rollo.
+                            col.Item().PaddingLeft(4)
+                                .Text(descuento.Descripcion).FontSize(7);
+
+                            col.Item().AlignRight()
+                                .Text($"-USD {descuento.MontoUsd:N2}");
+                        }
+
+                        col.Item().LineHorizontal(0.5f);
+                    }
+
+                    col.Item().AlignCenter()
+                        .Text($"USD {TextosTicket.MontoDestacado(pago):N2}")
                         .FontSize(18).Bold();
                     col.Item().AlignCenter().Text(TextoEstado(pago.Estado))
                         .FontSize(9).Bold();
