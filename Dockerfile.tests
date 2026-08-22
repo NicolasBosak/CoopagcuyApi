@@ -13,4 +13,9 @@ FROM mcr.microsoft.com/dotnet/sdk:8.0
 # instaladas cambia y QuestPDF acaba resolviendo una tipografía distinta a la
 # del servidor real. Un entorno de pruebas que se parece "casi" a producción no
 # sirve para revisar un documento maquetado.
-RUN apt-get update && apt-get install -y fontconfig fonts-liberation && rm -rf /var/lib/apt/lists/*
+#
+# tzdata se añade aparte: docker-compose.tests.yml fija TZ=America/Guayaquil
+# para que la rama DateTimeKind.Local de FechaUtc.Normalizar sea comprobable,
+# y esa variable no tiene efecto en .NET sobre Linux sin la base de zonas
+# horarias del sistema instalada.
+RUN apt-get update && apt-get install -y fontconfig fonts-liberation tzdata && rm -rf /var/lib/apt/lists/*

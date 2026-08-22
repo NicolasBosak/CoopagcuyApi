@@ -17,7 +17,45 @@ public class FechaLocalTests
     {
         var utc = new DateTime(2026, 8, 21, 20, 30, 0, DateTimeKind.Utc);
 
-        FechaUtc.ALocal(utc).ShouldBe(new DateTime(2026, 8, 21, 15, 30, 0));
+        var local = FechaUtc.ALocal(utc);
+
+        local.ShouldBe(new DateTime(2026, 8, 21, 15, 30, 0));
+
+        // Decisión deliberada y documentada en FechaUtc.ALocal: el resultado
+        // se marca Unspecified porque ya no es un instante UTC, y dejarlo
+        // marcado como Utc invitaría a que alguien lo volviera a convertir
+        // más abajo. ShouldBe(DateTime) compara solo los ticks e ignora el
+        // Kind, así que sin esta aserción nadie fija esa decisión.
+        local.Kind.ShouldBe(DateTimeKind.Unspecified);
+    }
+
+    [Fact]
+    public void Normalizar_convierteUnKindLocalSegunLaZonaDelSistema()
+    {
+        // La única rama de Normalizar con efecto real es DateTimeKind.Local.
+        // TZ=America/Guayaquil se fija en docker-compose.tests.yml para que
+        // esta prueba pueda fallar: en un contenedor sin esa variable corre
+        // en UTC, donde Local == Utc y esta rama sería indistinguible de la
+        // de arriba, con o sin la conversión.
+        var local = new DateTime(2026, 8, 21, 9, 0, 0, DateTimeKind.Local);
+
+        var normalizado = FechaUtc.Normalizar(local);
+
+        normalizado.ShouldBe(new DateTime(2026, 8, 21, 14, 0, 0));
+        normalizado.Kind.ShouldBe(DateTimeKind.Utc);
+    }
+
+    [Fact]
+    public void ALocal_normalizaUnKindLocalAntesDeRestarElDesfase()
+    {
+        // Con el sistema en America/Guayaquil —el mismo desfase que
+        // DesfasePiloto— la ida (Local a Utc) y la vuelta (Utc a hora del
+        // piloto) se cancelan: la hora de reloj no cambia. Si alguien
+        // quitara la conversión de la rama Local de Normalizar, 09:00 se
+        // trataría como si ya fuera UTC y el resultado saldría 04:00.
+        var local = new DateTime(2026, 8, 21, 9, 0, 0, DateTimeKind.Local);
+
+        FechaUtc.ALocal(local).ShouldBe(new DateTime(2026, 8, 21, 9, 0, 0));
     }
 
     [Fact]
