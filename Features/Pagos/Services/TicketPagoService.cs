@@ -173,8 +173,17 @@ public class TicketPagoService(AppDbContext db) : ITicketPagoService
                         .FontSize(18).Bold();
                     col.Item().AlignCenter().Text(TextosVentaLocal.TextoEstado(pago))
                         .FontSize(9).Bold();
-                    col.Item().AlignCenter()
-                        .Text(TextosVentaLocal.LineaMetodo(pago)).FontSize(8);
+
+                    // Condicionada a la venta local: en el ciclo con la
+                    // planta el método es siempre transferencia (no hay otro
+                    // que distinguir desde el proyecto anterior), así que
+                    // nombrarlo no informa nada y sería ruido en un ticket
+                    // que ya está en uso. En una venta local sí importa —es
+                    // justo lo que la productora necesita ver, sobre todo si
+                    // fue a cuotas.
+                    if (pago.EsVentaLocal)
+                        col.Item().AlignCenter()
+                            .Text(TextosVentaLocal.LineaMetodo(pago)).FontSize(8);
 
                     col.Item().LineHorizontal(0.5f);
                     col.Item().Text($"Responsable: {pago.Responsable}").FontSize(7);

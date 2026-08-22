@@ -222,6 +222,94 @@ public class TicketPagoTests(ApiFactory api) : IAsyncLifetime
         bytes[0..4].ShouldBe(new byte[] { 0x25, 0x50, 0x44, 0x46 });
     }
 
+    [Fact]
+    public async Task ElTicketDeVentaLocalDifiereDelDeLaPlanta()
+    {
+        // Refuerzo de la garantía de no regresión más allá del encabezado
+        // (que ya fija UnPagoDeLaPlantaConservaSuEncabezado). Lo único que
+        // esta prueba puede afirmar honestamente es que el bloque ANIMALES
+        // VENDIDOS + la línea del método hacen que el ticket de venta local
+        // sea estrictamente más largo que el de la planta con la misma forma
+        // (mismos 3 cuyes, mismo responsable, mismo formato de fecha).
+        //
+        // Lo que NO afirma, a propósito: que el ticket de la planta "no
+        // crece" frente a un umbral fijo si alguien vuelve a quitar el
+        // `if (pago.EsVentaLocal)` de LineaMetodo. Se midió: con el guard
+        // (correcto) el ticket de planta de este mismo escenario pesa 27001
+        // bytes; quitando el guard (la mutación exacta que se prueba abajo)
+        // pesa 26757 — MÁS CHICO, no más grande. El font embebido se
+        // subsetea por los glifos usados en la página entera, así que una
+        // sola línea corta puede mover el tamaño del PDF en cualquier
+        // dirección, incluso hacia abajo. Un umbral de "no crece" sería un
+        // valor mágico que hoy pasaría por casualidad y que ni siquiera
+        // apunta en la dirección correcta. Por eso esa mitad del pedido se
+        // deja sin prueba automática — es un límite real de "del binario no
+        // se puede afirmar nada", no negligencia. Documentado en
+        // task-5-report.md.
+        var pagoPlantaId = await PagoSembradoAsync();
+        var respPlanta = await api.ComoOperadorCat("PAT")
+            .GetAsync($"/api/pagos/{pagoPlantaId}/ticket");
+        respPlanta.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var bytesPlanta = await respPlanta.Content.ReadAsByteArrayAsync();
+
+        var productora = await Sembrador.ProductoraAsync(
+            api, "0104576278", CentroAcopio.PAT);
+
+        var cuyes = Enumerable.Range(0, 3).Select(_ => new
+        {
+            pesoGramos = 1300m,
+            colorPelaje = "Blanco",
+            estadoOreja = "Blanda",
+            tamanoAnimal = "Normal"
+        }).ToArray();
+
+        var entrega = await api.ComoOperadorCat("PAT")
+            .PostAsJsonAsync("/api/recepcion/entregas", new
+            {
+                centroAcopio = "PAT",
+                productoraId = productora.Id,
+                cuyes,
+                enAyunas = true,
+                responsableRecepcion = "Operadora de prueba"
+            });
+        entrega.EnsureSuccessStatusCode();
+
+        int loteId;
+        int[] ids;
+        await using (var db = api.NuevoDbContext())
+        {
+            ids = await db.CuyRegistros
+                .Where(c => c.ProductoraId == productora.Id)
+                .OrderBy(c => c.Id).Select(c => c.Id).ToArrayAsync();
+            loteId = await db.CuyRegistros
+                .Where(c => c.Id == ids[0]).Select(c => c.LoteId).FirstAsync();
+        }
+
+        var venta = await api.ComoOperadorCat("PAT")
+            .PostAsJsonAsync("/api/pagos/venta-local", new
+            {
+                productoraId = productora.Id,
+                loteId,
+                cuyRegistroIds = ids,
+                montoUsd = 45m,
+                metodoPago = "Efectivo",
+                responsable = "Operadora de prueba"
+            });
+        venta.EnsureSuccessStatusCode();
+
+        int pagoVlId;
+        await using (var db = api.NuevoDbContext())
+            pagoVlId = await db.Pagos.Where(p => p.EsVentaLocal)
+                .Select(p => p.Id).FirstAsync();
+
+        var respVl = await api.ComoOperadorCat("PAT")
+            .GetAsync($"/api/pagos/{pagoVlId}/ticket");
+        respVl.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var bytesVl = await respVl.Content.ReadAsByteArrayAsync();
+
+        bytesVl.Length.ShouldBeGreaterThan(bytesPlanta.Length);
+    }
+
     /// <summary>
     /// Igual que Sembrador.PagoConNovedadAsync pero con DOS cuyes con signos
     /// clínicos en la misma entrega, para poder citar dos novedades distintas
