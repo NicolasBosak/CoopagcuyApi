@@ -290,7 +290,7 @@ public class ReportesService(AppDbContext db) : IReportesService
             hoja.Cell(fila, 8).Value = r.LotesRechazados;
             hoja.Cell(fila, 9).Value = Math.Round(r.PesoTotalGramos / 1000, 2);
             hoja.Cell(fila, 10).Value = r.PesoPromedioGramos;
-            hoja.Cell(fila, 11).Value = r.UltimaEntrega?.ToString("dd/MM/yyyy") ?? "-";
+            hoja.Cell(fila, 11).Value = FechaUtc.FechaLocal(r.UltimaEntrega);
             fila++;
         }
 
@@ -336,7 +336,7 @@ public class ReportesService(AppDbContext db) : IReportesService
             hoja.Cell(fila, 5).Value = r.TipoNovedad;
             hoja.Cell(fila, 6).Value = r.Descripcion;
             hoja.Cell(fila, 7).Value = r.PesoRegistradoGramos?.ToString() ?? "-";
-            hoja.Cell(fila, 8).Value = r.FechaRegistro.ToString("dd/MM/yyyy HH:mm");
+            hoja.Cell(fila, 8).Value = FechaUtc.FechaHoraLocal(r.FechaRegistro);
             hoja.Cell(fila, 9).Value = r.RegistradoPor;
             fila++;
         }
@@ -429,7 +429,7 @@ public class ReportesService(AppDbContext db) : IReportesService
             hoja.Cell(fila, 9).Value = r.TamanoAnimal;
             hoja.Cell(fila, 10).Value = r.Estado;
             hoja.Cell(fila, 11).Value = r.MotivoNovedad ?? "-";
-            hoja.Cell(fila, 12).Value = r.FechaRecepcion.ToString("dd/MM/yyyy");
+            hoja.Cell(fila, 12).Value = FechaUtc.FechaLocal(r.FechaRecepcion);
 
             if (r.Estado == "Rechazado")
                 hoja.Cell(fila, 10).Style.Font.FontColor = XLColor.FromHtml("#B71C1C");
@@ -527,7 +527,7 @@ public class ReportesService(AppDbContext db) : IReportesService
             hojaDev.Cell(fila, 5).Value = d.ClienteDevuelve;
             hojaDev.Cell(fila, 6).Value = d.CantidadUnidades;
             hojaDev.Cell(fila, 7).Value = d.Motivo;
-            hojaDev.Cell(fila, 8).Value = d.FechaDevolucion.ToString("dd/MM/yyyy");
+            hojaDev.Cell(fila, 8).Value = FechaUtc.FechaLocal(d.FechaDevolucion);
             fila++;
         }
         hojaDev.Columns().AdjustToContents();
@@ -555,7 +555,7 @@ public class ReportesService(AppDbContext db) : IReportesService
             hojaRet.Cell(fila, 3).Value = r.NombreProductora;
             hojaRet.Cell(fila, 4).Value = r.Comunidad;
             hojaRet.Cell(fila, 5).Value = r.Motivo;
-            hojaRet.Cell(fila, 6).Value = r.FechaRetorno.ToString("dd/MM/yyyy");
+            hojaRet.Cell(fila, 6).Value = FechaUtc.FechaLocal(r.FechaRetorno);
             hojaRet.Cell(fila, 7).Value = r.Responsable;
             fila++;
         }
@@ -804,7 +804,7 @@ public class ReportesService(AppDbContext db) : IReportesService
             hoja.Cell(fila, 3).Value = r.Productora;
             hoja.Cell(fila, 4).Value = r.Comunidad;
             hoja.Cell(fila, 5).Value = r.CantidadEnEspera;
-            hoja.Cell(fila, 6).Value = r.FechaLlegada.ToString("dd/MM/yyyy");
+            hoja.Cell(fila, 6).Value = FechaUtc.FechaLocal(r.FechaLlegada);
             fila++;
         }
         hoja.Columns().AdjustToContents();
@@ -825,7 +825,7 @@ public class ReportesService(AppDbContext db) : IReportesService
         foreach (var r in datos)
         {
             hoja.Cell(fila, 1).Value = r.CodigoLoteFaenado;
-            hoja.Cell(fila, 2).Value = r.FechaFaenamiento.ToString("dd/MM/yyyy");
+            hoja.Cell(fila, 2).Value = FechaUtc.FechaLocal(r.FechaFaenamiento);
             hoja.Cell(fila, 3).Value = r.Operario;
             hoja.Cell(fila, 4).Value = r.JaulasOrigen;
             hoja.Cell(fila, 5).Value = r.Comunidades;
@@ -852,7 +852,7 @@ public class ReportesService(AppDbContext db) : IReportesService
         foreach (var r in datos)
         {
             hoja.Cell(fila, 1).Value = r.CodigoLoteFaenado;
-            hoja.Cell(fila, 2).Value = r.FechaDespacho.ToString("dd/MM/yyyy");
+            hoja.Cell(fila, 2).Value = FechaUtc.FechaLocal(r.FechaDespacho);
             hoja.Cell(fila, 3).Value = r.Cliente;
             hoja.Cell(fila, 4).Value = r.Chofer;
             hoja.Cell(fila, 5).Value = r.Ruta;
@@ -1008,7 +1008,7 @@ public class ReportesService(AppDbContext db) : IReportesService
                         {
                             c.Item().Text(codigo)
                                 .FontSize(13).Bold().FontColor("#B71C1C");
-                            c.Item().Text(DateTime.Now.ToString("dd/MM/yyyy"))
+                            c.Item().Text(FechaUtc.FechaLocal(DateTime.UtcNow))
                                 .FontSize(9).FontColor("#777777");
                         });
                     });
@@ -1048,7 +1048,7 @@ public class ReportesService(AppDbContext db) : IReportesService
                         c.Item().PaddingTop(4).Row(r =>
                         {
                             r.RelativeItem().Text(
-                                $"Fecha: {loteFaenado.FechaFaenamiento:dd/MM/yyyy HH:mm}");
+                                $"Fecha: {FechaUtc.FechaHoraLocal(loteFaenado.FechaFaenamiento)}");
                             r.RelativeItem().Text(
                                 $"Operario: {loteFaenado.OperarioResponsable}");
                         });
@@ -1269,7 +1269,7 @@ public class ReportesService(AppDbContext db) : IReportesService
                         {
                             c.Item().Text(codigoLote)
                                 .FontSize(13).Bold().FontColor("#B71C1C");
-                            c.Item().Text(DateTime.Now.ToString("dd/MM/yyyy"))
+                            c.Item().Text(FechaUtc.FechaLocal(DateTime.UtcNow))
                                 .FontSize(9).FontColor("#777777");
                         });
                     });
@@ -1307,7 +1307,7 @@ public class ReportesService(AppDbContext db) : IReportesService
                         c.Item().PaddingTop(4).Row(r =>
                         {
                             r.RelativeItem().Text(
-                                $"Fecha: {lote.FechaRecepcion:dd/MM/yyyy}");
+                                $"Fecha: {FechaUtc.FechaLocal(lote.FechaRecepcion)}");
                             r.RelativeItem().Text(
                                 $"Animales: {lote.CantidadAnimales}");
                         });
@@ -1420,7 +1420,7 @@ public class ReportesService(AppDbContext db) : IReportesService
                                 .OrderBy(f => f.FechaFaenamiento))
                             {
                                 c.Item().PaddingTop(4).Text(
-                                    $"• {sesion.FechaFaenamiento:dd/MM/yyyy}: " +
+                                    $"• {FechaUtc.FechaLocal(sesion.FechaFaenamiento)}: " +
                                     $"{sesion.UnidadesFaenadas} faenados" +
                                     (sesion.UnidadesDecomisadas > 0
                                         ? $", {sesion.UnidadesDecomisadas} decomisados" : "") +

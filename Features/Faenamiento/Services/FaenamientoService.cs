@@ -754,9 +754,9 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
 
             return new InkJetCodigoDto(
                 CodigoLote: loteFaenado.Codigo,
-                FechaFaenamiento: loteFaenado.FechaFaenamiento.ToString("dd/MM/yyyy"),
-                FechaVencimiento: loteFaenado.FechaFaenamiento.AddDays(5)
-                                             .ToString("dd/MM/yyyy"),
+                FechaFaenamiento: FechaUtc.FechaLocal(loteFaenado.FechaFaenamiento),
+                FechaVencimiento: FechaUtc.FechaLocal(
+                    loteFaenado.FechaFaenamiento.AddDays(5)),
                 ComunidadOrigen: comunidadesLf.Count > 0
                     ? string.Join(" y ", comunidadesLf) : "Azuay",
                 NombreProductora: comunidadesLf.Count > 1
@@ -802,9 +802,9 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
 
         return new InkJetCodigoDto(
             CodigoLote: faenamiento.Lote.CodigoLote,
-            FechaFaenamiento: faenamiento.FechaFaenamiento.ToString("dd/MM/yyyy"),
-            FechaVencimiento: faenamiento.FechaFaenamiento.AddDays(5)
-                                         .ToString("dd/MM/yyyy"),
+            FechaFaenamiento: FechaUtc.FechaLocal(faenamiento.FechaFaenamiento),
+            FechaVencimiento: FechaUtc.FechaLocal(
+                faenamiento.FechaFaenamiento.AddDays(5)),
             ComunidadOrigen: comunidadOrigen,
             NombreProductora: comunidades.Count > 1
                 ? "Varias productoras"

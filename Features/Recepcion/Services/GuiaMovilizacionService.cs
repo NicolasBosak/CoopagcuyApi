@@ -1,4 +1,5 @@
-﻿using CoopagcuyApi.Common.Branding;
+﻿using CoopagcuyApi.Common;
+using CoopagcuyApi.Common.Branding;
 using CoopagcuyApi.Features.Recepcion.Models;
 using CoopagcuyApi.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
@@ -102,7 +103,7 @@ public class GuiaMovilizacionService(AppDbContext db) : IGuiaMovilizacionService
                         {
                             c.Item().Text(lote.CodigoLote)
                                 .FontSize(12).Bold().FontColor("#B71C1C");
-                            c.Item().Text($"Emitida: {DateTime.Now:dd/MM/yyyy HH:mm}")
+                            c.Item().Text($"Emitida: {FechaUtc.FechaHoraLocal(DateTime.UtcNow)}")
                                 .FontSize(7).FontColor("#777777");
                         });
                     });
@@ -151,7 +152,7 @@ public class GuiaMovilizacionService(AppDbContext db) : IGuiaMovilizacionService
                         c.Item().Row(r =>
                         {
                             r.RelativeItem().Text(
-                                $"Recepción: {lote.FechaRecepcion:dd/MM/yyyy HH:mm}");
+                                $"Recepción: {FechaUtc.FechaHoraLocal(lote.FechaRecepcion)}");
                             r.RelativeItem().Text(
                                 $"Estado: {lote.Estado}");
                         });
@@ -237,7 +238,7 @@ public class GuiaMovilizacionService(AppDbContext db) : IGuiaMovilizacionService
                                 r.RelativeItem().Text(
                                     $"Conductor: {movilizacion.Conductor}");
                                 r.RelativeItem().Text(
-                                    $"Despacho: {movilizacion.FechaDespacho:dd/MM/yyyy HH:mm}");
+                                    $"Despacho: {FechaUtc.FechaHoraLocal(movilizacion.FechaDespacho)}");
                             });
                             c.Item().Row(r =>
                             {
@@ -256,7 +257,7 @@ public class GuiaMovilizacionService(AppDbContext db) : IGuiaMovilizacionService
                             if (movilizacion.FechaRecepcionPlanta is not null)
                             {
                                 c.Item().Text(
-                                    $"Recibido en planta: {movilizacion.FechaRecepcionPlanta:dd/MM/yyyy HH:mm} " +
+                                    $"Recibido en planta: {FechaUtc.FechaHoraLocal(movilizacion.FechaRecepcionPlanta)} " +
                                     $"por {movilizacion.RecibidoPor}");
                             }
                         });

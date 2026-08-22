@@ -95,7 +95,7 @@ public class TicketPagoService(AppDbContext db) : ITicketPagoService
 
                     col.Item().Text($"Ticket N.º {pago.Id:D6}").Bold();
                     col.Item().Text(
-                        $"Emitido: {pago.FechaPago:dd/MM/yyyy HH:mm}");
+                        $"Emitido: {FechaUtc.FechaHoraLocal(pago.FechaPago)}");
                     col.Item().LineHorizontal(0.5f);
 
                     col.Item().Text("PRODUCTORA").Bold();
@@ -109,7 +109,7 @@ public class TicketPagoService(AppDbContext db) : ITicketPagoService
                     col.Item().Text(
                         $"Centro: {pago.Lote?.CentroAcopio.ToString() ?? "—"}");
                     col.Item().Text(
-                        $"Recibido: {pago.Lote?.FechaRecepcion:dd/MM/yyyy}");
+                        $"Recibido: {FechaUtc.FechaLocal(pago.Lote?.FechaRecepcion)}");
                     col.Item().Text($"Cuyes aportados: {cuyes.Count}");
                     col.Item().Text($"Peso total: {cuyes.Sum():N0} g");
                     col.Item().LineHorizontal(0.5f);
