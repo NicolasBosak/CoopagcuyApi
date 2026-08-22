@@ -190,10 +190,14 @@ de hoy.** El cambio solo se nota donde hoy miente.
   imprimirlo: deja a la productora con media explicación y sin forma de
   reclamar. QuestPDF envuelve por defecto dentro de un `Text`; lo que hay que
   evitar es introducir un truncado «para que quepa».
-- **`Novedad.CuyRegistro` es anulable.** Las novedades de entrega —`SinAyuno`—
-  no pertenecen a ningún animal, y las filas anteriores al enlace por animal
-  tampoco lo tienen. `LineaNovedad` debe resolver ese caso sin imprimir
-  `Cuy #`, y hay que fijarlo por unidad.
+- **`Novedad.CuyRegistro` es anulable en el modelo, pero no en la práctica.**
+  `PagoService` **rechaza con 409** todo descuento cuya novedad no tenga animal
+  asociado —lo fija `DescuentoTrazableTests.UnaNovedadSinCuyAsociadoSeRechaza`—,
+  así que ningún `DescuentoPago` escrito por la vía actual puede apuntar a una
+  novedad de entrega. Aun así `LineaNovedad` resuelve el nulo sin imprimir
+  `Cuy #`: el tipo lo admite, y una función que revienta con un nulo legal es
+  una excepción no controlada al pulsar «Imprimir». Se fija por unidad como
+  defensa, no como caso de uso.
 
 ### El `Include` necesita su propia prueba
 
@@ -316,20 +320,27 @@ El entregable de este punto es la evidencia, no el código.
 
 ## A6 · Verificación — cédula offline con el nombre mal escrito (Extra 2)
 
-**Tampoco hay nada que construir.**
+**Tampoco hay nada que construir, y la garantía es más fuerte de lo que parecía.**
+
 `RecepcionService.ResolverProductoraPorCedulaAsync` busca por
-`p.Cedula == cedula && p.CatAsignado == dto.CentroAcopio && p.Activa`. El nombre
-**nunca entra en el `Where`**, y el front en modo offline ni siquiera pide un
-nombre: `FormLote.tsx` solo captura `cedulaManual` y envía `cedulaProductora`.
+`p.Cedula == cedula && p.CatAsignado == dto.CentroAcopio && p.Activa`. Pero el
+motivo de fondo no es que el nombre quede fuera del `Where`: es que
+**`RegistrarEntregaDto` no tiene ningún campo de nombre**. Solo
+`CedulaProductora`. El nombre que la operadora vea o escriba en la tablet **no
+viaja al servidor por ninguna vía**, así que estructuralmente no puede desviar
+una entrega. El front lo confirma: `FormLote.tsx` en modo sin señal solo captura
+`cedulaManual`.
 
 Pero **no existe ni una sola prueba de esto**. Se añaden dos:
 
-1. Una entrega sincronizada con la cédula correcta y un nombre distinto al
-   registrado se asigna a la productora correcta.
-2. Una cédula válida que pertenece a una productora de **otro** CAT: hoy cae en
-   la bandeja de vinculación en vez de asignarse. El comportamiento parece
-   correcto —el lote es de un centro y la productora de otro—, pero ahora mismo
-   no está escrito en ningún lado. La prueba lo fija.
+1. Una entrega sincronizada solo con la cédula se asigna a la productora
+   correcta y no cae en cuarentena.
+2. Una cédula válida que pertenece a una productora de **otro** CAT: cae en la
+   bandeja de vinculación en vez de asignarse. El comportamiento es correcto —el
+   lote es de un centro y la productora de otro—, pero ahora mismo no está
+   escrito en ningún lado. La prueba lo fija, y su mutación (quitar
+   `p.CatAsignado == dto.CentroAcopio` del `Where`) expone una fuga entre
+   centros.
 
 ---
 
