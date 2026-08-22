@@ -12,8 +12,8 @@
 
 ## Global Constraints
 
-- **Rama del API:** crear `feat/venta-local` desde `origin/main`.
-- **Rama del front:** crear `feat/venta-local` desde `origin/main`.
+- **Rama del API:** crear `feat/venta-local` desde **`feat/correcciones-puntuales`**, no desde `origin/main`. El Proyecto A todavia no esta fusionado —espera su verificacion en papel— y este proyecto depende de dos cosas suyas: `FechaUtc.FechaLocal`, que usa la linea de venta local de la guia, y el ticket que dejo `TextosTicket`. Rama apilada: **el PR de B no se puede fusionar hasta que entre el de A**.
+- **Rama del front:** crear `feat/venta-local` desde **`feat/correcciones-puntuales`**, por el mismo motivo.
 - **Nada de `dotnet test` ni `dotnet ef` directamente en Windows.** Smart App Control bloquea la carga del DLL desde OneDrive (error `0x800711C7`). Todo pasa por Docker.
   - Batería completa: `docker compose -f docker-compose.tests.yml run --rm tests`
   - Una clase: `docker compose -f docker-compose.tests.yml run --rm tests dotnet test tests/CoopagcuyApi.Tests/CoopagcuyApi.Tests.csproj --filter "FullyQualifiedName~NombreDeLaClase"`
