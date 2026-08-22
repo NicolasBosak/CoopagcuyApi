@@ -173,7 +173,6 @@ public class QRService(
                 .Where(cf => cf.Estado != EstadoCanal.Rechazado)
                 .Select(cf => (
                     Faenado: cf,
-                    Jaula: f.Lote,
                     Comunidad: f.Lote.Cuyes
                         .FirstOrDefault(c => c.NumeroEnLote == cf.NumeroEnLote)
                         ?.Productora?.Comunidad.Nombre
