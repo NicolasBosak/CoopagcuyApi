@@ -92,15 +92,38 @@ public class AlcancePagosTests(ApiFactory api) : IAsyncLifetime
         var productoraNie = await Sembrador.ProductoraAsync(
             api, CedulaNie, CentroAcopio.NIE, comunidadId: 2);
 
+        // Sin un lote pendiente real, la respuesta sale vacía por
+        // construcción y la prueba pasaría aunque el filtro por centro
+        // desapareciera del todo. El código de este lote ("NIE-20260818-003")
+        // es lo que la aserción de más abajo comprueba que NUNCA sale por el
+        // cable hacia la operadora de PAT.
+        const string codigoLoteNie = "NIE-20260818-003";
+        await using (var db = api.NuevoDbContext())
+        {
+            var lote = new CoopagcuyApi.Features.Productoras.Models.Lote
+            {
+                CodigoLote = codigoLoteNie,
+                ProductoraId = productoraNie.Id,
+                CentroAcopio = CentroAcopio.NIE,
+                CantidadAnimales = 1,
+                PesoTotalGramos = 1300,
+                FechaRecepcion = DateTime.UtcNow,
+                Estado = EstadoLote.Aceptado
+            };
+            db.Lotes.Add(lote);
+            await db.SaveChangesAsync();
+        }
+
         var respuesta = await api.ComoOperadorCat("PAT")
             .GetAsync($"/api/pagos/lotes-pendientes/{productoraNie.Id}");
 
-        // Da igual si el servidor lo resuelve con 403, con 404 o con una lista
-        // vacía: lo que no puede es devolver los lotes de otro centro.
+        // Da igual si el servidor lo resuelve con 403, con 404 o con una
+        // lista sin el lote de NIE: lo que no puede pasar bajo ningún
+        // desenlace es que el código de ese lote salga en el cuerpo.
         if (respuesta.StatusCode == HttpStatusCode.OK)
         {
             var cuerpo = await respuesta.Content.ReadAsStringAsync();
-            cuerpo.ShouldBe("[]");
+            cuerpo.ShouldNotContain(codigoLoteNie);
         }
         else
         {
