@@ -1,3 +1,4 @@
+using System.Globalization;
 using CoopagcuyApi.Common;
 using CoopagcuyApi.Common.Branding;
 using CoopagcuyApi.Infrastructure.Data;
@@ -118,7 +119,13 @@ public class TicketPagoService(AppDbContext db) : ITicketPagoService
 
                     if (TextosTicket.HayDesglose(pago))
                     {
-                        col.Item().Text($"Subtotal: USD {pago.MontoUsd:N2}");
+                        // InvariantCulture en las tres cifras del ticket, por
+                        // el mismo motivo que en FechaUtc: "N2" usa el
+                        // separador decimal de la cultura activa del
+                        // contenedor, y la productora no puede recibir un
+                        // monto que cambie de forma según dónde corra el API.
+                        col.Item().Text(string.Create(CultureInfo.InvariantCulture,
+                            $"Subtotal: USD {pago.MontoUsd:N2}"));
                         col.Item().PaddingTop(2).Text("DESCUENTOS").Bold();
 
                         // Orden por Id: dos reimpresiones del mismo ticket
@@ -135,14 +142,16 @@ public class TicketPagoService(AppDbContext db) : ITicketPagoService
                                 .Text(descuento.Descripcion).FontSize(7);
 
                             col.Item().AlignRight()
-                                .Text($"-USD {descuento.MontoUsd:N2}");
+                                .Text(string.Create(CultureInfo.InvariantCulture,
+                                    $"-USD {descuento.MontoUsd:N2}"));
                         }
 
                         col.Item().LineHorizontal(0.5f);
                     }
 
                     col.Item().AlignCenter()
-                        .Text($"USD {TextosTicket.MontoDestacado(pago):N2}")
+                        .Text(string.Create(CultureInfo.InvariantCulture,
+                            $"USD {TextosTicket.MontoDestacado(pago):N2}"))
                         .FontSize(18).Bold();
                     col.Item().AlignCenter().Text(TextoEstado(pago.Estado))
                         .FontSize(9).Bold();
