@@ -299,6 +299,21 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(p => p.MetodoPago).HasMaxLength(50).IsRequired();
             e.Property(p => p.Responsable).HasMaxLength(150).IsRequired();
             e.Property(p => p.Observaciones).HasMaxLength(500);
+
+            // Token de concurrencia optimista: dos /pagar simultáneos sobre el
+            // MISMO ticket (con novedades distintas) pasan los dos el chequeo
+            // "Estado == Pendiente" en memoria, y sin esto el UPDATE de abajo
+            // es last-writer-wins — el perdedor pisa MontoPagadoUsd del
+            // ganador mientras las filas de Descuentos de ambos ya quedaron
+            // guardadas (el índice único solo bloquea repetir la MISMA
+            // novedad). El monto persistido y la suma de sus propios
+            // descuentos dejan de cuadrar. Con el Estado como token, EF
+            // agrega el valor original a la cláusula WHERE del UPDATE: el
+            // segundo en llegar afecta cero filas y RegistrarPagoEfectivoAsync
+            // ya sabe convertir eso en 409 (DbUpdateConcurrencyException
+            // hereda de DbUpdateException).
+            e.Property(p => p.Estado).IsConcurrencyToken();
+
             e.HasOne(p => p.Productora)
              .WithMany()
              .HasForeignKey(p => p.ProductoraId);

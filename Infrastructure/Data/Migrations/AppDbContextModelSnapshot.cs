@@ -639,6 +639,7 @@ namespace CoopagcuyApi.Infrastructure.Data.Migrations
                         .HasColumnType("text");
 
                     b.Property<int>("Estado")
+                        .IsConcurrencyToken()
                         .HasColumnType("integer");
 
                     b.Property<DateTime>("FechaPago")
