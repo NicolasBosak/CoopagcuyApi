@@ -85,17 +85,27 @@ public class BarridoComprobantesTests(ApiFactory api) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task UnPagoSinVerificarNoSeBarre()
+    public async Task UnPagoSinVerificarQuedaConCaducidadA30DiasYNoSeBarreAntes()
     {
-        // Sin ComprobanteExpiraEn no hay cuenta atrás: la captura vive hasta
-        // que Azure la borre a los 30 días. Barrerla aquí dejaría a la CAT
-        // sin nada que verificar.
+        // ComprobanteExpiraEn YA se fija al pagar (a 30 días, el mismo plazo
+        // que la política de Azure sobre "comprobantes-pago"), no solo al
+        // verificar. Antes se dejaba en null hasta la verificación, y un pago
+        // que la CAT nunca verifica nunca cumplía el predicado del barrido
+        // (exige ComprobanteExpiraEn no nulo): Azure borraba el blob a los 30
+        // días por su cuenta, pero ComprobanteUrl y la fila se quedaban
+        // apuntando a un blob que ya no existía, para siempre. Aquí se
+        // verifica la otra mitad del arreglo: con la fecha ya puesta pero
+        // TODAVÍA no vencida, la captura sigue viva — no se barre antes de
+        // tiempo solo por dejar de ser null.
         var pagoId = await TicketPagadoAsync();
 
+        DateTime? esperado;
         await using (var db = api.NuevoDbContext())
         {
-            var pago = await db.Pagos.FirstAsync(p => p.Id == pagoId);
-            pago.ComprobanteExpiraEn.ShouldBeNull();
+            var pago = await db.Pagos.AsNoTracking().FirstAsync(p => p.Id == pagoId);
+            pago.ComprobanteExpiraEn.ShouldNotBeNull();
+            esperado = pago.FechaPagoEfectivo!.Value.AddDays(30);
+            pago.ComprobanteExpiraEn!.Value.ShouldBe(esperado.Value, TimeSpan.FromMinutes(1));
         }
 
         var antes = await ContarBlobsAsync();

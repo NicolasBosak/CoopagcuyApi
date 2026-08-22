@@ -63,6 +63,17 @@ public class PagoService(
     // API deja de servirla.
     private const int DiasGraciaComprobante = 5;
 
+    // Igual al ciclo de vida que Azure aplica al contenedor "comprobantes-pago"
+    // (ver BlobStorageService). Se fija ya al pagar, no solo al verificar: si
+    // se dejara en null hasta la verificación, un pago que la CAT nunca
+    // verifica no cumpliría el predicado de BarrerComprobantesCaducadosAsync
+    // (exige ComprobanteExpiraEn no nulo) y jamás se barrería — Azure sí
+    // borraría el blob a los 30 días por su cuenta, pero ComprobanteUrl
+    // quedaría apuntando a nada para siempre, y TieneComprobante mentiría sin
+    // límite. Al fijarla aquí, la base queda de acuerdo con la regla de Azure
+    // en vez de solo estar cubierta por ella.
+    private const int DiasVigenciaComprobanteSinVerificar = 30;
+
     public async Task<PagoResponseDto> RegistrarAsync(
         RegistrarPagoDto dto, CentroAcopio? filtroCat)
     {
@@ -476,11 +487,15 @@ public class PagoService(
         var nombre = $"pago-{pago.Id:D6}-{Guid.NewGuid():N}.jpg";
         var url = await blobs.SubirComprobanteAsync(nombre, comprobante);
 
+        var ahora = DateTime.UtcNow;
         pago.Estado = EstadoPago.Pagado;
         pago.MontoPagadoUsd = pago.MontoUsd - total;
-        pago.FechaPagoEfectivo = DateTime.UtcNow;
+        pago.FechaPagoEfectivo = ahora;
         pago.PagadoPor = pagadoPor;
         pago.ComprobanteUrl = url;
+        // Se acorta a los 5 días si la CAT verifica (VerificarAsync); si
+        // nunca verifica, esto es lo único que va a barrer el blob.
+        pago.ComprobanteExpiraEn = ahora.AddDays(DiasVigenciaComprobanteSinVerificar);
 
         foreach (var d in descuentos) db.Descuentos.Add(d);
 
