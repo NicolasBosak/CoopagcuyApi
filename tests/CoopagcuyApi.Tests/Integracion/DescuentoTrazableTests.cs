@@ -166,6 +166,40 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task UnDescuentoQueIgualaElTicketSeRechaza()
+    {
+        // FormPagoProductora.tsx ya rechaza `aPagar <= 0` en el cliente, pero
+        // el servicio solo comparaba `total > pago.MontoUsd`: un descuento
+        // que iguala el ticket (100% de rebaja) pasaba limpio y dejaba un
+        // pago "Pagado" de $0.00 con una captura de una transferencia de $0
+        // — algo que ya no es un pago. Este es el espejo en el servidor de
+        // la misma regla, para que un cliente que se salte la pantalla no
+        // pueda colarlo.
+        var (pagoId, novedadId) = await TicketConNovedadAsync(CedulaA, 120m);
+
+        var respuesta = await api.ComoOperadorFaenamiento()
+            .PostAsJsonAsync($"/api/pagos/{pagoId}/pagar", new
+            {
+                descuentos = new[] { new
+                {
+                    novedadCatId = novedadId,
+                    descripcion = "descuento igual al ticket entero",
+                    montoUsd = 120m
+                }},
+                comprobanteBase64 = Comprobante,
+                pagadoPor = "Operador de planta"
+            });
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+
+        await using var db = api.NuevoDbContext();
+        var pago = await db.Pagos.AsNoTracking().FirstAsync(p => p.Id == pagoId);
+        pago.Estado.ShouldBe(EstadoPago.Pendiente);
+        pago.MontoPagadoUsd.ShouldBeNull();
+        pago.ComprobanteUrl.ShouldBeNull();
+    }
+
+    [Fact]
     public async Task NoSePuedePagarDosVecesElMismoTicket()
     {
         var (pagoId, novedadId) = await TicketConNovedadAsync(CedulaA, 120m);

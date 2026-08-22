@@ -474,11 +474,17 @@ public class PagoService(
 
         var descuentos = await ValidarDescuentosAsync(pago, dto, pagadoPor);
 
+        // >= y no solo >: un pago de $0.00 no es un pago, es un ticket con
+        // descuentos que se comieron el total. El formulario de la planta ya
+        // lo rechaza (FormPagoProductora.tsx: `aPagar <= 0`); sin este
+        // espejo en el servidor, un cliente que se salte la pantalla podía
+        // registrar un ticket "Pagado" de $0 con una captura de una
+        // transferencia de $0.
         var total = descuentos.Sum(d => d.MontoUsd);
-        if (total > pago.MontoUsd)
+        if (total >= pago.MontoUsd)
             throw new TransicionInvalidaException(
                 $"Los descuentos suman {total:N2} y el ticket es de " +
-                $"{pago.MontoUsd:N2}. Un pago negativo no significa nada.");
+                $"{pago.MontoUsd:N2}. Un pago de cero o negativo no significa nada.");
 
         // ── Subida, fuera de la transacción ──────────────────────────
         // CreateExecutionStrategy REINTENTA el delegado ante fallos
