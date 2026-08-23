@@ -188,4 +188,97 @@ public static class Sembrador
 
         return (pagoId, novedadId);
     }
+
+    /// <summary>
+    /// Igual que <see cref="PagoConNovedadAsync"/> —dos cuyes, uno con
+    /// signosClinicos— pero el cuy CON la novedad se vende en la comunidad
+    /// ANTES de crear el pago de planta: nunca llegó a la planta, aunque su
+    /// novedad siga en la tabla. Para el Arreglo 5 de la revisión final
+    /// (ListarCuyesConNovedadAsync y ValidarDescuentosAsync no deben dejar
+    /// citar la novedad de un animal que ya se vendió en la comunidad).
+    /// </summary>
+    public static async Task<(int PagoId, int NovedadId)> PagoConNovedadDeCuyVendidoAsync(
+        ApiFactory api, string cedula, decimal monto)
+    {
+        var productora = await ProductoraAsync(api, cedula, CentroAcopio.PAT);
+
+        var cuyes = new object[]
+        {
+            new { pesoGramos = 1300m, colorPelaje = "Blanco",
+                  estadoOreja = "Blanda", tamanoAnimal = "Normal",
+                  signosClinicos = "lesion-visible" },
+            new { pesoGramos = 1300m, colorPelaje = "Blanco",
+                  estadoOreja = "Blanda", tamanoAnimal = "Normal",
+                  signosClinicos = (string?)null },
+        };
+
+        var entrega = await api.ComoOperadorCat("PAT")
+            .PostAsJsonAsync("/api/recepcion/entregas", new
+            {
+                centroAcopio = "PAT",
+                productoraId = productora.Id,
+                cuyes,
+                enAyunas = true,
+                responsableRecepcion = "Operadora de prueba"
+            });
+        entrega.EnsureSuccessStatusCode();
+
+        int loteId, novedadId, cuyVendidoId;
+        await using (var db = api.NuevoDbContext())
+        {
+            loteId = await db.CuyRegistros
+                .Where(c => c.ProductoraId == productora.Id)
+                .Select(c => c.LoteId)
+                .FirstAsync();
+
+            novedadId = await db.Novedades
+                .Where(n => n.LoteId == loteId
+                    && n.CuyRegistro != null
+                    && n.CuyRegistro.ProductoraId == productora.Id
+                    && n.Tipo == TipoNovedad.SignosClinicos)
+                .Select(n => n.Id)
+                .FirstAsync();
+
+            cuyVendidoId = await db.Novedades
+                .Where(n => n.Id == novedadId)
+                .Select(n => n.CuyRegistroId!.Value)
+                .FirstAsync();
+        }
+
+        // El cuy con la novedad se vende en la comunidad: nunca llega a la
+        // planta, aunque su novedad siga registrada bajo el mismo lote y
+        // productora.
+        var venta = await api.ComoOperadorCat("PAT")
+            .PostAsJsonAsync("/api/pagos/venta-local", new
+            {
+                productoraId = productora.Id,
+                loteId,
+                cuyRegistroIds = new[] { cuyVendidoId },
+                montoUsd = 15m,
+                metodoPago = "Efectivo",
+                responsable = "Operadora de prueba"
+            });
+        venta.EnsureSuccessStatusCode();
+
+        var pago = await api.ComoOperadorCat("PAT")
+            .PostAsJsonAsync("/api/pagos", new
+            {
+                productoraId = productora.Id,
+                loteId,
+                montoUsd = monto,
+                responsable = "Operadora de prueba"
+            });
+        pago.EnsureSuccessStatusCode();
+
+        await using var db2 = api.NuevoDbContext();
+        // Dos pagos existen ahora para esta productora: el de la venta local
+        // y el de la planta. Se cita el de la planta explícitamente porque es
+        // el que las pruebas del Arreglo 5 necesitan.
+        var pagoId = await db2.Pagos
+            .Where(p => p.ProductoraId == productora.Id && !p.EsVentaLocal)
+            .Select(p => p.Id)
+            .FirstAsync();
+
+        return (pagoId, novedadId);
+    }
 }

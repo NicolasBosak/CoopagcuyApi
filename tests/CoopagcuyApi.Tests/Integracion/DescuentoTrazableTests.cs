@@ -96,6 +96,51 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
         pago.ComprobanteUrl.ShouldBeNull();
     }
 
+    /// <summary>
+    /// Arreglo 5 de la revisión final, capa 2 (lo que de verdad ESCRIBE el
+    /// descuento). La capa 1 (BandejaPlantaTests.
+    /// UnCuyVendidoLocalmenteNoApareceEnCuyesConNovedad) ya prueba que el
+    /// operador no la ve en la pantalla normal; esta prueba cubre al cliente
+    /// que se salta esa pantalla y cita el Id de la novedad a mano. Sin el
+    /// filtro de VentaLocalPagoId en ValidarDescuentosAsync, ese cuy
+    /// —vendido en la comunidad, ya cobrado ahí— seguía siendo citable para
+    /// descontarle a la misma productora en el pago de planta: un cobro
+    /// doble sobre un animal que la planta nunca recibió.
+    /// </summary>
+    [Fact]
+    public async Task UnaNovedadDeUnCuyVendidoLocalmenteSeRechaza()
+    {
+        var (pagoId, novedadId) = await Sembrador.PagoConNovedadDeCuyVendidoAsync(
+            api, CedulaA, 90m);
+
+        var respuesta = await api.ComoOperadorFaenamiento()
+            .PostAsJsonAsync($"/api/pagos/{pagoId}/pagar", new
+            {
+                descuentos = new[] { new
+                {
+                    novedadCatId = novedadId,
+                    descripcion = "defecto de un cuy que ya se vendió en la comunidad",
+                    montoUsd = 10m
+                }},
+                comprobanteBase64 = Sembrador.ComprobanteBase64,
+                pagadoPor = "Operador de planta"
+            });
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+
+        await using var db = api.NuevoDbContext();
+        var pago = await db.Pagos.AsNoTracking().FirstAsync(p => p.Id == pagoId);
+        pago.Estado.ShouldBe(EstadoPago.Pendiente);
+        pago.ComprobanteUrl.ShouldBeNull();
+
+        // No solo el estado del ticket: ningún DescuentoPago debe haber
+        // quedado escrito citando esta novedad. Es la fila que de verdad
+        // habilitaría el cobro doble si la validación fallara en silencio.
+        (await db.Descuentos.AsNoTracking()
+            .AnyAsync(d => d.NovedadCatId == novedadId))
+            .ShouldBeFalse();
+    }
+
     [Fact]
     public async Task UnaNovedadSinCuyAsociadoSeRechaza()
     {

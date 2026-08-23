@@ -317,7 +317,14 @@ public class PagoService(
                 // la detecta al borrarla, NO es una prueba floja — no la
                 // busques ni la borres pensando que es código muerto.
                 && n.CuyRegistro != null
-                && n.CuyRegistro.ProductoraId == pago.ProductoraId)
+                && n.CuyRegistro.ProductoraId == pago.ProductoraId
+                // Arreglo 5 de la revisión final: un cuy vendido localmente
+                // nunca llegó a la planta, aunque haya entrado al CAT con una
+                // novedad clínica ya registrada. Sin este filtro la planta
+                // podía citar esa novedad para descontar sobre un pago que no
+                // le corresponde a ese animal — y la productora ya cobró por
+                // él en la venta local, así que el descuento sería doble.
+                && n.CuyRegistro.VentaLocalPagoId == null)
             .OrderBy(n => n.CuyRegistro!.NumeroEnLote)
             .Select(n => new CuyConNovedadDto(
                 n.CuyRegistroId!.Value,
@@ -652,11 +659,22 @@ public class PagoService(
         // Reglas 1 y 2: la novedad tiene que pertenecer a un cuy de ESA
         // productora en ESE lote. Las novedades sin cuy —las de entrega y las
         // filas históricas— quedan fuera por el CuyRegistro != null.
+        //
+        // Regla 4 (Arreglo 5 de la revisión final): y ese cuy tiene que
+        // seguir siendo de la planta. Esta es la defensa que de verdad
+        // importa —la que escribe el DescuentoPago—; ListarCuyesConNovedadAsync
+        // solo decide qué ve el operador, y un cliente que se salte esa
+        // pantalla y cite el Id de la novedad a mano tiene que chocar aquí.
+        // Sin este filtro, un cuy vendido en la comunidad —que ya le cobró a
+        // la productora en la venta local— seguía siendo citable para
+        // descontarle a la misma productora en el pago de planta: un cobro
+        // doble sobre un animal que la planta nunca recibió.
         var validas = await db.Novedades
             .Where(n => citadas.Contains(n.Id)
                 && n.LoteId == pago.LoteId
                 && n.CuyRegistro != null
-                && n.CuyRegistro.ProductoraId == pago.ProductoraId)
+                && n.CuyRegistro.ProductoraId == pago.ProductoraId
+                && n.CuyRegistro.VentaLocalPagoId == null)
             .Select(n => n.Id)
             .ToListAsync();
 

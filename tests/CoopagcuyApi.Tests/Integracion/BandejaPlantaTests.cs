@@ -157,6 +157,32 @@ public class BandejaPlantaTests(ApiFactory api) : IAsyncLifetime
         idsListados.ShouldNotContain(novedadSinAyuno.Id);
     }
 
+    /// <summary>
+    /// Arreglo 5 de la revisión final, capa 1 (lo que la planta VE). Un cuy
+    /// que entró al CAT con una novedad clínica y luego se vendió en la
+    /// comunidad nunca llegó a la planta: su novedad no puede ofrecerse como
+    /// justificación de un descuento sobre el pago de esa productora, porque
+    /// ya cobró por ese animal en la venta local. Sin el filtro de
+    /// VentaLocalPagoId en ListarCuyesConNovedadAsync, el operador de planta
+    /// vería esa novedad como si el cuy siguiera disponible para descontar.
+    /// </summary>
+    [Fact]
+    public async Task UnCuyVendidoLocalmenteNoApareceEnCuyesConNovedad()
+    {
+        var (pagoId, _) = await Sembrador.PagoConNovedadDeCuyVendidoAsync(
+            api, CedulaPat, 90m);
+
+        var cuyes = await api.ComoOperadorFaenamiento()
+            .GetFromJsonAsync<List<CuyConNovedadDto>>(
+                $"/api/pagos/{pagoId}/cuyes-con-novedad");
+
+        cuyes.ShouldNotBeNull();
+        cuyes.ShouldBeEmpty(
+            "el único cuy con novedad de este lote se vendió en la " +
+            "comunidad: no llegó a la planta y no hay nada que descontarle " +
+            "a este pago por su causa");
+    }
+
     /// Entrega + ticket. Devuelve el Id del pago.
     private async Task<int> PagoSembradoAsync(
         CentroAcopio cat, string cedula, decimal monto, string? signos = null)
