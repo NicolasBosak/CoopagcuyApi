@@ -59,9 +59,23 @@ public class MovilizacionService(AppDbContext db) : IMovilizacionService
                 .FirstOrDefaultAsync(l => l.CodigoLote == codigoLote)
                 ?? throw new KeyNotFoundException($"Lote {codigoLote} no encontrado.");
 
-            var claveLock = $"movilizacion-lote-{lote.Id}";
+            var claveLock = Common.ClavesLock.LoteMovilizacion(lote.Id);
             await db.Database.ExecuteSqlAsync(
                 $"SELECT pg_advisory_xact_lock(hashtext({claveLock}))");
+
+            // Releído DESPUÉS del lock: Estado y CantidadAnimales salieron
+            // del FindAsync/FirstOrDefaultAsync de arriba, anterior al lock
+            // por definición (hace falta lote.Id para armar la clave). Bajo
+            // READ COMMITTED (el nivel por defecto de Postgres) un cambio
+            // confirmado por otra transacción entre esa lectura y este punto
+            // no se vería sin este Reload — mismo motivo por el que yaExiste
+            // y vendidos, más abajo, se consultan aquí y no antes. No cambia
+            // el resultado de ningún escenario de la batería hoy (nada toca
+            // Estado o CantidadAnimales de un lote entre su lectura y el
+            // lock salvo esta misma operación, que el lock ya serializa),
+            // pero deja el patrón consistente: todo lo que decide algo
+            // dentro de esta transacción se lee DESPUÉS de tomar el lock.
+            await db.Entry(lote).ReloadAsync();
 
             if (lote.Estado == Common.EstadoLote.Rechazado)
                 throw new InvalidOperationException(

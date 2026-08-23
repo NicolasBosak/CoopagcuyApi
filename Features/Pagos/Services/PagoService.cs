@@ -912,7 +912,7 @@ public class PagoService(
             // con el ticket de venta local sobre los mismos animales. El
             // lock serializa ambas operaciones sobre el mismo lote; la
             // segunda en tomarlo ve el resultado ya escrito de la primera.
-            var claveLock = $"movilizacion-lote-{dto.LoteId}";
+            var claveLock = ClavesLock.LoteMovilizacion(dto.LoteId);
             await db.Database.ExecuteSqlAsync(
                 $"SELECT pg_advisory_xact_lock(hashtext({claveLock}))");
 
