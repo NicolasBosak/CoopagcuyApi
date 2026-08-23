@@ -37,6 +37,66 @@ public class VentaLocalYPlantaTests(ApiFactory api) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task UnPagoDeVentaLocalPendienteNoApareceEnLaColaAunqueElEstadoLoPermita()
+    {
+        // Pin del segundo "&& !p.EsVentaLocal" de ListarPorPagarAsync.
+        // Sembrar por la vía normal (VenderAsync) nace en Estado.Recibido, y
+        // el filtro de la cola ya exige Estado == Pendiente — así que borrar
+        // "&& !p.EsVentaLocal" deja UnaVentaLocalNoApareceEnLaColaDeLaPlanta
+        // en verde de todos modos: esa prueba no puede pinnear la segunda
+        // defensa.
+        //
+        // Aquí se siembra directo en la base un Pago con EsVentaLocal = true
+        // Y Estado = Pendiente — una combinación que el servicio normal
+        // nunca produce, pero que la guarda tiene que cubrir igual, porque
+        // es precisamente el caso donde el primer predicado (Estado ==
+        // Pendiente) YA NO basta para excluirlo. Solo así quitar
+        // "&& !p.EsVentaLocal" pone roja esta prueba. Misma técnica que
+        // UnaJaulaHistoricaSinDetalleSigueApareciendoComoPendiente en este
+        // mismo archivo.
+        var productora = await Sembrador.ProductoraAsync(
+            api, Cedula, CentroAcopio.PAT);
+
+        const string codigoLote = "PAT-20260822-901";
+        await using (var db = api.NuevoDbContext())
+        {
+            var lote = new CoopagcuyApi.Features.Productoras.Models.Lote
+            {
+                CodigoLote = codigoLote,
+                ProductoraId = productora.Id,
+                CentroAcopio = CentroAcopio.PAT,
+                CantidadAnimales = 3,
+                PesoTotalGramos = 3900,
+                FechaRecepcion = DateTime.UtcNow,
+                Estado = EstadoLote.Aceptado
+            };
+            db.Lotes.Add(lote);
+            await db.SaveChangesAsync();
+
+            db.Pagos.Add(new CoopagcuyApi.Features.Pagos.Models.Pago
+            {
+                ProductoraId = productora.Id,
+                LoteId = lote.Id,
+                MontoUsd = 30m,
+                FechaPago = DateTime.UtcNow,
+                MetodoPago = "Efectivo",
+                Estado = EstadoPago.Pendiente,
+                EsVentaLocal = true,
+                Responsable = "Operadora de prueba"
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var respuesta = await api.ComoOperadorFaenamiento()
+            .GetAsync("/api/pagos/por-pagar");
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var cuerpo = await respuesta.Content.ReadAsStringAsync();
+        cuerpo.ShouldNotContain(codigoLote);
+    }
+
+    [Fact]
     public async Task LaPlantaNoPuedePagarUnaVentaLocal()
     {
         var venta = await VenderAsync(2);
