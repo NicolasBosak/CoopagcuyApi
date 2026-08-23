@@ -196,6 +196,12 @@ public class GuiaMovilizacionTests(ApiFactory api, ITestOutputHelper output) : I
         // subconjunto de fuente entre dos lotes gemelos —ver la prueba
         // siguiente— midió entre 53 y 59 bytes. 70 queda cómodo por encima
         // del ruido y por debajo del crecimiento real.
+        //
+        // Este umbral se sostiene solo dentro de Docker (ver Dockerfile.tests)
+        // donde BrandingAssets.FamiliaTipografica = "Liberation Sans" está
+        // instalada explícitamente. Fuera de ese entorno, QuestPDF sustituye
+        // otra fuente en silencio y el ruido de fondo aumenta de ~58 bytes a
+        // ~110, por encima del umbral de esta prueba.
         bytesIncompleto.Length.ShouldBeGreaterThan(bytesCompleto.Length + 70);
     }
 
@@ -228,11 +234,21 @@ public class GuiaMovilizacionTests(ApiFactory api, ITestOutputHelper output) : I
         output.WriteLine($"Diferencia: {Math.Abs(bytesA.Length - bytesB.Length)} bytes");
 
         // Umbral medido: con el mismo largo de código y cédula entre los dos
-        // gemelos, el único diferencial es el subconjunto de fuente que
-        // QuestPDF arma para los dígitos —cédula y código de lote—, que
-        // midió entre 53 y 59 bytes en tres corridas. 80 deja margen sin
-        // acercarse a los ~100 bytes que sí representan una línea nueva
-        // (ver la prueba de crecimiento).
+        // gemelos, hay dos fuentes de ruido. La principal es el subconjunto de
+        // fuente que QuestPDF arma para los dígitos —cédula y código de lote—,
+        // que midió entre 53 y 59 bytes. La segunda es la hora de emisión y
+        // recepción que la guía imprime: como se generan en momentos distintos
+        // para cada lote, si la ejecución cruza un cambio de minuto entre los
+        // dos, un dígito más cambiaría. La ventana es muy angosta —la prueba
+        // corre en decenas de milisegundos— y por eso se acepta.
+        // 80 deja margen sin acercarse a los ~100 bytes que sí representan una
+        // línea nueva (ver la prueba de crecimiento).
+        //
+        // Este umbral se sostiene solo dentro de Docker (ver Dockerfile.tests)
+        // donde BrandingAssets.FamiliaTipografica = "Liberation Sans" está
+        // instalada explícitamente. Fuera de ese entorno, QuestPDF sustituye
+        // otra fuente en silencio y el ruido aumenta a ~110 bytes, por encima
+        // del umbral.
         Math.Abs(bytesA.Length - bytesB.Length).ShouldBeLessThan(80);
     }
 }
