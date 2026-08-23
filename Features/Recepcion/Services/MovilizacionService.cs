@@ -64,7 +64,7 @@ public class MovilizacionService(AppDbContext db) : IMovilizacionService
             // lo único que tienen las movilizaciones anteriores a este
             // cambio, y reimprimir una guía antigua no puede perder ese dato.
             CondicionesClaves = string.Join(
-                CondicionTransporte.Separador, dto.CondicionesTransporte),
+                CondicionTransporte.Separador, dto.CondicionesTransporte.Distinct()),
             TipoForraje = dto.TipoForraje,
             SinAntibioticos7Dias = dto.SinAntibioticos7Dias,
             ResponsableDespacho = dto.ResponsableDespacho.Trim(),

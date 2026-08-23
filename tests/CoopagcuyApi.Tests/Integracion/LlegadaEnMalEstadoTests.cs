@@ -79,6 +79,42 @@ public class LlegadaEnMalEstadoTests(ApiFactory api) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task UnaMovilizacionSinClavesRegistradasNoExigeRespuesta()
+    {
+        // CondicionesClaves NULO representa una movilización anterior a esta
+        // feature: nunca se guardó qué se marcó, así que no se puede
+        // reclamar que el checklist "salió incompleto". Si NoVerificadas o
+        // ClavesDe llegaran a tratar el nulo como lista vacía, el checklist
+        // se vería como si le faltara TODO, y estas movilizaciones viejas
+        // quedarían imposibles de confirmar sin un dato que nadie capturó.
+        var (_, movId) = await MovilizarAsync(new[] { "JaulasLimpias" });
+
+        await using (var db = api.NuevoDbContext())
+        {
+            var mov = await db.Movilizaciones.FirstAsync(m => m.Id == movId);
+            mov.CondicionesClaves = null;
+            await db.SaveChangesAsync();
+        }
+
+        // Confirmamos que de verdad quedó nula antes de ejercer el endpoint.
+        await using (var dbVerificacion = api.NuevoDbContext())
+        {
+            var mov = await dbVerificacion.Movilizaciones.AsNoTracking()
+                .FirstAsync(m => m.Id == movId);
+            mov.CondicionesClaves.ShouldBeNull();
+        }
+
+        var respuesta = await api.ComoOperadorFaenamiento()
+            .PatchAsJsonAsync($"/api/recepcion/movilizaciones/{movId}/recepcion", new
+            {
+                recibidoPor = "Operador de planta"
+                // sin llegaronEnBuenEstado: con claves nulas no es obligatoria.
+            });
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
     public async Task UnNoSinNingunaCondicionSeRechaza()
     {
         // Decir que llegaron mal y no decir en qué no informa de nada.
