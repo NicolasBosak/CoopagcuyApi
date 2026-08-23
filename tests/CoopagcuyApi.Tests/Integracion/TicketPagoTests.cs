@@ -305,6 +305,79 @@ public class TicketPagoTests(ApiFactory api) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task ElTicketDeVentaLocalSobreUnLoteConVentaParcialCuentaSoloLosVendidos()
+    {
+        // Espejo de ElTicketDePlantaSobreUnLoteConVentaParcialNoCuentaLosVendidos,
+        // pero fijando la OTRA rama de ObtenerPesosCuyesDelTicketAsync (la de
+        // EsVentaLocal). Sin esta prueba, nada en la batería pinnea esa
+        // rama: ElTicketDeVentaLocalDifiereDelDeLaPlanta mide longitudes de
+        // PDF sobre un lote donde TODOS los cuyes se vendieron, así que si
+        // alguien mutara la rama de venta local a "VentaLocalPagoId == null"
+        // (el filtro de la rama de planta, invertido) el ticket imprimiría
+        // "Cuyes aportados: 0" mientras sigue siendo más largo que el de
+        // planta por el bloque ANIMALES VENDIDOS — la mutación pasaría en
+        // verde. Es el síntoma original del arreglo 2 ("dice 15 cuando se
+        // pagan 12"), ahora en la rama de venta local.
+        var productora = await Sembrador.ProductoraAsync(
+            api, CedulaProductora, CentroAcopio.PAT);
+
+        var cuyes = Enumerable.Range(0, 5).Select(_ => new
+        {
+            pesoGramos = 1300m,
+            colorPelaje = "Blanco",
+            estadoOreja = "Blanda",
+            tamanoAnimal = "Normal"
+        }).ToArray();
+
+        var entrega = await api.ComoOperadorCat("PAT")
+            .PostAsJsonAsync("/api/recepcion/entregas", new
+            {
+                centroAcopio = "PAT",
+                productoraId = productora.Id,
+                cuyes,
+                enAyunas = true,
+                responsableRecepcion = "Operadora de prueba"
+            });
+        entrega.EnsureSuccessStatusCode();
+
+        int loteId;
+        int[] ids;
+        await using (var db = api.NuevoDbContext())
+        {
+            ids = await db.CuyRegistros
+                .Where(c => c.ProductoraId == productora.Id)
+                .OrderBy(c => c.Id).Select(c => c.Id).ToArrayAsync();
+            loteId = await db.CuyRegistros
+                .Where(c => c.Id == ids[0]).Select(c => c.LoteId).FirstAsync();
+        }
+
+        var venta = await api.ComoOperadorCat("PAT")
+            .PostAsJsonAsync("/api/pagos/venta-local", new
+            {
+                productoraId = productora.Id,
+                loteId,
+                cuyRegistroIds = ids.Take(2).ToArray(),
+                montoUsd = 30m,
+                metodoPago = "Efectivo",
+                responsable = "Operadora de prueba"
+            });
+        venta.EnsureSuccessStatusCode();
+
+        await using var db2 = api.NuevoDbContext();
+        var pagoVl = await db2.Pagos
+            .Where(p => p.ProductoraId == productora.Id && p.EsVentaLocal)
+            .FirstAsync();
+
+        var pesos = await new TicketPagoService(db2)
+            .ObtenerPesosCuyesDelTicketAsync(pagoVl);
+
+        pesos.Count.ShouldBe(2,
+            "el ticket de venta local debe contar solo los animales que " +
+            "ESTA venta cobró, no los 5 de la jaula ni los 3 que quedan");
+        pesos.Sum().ShouldBe(2600m);
+    }
+
+    [Fact]
     public async Task ElTicketDeVentaLocalDifiereDelDeLaPlanta()
     {
         // A/B de dos lotes IDÉNTICOS en forma —misma productora, mismos 3
