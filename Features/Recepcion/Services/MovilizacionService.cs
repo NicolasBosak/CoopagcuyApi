@@ -1,3 +1,4 @@
+using CoopagcuyApi.Common.Exceptions;
 using CoopagcuyApi.Features.Recepcion.DTOs;
 using CoopagcuyApi.Features.Recepcion.Models;
 using CoopagcuyApi.Infrastructure.Data;
@@ -59,6 +60,11 @@ public class MovilizacionService(AppDbContext db) : IMovilizacionService
             Conductor = dto.Conductor.Trim(),
             CantidadMovilizada = dto.CantidadMovilizada,
             CondicionesTransporte = CondicionTransporte.Describir(dto.CondicionesTransporte),
+            // Las claves, además de la frase. La frase se conserva porque es
+            // lo único que tienen las movilizaciones anteriores a este
+            // cambio, y reimprimir una guía antigua no puede perder ese dato.
+            CondicionesClaves = string.Join(
+                CondicionTransporte.Separador, dto.CondicionesTransporte),
             TipoForraje = dto.TipoForraje,
             SinAntibioticos7Dias = dto.SinAntibioticos7Dias,
             ResponsableDespacho = dto.ResponsableDespacho.Trim(),
@@ -84,9 +90,50 @@ public class MovilizacionService(AppDbContext db) : IMovilizacionService
             throw new InvalidOperationException(
                 "Esta movilización ya tiene la recepción en planta confirmada.");
 
+        // Si el checklist salió incompleto, la pregunta deja de ser opcional:
+        // es el único momento en que alguien puede contrastar lo que se
+        // prometió al cargar con lo que de verdad llegó.
+        //
+        // Nulo en CondicionesClaves es una movilización anterior a esta
+        // feature: ahí no se sabe qué se verificó, así que no se puede exigir
+        // nada y la pregunta sigue siendo opcional.
+        var faltaron = movilizacion.CondicionesClaves is not null
+            && CondicionTransporte.NoVerificadas(
+                   TextosGuia.ClavesDe(movilizacion.CondicionesClaves)).Count > 0;
+
+        // TransicionInvalidaException y no CuerpoInvalidoException: esto
+        // depende del estado guardado, no del cuerpo. El controlador ya
+        // traduce InvalidOperationException —de la que hereda— a 409.
+        if (faltaron && dto.LlegaronEnBuenEstado is null)
+            throw new TransicionInvalidaException(
+                "El checklist de transporte quedó incompleto: hay que indicar " +
+                "si los animales llegaron en buen estado.");
+
+        var claves = dto.CondicionesLlegada
+            .Where(c => !string.IsNullOrWhiteSpace(c))
+            .Distinct()
+            .ToList();
+
+        var desconocidas = claves.Where(c => !CondicionLlegada.EsValida(c)).ToList();
+        if (desconocidas.Count > 0)
+            throw new CuerpoInvalidoException(
+                $"Condición de llegada no reconocida: {string.Join(", ", desconocidas)}.");
+
+        if (dto.LlegaronEnBuenEstado == false && claves.Count == 0)
+            throw new CuerpoInvalidoException(
+                "Si los animales no llegaron en buen estado, hay que indicar " +
+                "al menos una condición.");
+
         movilizacion.FechaRecepcionPlanta = DateTime.UtcNow;
         movilizacion.RecibidoPor = dto.RecibidoPor.Trim();
         movilizacion.CondicionLlegada = dto.CondicionLlegada;
+        movilizacion.LlegaronEnBuenEstado = dto.LlegaronEnBuenEstado;
+        // Solo se guardan si la respuesta fue "no": un "sí" con casillas
+        // marcadas de un intento anterior dejaría un cuestionario que
+        // contradice su propia respuesta.
+        movilizacion.CondicionesLlegadaClaves = dto.LlegaronEnBuenEstado == false
+            ? string.Join(CondicionTransporte.Separador, claves)
+            : null;
 
         await db.SaveChangesAsync();
         return Mapear(movilizacion, movilizacion.Lote);
@@ -141,6 +188,9 @@ public class MovilizacionService(AppDbContext db) : IMovilizacionService
         Observaciones: m.Observaciones,
         FechaRecepcionPlanta: m.FechaRecepcionPlanta,
         RecibidoPor: m.RecibidoPor,
-        CondicionLlegada: m.CondicionLlegada
+        CondicionLlegada: m.CondicionLlegada,
+        CondicionesClaves: m.CondicionesClaves,
+        LlegaronEnBuenEstado: m.LlegaronEnBuenEstado,
+        CondicionesLlegadaClaves: m.CondicionesLlegadaClaves
     );
 }
