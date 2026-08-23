@@ -2,6 +2,8 @@ using System.Net;
 using System.Net.Http.Json;
 using CoopagcuyApi.Common;
 using CoopagcuyApi.Features.Pagos.Services;
+using CoopagcuyApi.Features.Productoras.Models;
+using CoopagcuyApi.Features.Recepcion.Models;
 using CoopagcuyApi.Tests.Infra;
 using Microsoft.EntityFrameworkCore;
 using Shouldly;
@@ -223,39 +225,17 @@ public class TicketPagoTests(ApiFactory api) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task ElTicketDeVentaLocalDifiereDelDeLaPlanta()
+    public async Task ElTicketDePlantaSobreUnLoteConVentaParcialNoCuentaLosVendidos()
     {
-        // Refuerzo de la garantía de no regresión más allá del encabezado
-        // (que ya fija UnPagoDeLaPlantaConservaSuEncabezado). Lo único que
-        // esta prueba puede afirmar honestamente es que el bloque ANIMALES
-        // VENDIDOS + la línea del método hacen que el ticket de venta local
-        // sea estrictamente más largo que el de la planta con la misma forma
-        // (mismos 3 cuyes, mismo responsable, mismo formato de fecha).
-        //
-        // Lo que NO afirma, a propósito: que el ticket de la planta "no
-        // crece" frente a un umbral fijo si alguien vuelve a quitar el
-        // `if (pago.EsVentaLocal)` de LineaMetodo. Se midió: con el guard
-        // (correcto) el ticket de planta de este mismo escenario pesa 27001
-        // bytes; quitando el guard (la mutación exacta que se prueba abajo)
-        // pesa 26757 — MÁS CHICO, no más grande. El font embebido se
-        // subsetea por los glifos usados en la página entera, así que una
-        // sola línea corta puede mover el tamaño del PDF en cualquier
-        // dirección, incluso hacia abajo. Un umbral de "no crece" sería un
-        // valor mágico que hoy pasaría por casualidad y que ni siquiera
-        // apunta en la dirección correcta. Por eso esa mitad del pedido se
-        // deja sin prueba automática — es un límite real de "del binario no
-        // se puede afirmar nada", no negligencia. Documentado en
-        // task-5-report.md.
-        var pagoPlantaId = await PagoSembradoAsync();
-        var respPlanta = await api.ComoOperadorCat("PAT")
-            .GetAsync($"/api/pagos/{pagoPlantaId}/ticket");
-        respPlanta.StatusCode.ShouldBe(HttpStatusCode.OK);
-        var bytesPlanta = await respPlanta.Content.ReadAsByteArrayAsync();
-
+        // 5 entregados, 2 vendidos en la comunidad: el ticket de la planta
+        // es por los 3 que SÍ viajaron, no por los 5 de la jaula. Antes de
+        // este arreglo la consulta no excluía VentaLocalPagoId y el ticket
+        // imprimía "Cuyes aportados: 5" aunque la operadora hubiera creado
+        // el pago viendo 3 (ListarLotesPendientesAsync sí restaba).
         var productora = await Sembrador.ProductoraAsync(
-            api, "0104576278", CentroAcopio.PAT);
+            api, CedulaProductora, CentroAcopio.PAT);
 
-        var cuyes = Enumerable.Range(0, 3).Select(_ => new
+        var cuyes = Enumerable.Range(0, 5).Select(_ => new
         {
             pesoGramos = 1300m,
             colorPelaje = "Blanco",
@@ -290,24 +270,172 @@ public class TicketPagoTests(ApiFactory api) : IAsyncLifetime
             {
                 productoraId = productora.Id,
                 loteId,
-                cuyRegistroIds = ids,
+                cuyRegistroIds = ids.Take(2).ToArray(),
+                montoUsd = 30m,
+                metodoPago = "Efectivo",
+                responsable = "Operadora de prueba"
+            });
+        venta.EnsureSuccessStatusCode();
+
+        // El pago de la planta se registra por los 3 que quedan, tal como lo
+        // ve la operadora en /api/pagos/lotes-pendientes (ya restaba antes
+        // de este arreglo).
+        var pago = await api.ComoOperadorCat("PAT")
+            .PostAsJsonAsync("/api/pagos", new
+            {
+                productoraId = productora.Id,
+                loteId,
+                montoUsd = 36m,
+                responsable = "Operadora de prueba"
+            });
+        pago.EnsureSuccessStatusCode();
+
+        await using var db2 = api.NuevoDbContext();
+        var pagoPlanta = await db2.Pagos
+            .Where(p => p.ProductoraId == productora.Id && !p.EsVentaLocal)
+            .FirstAsync();
+
+        var pesos = await new TicketPagoService(db2)
+            .ObtenerPesosCuyesDelTicketAsync(pagoPlanta);
+
+        pesos.Count.ShouldBe(3,
+            "el ticket de la planta debe contar solo los animales que no " +
+            "se vendieron en la comunidad");
+        pesos.Sum().ShouldBe(3900m);
+    }
+
+    [Fact]
+    public async Task ElTicketDeVentaLocalDifiereDelDeLaPlanta()
+    {
+        // A/B de dos lotes IDÉNTICOS en forma —misma productora, mismos 3
+        // cuyes, mismo monto, mismo responsable, sembrados con la misma
+        // técnica directa a la base (misma técnica que
+        // LaGuiaListaLosAnimalesVendidosEnLaComunidad en
+        // GuiaMovilizacionTests)—: la ÚNICA diferencia entre los dos pagos es
+        // EsVentaLocal. La versión anterior de esta prueba comparaba dos
+        // pagos con productoras y montos distintos (120 vs 45), así que una
+        // diferencia de tamaño no probaba que la viniera del bloque de venta
+        // local: podía venir igual de esas otras diferencias. Con la forma
+        // controlada, lo único que puede mover el tamaño es el encabezado
+        // "VENTA LOCAL", el bloque ANIMALES VENDIDOS, el estado "VENDIDO EN
+        // LA COMUNIDAD…" y la línea de método — que es exactamente lo que
+        // esta prueba quiere afirmar que existe.
+        var productora = await Sembrador.ProductoraAsync(
+            api, CedulaProductora, CentroAcopio.PAT);
+
+        var codigoPlanta = await SembrarLoteDeTresAsync(productora.Id, "020");
+        var codigoVentaLocal = await SembrarLoteDeTresAsync(productora.Id, "021");
+
+        int loteIdPlanta, loteIdVl;
+        int[] idsVl;
+        await using (var db = api.NuevoDbContext())
+        {
+            loteIdPlanta = await db.Lotes
+                .Where(l => l.CodigoLote == codigoPlanta)
+                .Select(l => l.Id).FirstAsync();
+
+            var loteVl = await db.Lotes
+                .SingleAsync(l => l.CodigoLote == codigoVentaLocal);
+            loteIdVl = loteVl.Id;
+            idsVl = await db.CuyRegistros
+                .Where(c => c.LoteId == loteIdVl)
+                .OrderBy(c => c.NumeroEnLote)
+                .Select(c => c.Id)
+                .ToArrayAsync();
+        }
+
+        var pagoPlanta = await api.ComoOperadorCat("PAT")
+            .PostAsJsonAsync("/api/pagos", new
+            {
+                productoraId = productora.Id,
+                loteId = loteIdPlanta,
+                montoUsd = 45m,
+                responsable = "Operadora de prueba"
+            });
+        pagoPlanta.EnsureSuccessStatusCode();
+
+        var venta = await api.ComoOperadorCat("PAT")
+            .PostAsJsonAsync("/api/pagos/venta-local", new
+            {
+                productoraId = productora.Id,
+                loteId = loteIdVl,
+                cuyRegistroIds = idsVl,
                 montoUsd = 45m,
                 metodoPago = "Efectivo",
                 responsable = "Operadora de prueba"
             });
         venta.EnsureSuccessStatusCode();
 
-        int pagoVlId;
+        int pagoPlantaId, pagoVlId;
         await using (var db = api.NuevoDbContext())
-            pagoVlId = await db.Pagos.Where(p => p.EsVentaLocal)
+        {
+            pagoPlantaId = await db.Pagos
+                .Where(p => p.LoteId == loteIdPlanta && !p.EsVentaLocal)
                 .Select(p => p.Id).FirstAsync();
+            pagoVlId = await db.Pagos
+                .Where(p => p.LoteId == loteIdVl && p.EsVentaLocal)
+                .Select(p => p.Id).FirstAsync();
+        }
+
+        var respPlanta = await api.ComoOperadorCat("PAT")
+            .GetAsync($"/api/pagos/{pagoPlantaId}/ticket");
+        respPlanta.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var bytesPlanta = await respPlanta.Content.ReadAsByteArrayAsync();
 
         var respVl = await api.ComoOperadorCat("PAT")
             .GetAsync($"/api/pagos/{pagoVlId}/ticket");
         respVl.StatusCode.ShouldBe(HttpStatusCode.OK);
         var bytesVl = await respVl.Content.ReadAsByteArrayAsync();
 
-        bytesVl.Length.ShouldBeGreaterThan(bytesPlanta.Length);
+        // Medido empíricamente con este montaje exacto (A/B, misma
+        // productora, mismos 3 cuyes, mismo monto): el ticket de venta local
+        // pesa varios cientos de bytes más que el de la planta. El umbral
+        // queda cómodamente por debajo del valor medido, igual que en
+        // LaGuiaListaLosAnimalesVendidosEnLaComunidad.
+        (bytesVl.Length - bytesPlanta.Length).ShouldBeGreaterThan(200);
+    }
+
+    /// <summary>
+    /// Lote sembrado directo a la base, con detalle por animal, para poder
+    /// crear dos lotes de la MISMA productora sin pasar por el armado real
+    /// de jaula (que acumularía ambos en una sola). Misma técnica que
+    /// SembrarLoteParaProductoraAsync en GuiaMovilizacionTests.
+    /// </summary>
+    private async Task<string> SembrarLoteDeTresAsync(int productoraId, string sufijo)
+    {
+        await using var db = api.NuevoDbContext();
+
+        var lote = new Lote
+        {
+            CodigoLote = $"PAT-20260819-{sufijo}",
+            ProductoraId = productoraId,
+            CentroAcopio = CentroAcopio.PAT,
+            CantidadAnimales = 3,
+            PesoTotalGramos = 3900,
+            FechaRecepcion = DateTime.UtcNow,
+            Estado = EstadoLote.Aceptado,
+            ResponsableRecepcion = "Operadora de prueba"
+        };
+        db.Lotes.Add(lote);
+        await db.SaveChangesAsync();
+
+        for (var numero = 1; numero <= 3; numero++)
+        {
+            db.CuyRegistros.Add(new CuyRegistro
+            {
+                LoteId = lote.Id,
+                ProductoraId = productoraId,
+                NumeroEnLote = numero,
+                PesoGramos = 1300,
+                ColorPelaje = "Blanco",
+                EstadoOreja = "Blanda",
+                TamanoAnimal = "Normal",
+                Estado = EstadoLote.Aceptado
+            });
+        }
+        await db.SaveChangesAsync();
+
+        return lote.CodigoLote;
     }
 
     /// <summary>

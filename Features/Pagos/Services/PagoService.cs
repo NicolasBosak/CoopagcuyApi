@@ -276,8 +276,13 @@ public class PagoService(
                 p.Lote!.CodigoLote,
                 p.Lote.CentroAcopio.ToString(),
                 p.Lote.FechaRecepcion,
-                // Aporte de ESTA productora, no el total de la jaula
-                p.Lote.Cuyes.Count(c => c.ProductoraId == p.ProductoraId),
+                // Aporte de ESTA productora, no el total de la jaula. Y de
+                // ese aporte, solo lo que le toca pagar A LA PLANTA: este
+                // ticket (ListarPorPagarAsync ya excluye EsVentaLocal) es
+                // siempre un pago de planta, así que lo vendido en la
+                // comunidad no es parte de lo que se está por pagar aquí.
+                p.Lote.Cuyes.Count(c => c.ProductoraId == p.ProductoraId
+                    && c.VentaLocalPagoId == null),
                 p.MontoUsd,
                 p.FechaPago))
             .AsNoTracking()

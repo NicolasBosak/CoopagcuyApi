@@ -1,6 +1,7 @@
 using System.Globalization;
 using CoopagcuyApi.Common;
 using CoopagcuyApi.Common.Branding;
+using CoopagcuyApi.Features.Pagos.Models;
 using CoopagcuyApi.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using QuestPDF.Fluent;
@@ -50,6 +51,36 @@ public class TicketPagoService(AppDbContext db) : ITicketPagoService
         "Este documento acredita un pago pendiente de la cooperativa. " +
         "No es una factura ni un comprobante tributario.";
 
+    /// <summary>
+    /// Peso de los cuyes que ESTE ticket cuenta como "aportados". Aporte de
+    /// ESTA productora a la jaula, no el total: la jaula es multi-productora
+    /// y el ticket es de una sola.
+    ///
+    /// Y dentro de ese aporte, la mitad que le corresponde a ESTE ticket: una
+    /// venta local cobra los animales que se quedaron en la comunidad, así
+    /// que "cuyes aportados" ahí son los vendidos en esta venta
+    /// (VentaLocalPagoId == este pago), no los quince de la jaula. El pago de
+    /// la planta, en cambio, cobra lo que SÍ viajó: los que no se vendieron
+    /// localmente (VentaLocalPagoId == null). Sumar ambos conjuntos da el
+    /// total histórico de la jaula, que es exactamente lo que el ticket NO
+    /// debe imprimir cuando hay una venta parcial de por medio — es el
+    /// motivo original de este arreglo (15 cuando se pagaron 12).
+    ///
+    /// Público —y no solo un detalle de GenerarAsync— porque del binario del
+    /// PDF no se puede afirmar el conteo (ver comentario de clase): esta es
+    /// la única forma de fijarlo por unidad.
+    /// </summary>
+    public async Task<List<decimal>> ObtenerPesosCuyesDelTicketAsync(Pago pago) =>
+        pago.LoteId is int loteId
+            ? await db.CuyRegistros
+                .Where(c => c.LoteId == loteId && c.ProductoraId == pago.ProductoraId
+                    && (pago.EsVentaLocal
+                        ? c.VentaLocalPagoId == pago.Id
+                        : c.VentaLocalPagoId == null))
+                .Select(c => c.PesoGramos)
+                .ToListAsync()
+            : [];
+
     public async Task<byte[]> GenerarAsync(int pagoId)
     {
         QuestPDF.Settings.License = LicenseType.Community;
@@ -63,14 +94,7 @@ public class TicketPagoService(AppDbContext db) : ITicketPagoService
             .FirstOrDefaultAsync(p => p.Id == pagoId)
             ?? throw new KeyNotFoundException($"Pago con Id {pagoId} no encontrado.");
 
-        // Aporte de ESTA productora a la jaula, no el total: la jaula es
-        // multi-productora y el ticket es de una sola.
-        var cuyes = pago.LoteId is int loteId
-            ? await db.CuyRegistros
-                .Where(c => c.LoteId == loteId && c.ProductoraId == pago.ProductoraId)
-                .Select(c => c.PesoGramos)
-                .ToListAsync()
-            : [];
+        var cuyes = await ObtenerPesosCuyesDelTicketAsync(pago);
 
         // Números de los animales que cubre esta venta. Van al papel para que
         // la productora pueda contrastarlos con los que entregó.
