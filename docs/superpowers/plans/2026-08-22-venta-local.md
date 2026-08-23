@@ -2230,7 +2230,7 @@ condiciones más la de que quede algo por vender:
 ```tsx
                                             {l.estado !== "Rechazado" && l.cerrado &&
                                                 !l.tieneMovilizacion &&
-                                                l.cuyesVendidosLocal < l.cuyes.length && (
+                                                l.cuyesVendidosLocal < l.cantidadAnimales && (
                                                     <button
                                                         onClick={() => setLoteVentaLocal(l)}
                                                         title="Registrar una venta en la comunidad"
@@ -2265,7 +2265,23 @@ contemplar el lote vendido entero:
 ```
 
 Y añadir a la condición del botón «A planta» que solo se pinte si queda algo:
-`&& l.cuyesVendidosLocal < l.cuyes.length`.
+`&& l.cuyesVendidosLocal < l.cantidadAnimales`.
+
+> **Corrección salida de la revisión — la tercera vez que este caso muerde.**
+> El borrador comparaba contra `l.cuyes.length` en los dos botones. Para una
+> **jaula histórica cargada sin detalle por animal** eso es `0 < 0`, y hacía
+> desaparecer «A planta» de un lote que el backend sí deja enviar: una
+> regresión, porque antes ese botón no dependía de `cuyes`.
+>
+> **Los dos botones NO llevan la misma condición:**
+> - **«A planta»** compara contra `cantidadAnimales`, el número que el backend
+>   considera autoritativo y que la misma pantalla ya usa (`l.disponibles <
+>   l.cantidadAnimales`).
+> - **«Vender local»** sí compara contra `cuyes.length`: vender exige registro
+>   por animal, y con la lista vacía no hay nada que ofrecer.
+>
+> Es el mismo escenario que `MovilizacionService` respeta restando en vez de
+> contar, y que `ListarLotesPendientesAsync` protege con su rama `!Any(...)`.
 
 **El botón «Guía PDF» se queda siempre.**
 
