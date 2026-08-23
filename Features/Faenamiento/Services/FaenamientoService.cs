@@ -70,11 +70,21 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
                 var usados = l.Faenamientos.Sum(f =>
                     f.Cuyes.Count > 0 ? f.Cuyes.Count
                         : f.UnidadesFaenadas + f.UnidadesDecomisadas);
-                var disponibles = Math.Max(0, l.CantidadAnimales - usados);
+
+                // Lo que la CAT vendió en la comunidad tampoco está disponible
+                // para faenar. Se CUENTA lo vendido y se resta de
+                // CantidadAnimales — nunca se cuenta "lo no vendido" sobre
+                // Cuyes — por el mismo motivo que MovilizacionService: una
+                // jaula histórica sin detalle por animal no tiene filas en
+                // CuyRegistros, y contar sobre esa colección vacía daría
+                // vendidos = 0 igual, así que restar conserva su conducta.
+                var vendidos = l.Cuyes.Count(c => c.VentaLocalPagoId != null);
+                var disponibles = Math.Max(0, l.CantidadAnimales - usados - vendidos);
 
                 var cuyesDisponibles = l.Cuyes
                     .Where(c => !numerosUsados.Contains(c.NumeroEnLote)
-                                && c.Estado != EstadoLote.Rechazado)
+                                && c.Estado != EstadoLote.Rechazado
+                                && c.VentaLocalPagoId == null)
                     .OrderBy(c => c.NumeroEnLote)
                     .Select(c => new CuyDisponibleDto(
                         c.NumeroEnLote, c.PesoGramos,
@@ -197,12 +207,24 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
             .SelectMany(f => f.Cuyes.Select(c => c.NumeroEnLote))
             .ToHashSet();
 
+        // Números vendidos localmente: esos animales no están en el centro y
+        // no pueden faenarse aunque el número siga dentro del rango del lote.
+        var numerosVendidos = lote.Cuyes
+            .Where(c => c.VentaLocalPagoId != null)
+            .Select(c => c.NumeroEnLote)
+            .ToHashSet();
+
         foreach (var c in sesion.Cuyes)
         {
             if (numerosUsados.Contains(c.NumeroEnLote))
                 throw new InvalidOperationException(
                     $"El cuy #{c.NumeroEnLote} del lote {lote.CodigoLote} " +
                     "ya fue procesado en una sesión anterior.");
+
+            if (numerosVendidos.Contains(c.NumeroEnLote))
+                throw new InvalidOperationException(
+                    $"El cuy #{c.NumeroEnLote} del lote {lote.CodigoLote} " +
+                    "se vendió en la comunidad y no llegó a la planta.");
 
             if (c.NumeroEnLote < 1 || c.NumeroEnLote > lote.CantidadAnimales)
                 throw new InvalidOperationException(
