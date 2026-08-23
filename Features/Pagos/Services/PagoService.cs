@@ -819,6 +819,12 @@ public class PagoService(
         var lote = await db.Lotes.FindAsync(dto.LoteId)
             ?? throw new KeyNotFoundException($"Lote con Id {dto.LoteId} no encontrado.");
 
+        // Chequeo rápido, fuera de la transacción: falla temprano con un
+        // mensaje claro en el caso común (el lote YA está movilizado desde
+        // antes). No es la defensa real contra la carrera — esa es el
+        // advisory lock de más abajo — porque una lectura de fuera de
+        // transacción puede quedar desactualizada para cuando el delegado
+        // reintentable se ejecute.
         if (await db.Movilizaciones.AnyAsync(m => m.LoteId == lote.Id))
             throw new TransicionInvalidaException(
                 "El lote ya se movilizó a la planta: sus animales ya no están en el centro.");
@@ -877,6 +883,30 @@ public class PagoService(
             };
 
             await using var tx = await db.Database.BeginTransactionAsync();
+
+            // Arreglo 4 de la revisión final: el mismo advisory lock, con la
+            // MISMA clave, que MovilizacionService.RegistrarAsync toma sobre
+            // este lote. Sin esto, una venta local y una movilización
+            // concurrentes se intercalan — la venta lee "sin movilizar" (el
+            // AnyAsync de arriba, ya viejo para cuando se llega aquí) justo
+            // cuando la movilización cuenta "0 vendidos" y despacha el lote
+            // entero — y la guía de movilización termina contradiciéndose
+            // con el ticket de venta local sobre los mismos animales. El
+            // lock serializa ambas operaciones sobre el mismo lote; la
+            // segunda en tomarlo ve el resultado ya escrito de la primera.
+            var claveLock = $"movilizacion-lote-{dto.LoteId}";
+            await db.Database.ExecuteSqlAsync(
+                $"SELECT pg_advisory_xact_lock(hashtext({claveLock}))");
+
+            // Repetida DENTRO del lock: es la que de verdad decide. La de
+            // arriba solo evita abrir una transacción para el caso común.
+            if (await db.Movilizaciones.AnyAsync(m => m.LoteId == dto.LoteId))
+            {
+                await tx.RollbackAsync();
+                throw new TransicionInvalidaException(
+                    "El lote ya se movilizó a la planta: sus animales ya no " +
+                    "están en el centro.");
+            }
 
             db.Pagos.Add(nuevoPago);
             await db.SaveChangesAsync();
