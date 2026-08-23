@@ -101,6 +101,8 @@ public record LoteResponseDto(
     int Disponibles,
     // Ya tiene registro de movilización hacia la planta
     bool TieneMovilizacion,
+    // Animales del lote ya vendidos en la comunidad (venta local pagada)
+    int CuyesVendidosLocal,
     List<ProductoraEnLoteDto> Productoras,
     List<NovedadResponseDto> Novedades,
     List<CuyRegistroResponseDto> Cuyes
