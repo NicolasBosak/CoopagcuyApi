@@ -601,6 +601,33 @@ public class LlegadaEnMalEstadoTests(ApiFactory api) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task UnaMovilizacionAnteriorALaFeatureNoExigeRespuesta()
+    {
+        // CondicionesClaves nulo = fila anterior a esta feature: no se sabe
+        // que se marco, asi que no se puede reclamar nada. Si alguien tratara
+        // ese nulo como lista vacia, TODAS las movilizaciones que ya existen
+        // en produccion pasarian a exigir respuesta y quedarian imposibles de
+        // confirmar. Es el invariante que protege los datos que ya estan.
+        var (_, movId) = await MovilizarAsync(new[] { "JaulasLimpias" });
+
+        await using (var db = api.NuevoDbContext())
+        {
+            var mov = await db.Movilizaciones.FirstAsync(m => m.Id == movId);
+            mov.CondicionesClaves = null;
+            await db.SaveChangesAsync();
+        }
+
+        var respuesta = await api.ComoOperadorFaenamiento()
+            .PatchAsJsonAsync($"/api/recepcion/movilizaciones/{movId}/recepcion", new
+            {
+                recibidoPor = "Operador de planta"
+                // sin llegaronEnBuenEstado, y aun asi debe aceptarse
+            });
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
     public async Task UnSiNoArrastraCondiciones()
     {
         // Si llegaron bien, no puede quedar un cuestionario guardado.
@@ -729,7 +756,7 @@ En `MovilizacionService.RegistrarAsync`, en el objeto `new Movilizacion { … }`
             // lo único que tienen las movilizaciones anteriores a este
             // cambio, y reimprimir una guía antigua no puede perder ese dato.
             CondicionesClaves = string.Join(
-                CondicionTransporte.Separador, dto.CondicionesTransporte),
+                CondicionTransporte.Separador, dto.CondicionesTransporte.Distinct()),
 ```
 
 - [ ] **Step 5: Validar la llegada**
