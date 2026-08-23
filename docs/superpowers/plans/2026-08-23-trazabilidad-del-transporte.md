@@ -795,7 +795,24 @@ Añadir los `using` que falten (`CoopagcuyApi.Common.Exceptions`, y `CondicionLl
         }
 ```
 
-**Colócalo ANTES del `catch (InvalidOperationException)`.** Si `CuerpoInvalidoException` hereda de `InvalidOperationException` —compruébalo— el orden decide cual gana, y al reves los 400 saldrian como 409.
+Y **también** uno para el 409, porque hace falta:
+
+```csharp
+        catch (TransicionInvalidaException ex)
+        {
+            return Conflict(new { mensaje = ex.Message });
+        }
+```
+
+> **Corrección salida de ejecutar este plan.** El borrador daba por hecho que
+> `TransicionInvalidaException` heredaba de `InvalidOperationException` y que el
+> `catch` ya existente la traduciría sola a 409. **Es falso:** las dos
+> excepciones del proyecto heredan directamente de `Exception`. Sin el `catch`
+> explícito, el caso de la respuesta obligatoria habría devuelto **500** en vez
+> de 409. `PagosController` ya las captura ambas por separado — ese es el
+> patrón a seguir.
+
+**Coloca los dos ANTES del `catch (InvalidOperationException)`.**
 
 - [ ] **Step 6: Ejecutar y comprobar por mutación**
 
