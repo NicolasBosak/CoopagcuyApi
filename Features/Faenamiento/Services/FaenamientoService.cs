@@ -194,6 +194,7 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
             .Include(l => l.Productora)
             .Include(l => l.Cuyes).ThenInclude(c => c.Productora)
             .Include(l => l.Faenamientos).ThenInclude(f => f.Cuyes)
+            .Include(l => l.Movilizacion)
             .FirstOrDefaultAsync(l => l.Id == sesion.LoteId)
             ?? throw new KeyNotFoundException(
                 $"Lote con Id {sesion.LoteId} no encontrado.");
@@ -201,6 +202,27 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
         if (lote.Estado == EstadoLote.Rechazado)
             throw new InvalidOperationException(
                 $"El lote {lote.CodigoLote} está rechazado y no puede faenarse.");
+
+        // Arreglo 1 de la re-revisión: el hueco espejo del Arreglo 1 de la
+        // revisión final. Aquel cerró "vendido → faenado"; este cierra la
+        // dirección inversa, "faenado (o ni siquiera recibido) → vendido".
+        // Sin esta guarda, un cliente que se saltara /api/faenamiento/
+        // lotes-disponibles podía registrar una sesión sobre un lote que
+        // sigue físicamente en el CAT —nunca se movilizó ni se recibió en
+        // planta— y luego vender localmente ese mismo animal: quedaría
+        // faenado (dentro del LoteFaenado que lee el QR) Y cobrado como
+        // venta local a la vez. Es el mismo modelo de amenaza que el
+        // Arreglo 5 ya bloquea del otro lado ("un cliente que se salte esa
+        // pantalla y cite el Id a mano tiene que chocar aquí"). Con las dos
+        // guardas puestas el ciclo queda cerrado por ambos lados: un lote
+        // recibido en planta ya no es vendible localmente
+        // (RegistrarVentaLocalAsync rechaza con cualquier fila en
+        // Movilizaciones), y un lote no recibido en planta ya no es
+        // faenable.
+        if (lote.Movilizacion?.FechaRecepcionPlanta == null)
+            throw new InvalidOperationException(
+                $"El lote {lote.CodigoLote} no se ha recibido en planta " +
+                "todavía: no puede faenarse.");
 
         // Validar que los números elegidos siguen disponibles
         var numerosUsados = lote.Faenamientos

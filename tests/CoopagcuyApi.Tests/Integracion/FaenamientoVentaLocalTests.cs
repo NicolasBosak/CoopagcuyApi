@@ -214,4 +214,106 @@ public class FaenamientoVentaLocalTests(ApiFactory api) : IAsyncLifetime
         (await db.Faenamientos.AnyAsync(f => f.LoteId == lote.LoteId))
             .ShouldBeFalse();
     }
+
+    /// <summary>
+    /// Entrega 3 cuyes en PAT y cierra el lote, pero NO lo moviliza ni lo
+    /// recibe en planta: sigue físicamente en el CAT. Es el estado que
+    /// LotesDisponiblesAsync ya excluye de la lista (Movilizacion == null);
+    /// esta prueba comprueba que RegistrarBatchAsync lo rechaza también
+    /// cuando el cliente se salta ese listado y cita el lote a mano.
+    /// </summary>
+    private async Task<string> PrepararLoteSinMovilizarAsync()
+    {
+        var productora = await Sembrador.ProductoraAsync(
+            api, Cedula, CentroAcopio.PAT);
+
+        var cuyes = Enumerable.Range(0, 3).Select(_ => new
+        {
+            pesoGramos = 1300m,
+            colorPelaje = "Blanco",
+            estadoOreja = "Blanda",
+            tamanoAnimal = "Normal"
+        }).ToArray();
+
+        var entrega = await api.ComoOperadorCat("PAT")
+            .PostAsJsonAsync("/api/recepcion/entregas", new
+            {
+                centroAcopio = "PAT",
+                productoraId = productora.Id,
+                cuyes,
+                enAyunas = true,
+                responsableRecepcion = "Operadora de prueba"
+            });
+        entrega.EnsureSuccessStatusCode();
+
+        string codigoLote;
+        await using (var db = api.NuevoDbContext())
+        {
+            codigoLote = await db.CuyRegistros
+                .Where(c => c.ProductoraId == productora.Id)
+                .Select(c => c.Lote!.CodigoLote)
+                .FirstAsync();
+        }
+
+        var cierre = await api.ComoOperadorCat("PAT")
+            .PostAsync($"/api/recepcion/lotes/{codigoLote}/cerrar", null);
+        cierre.EnsureSuccessStatusCode();
+
+        return codigoLote;
+    }
+
+    /// <summary>
+    /// Arreglo 1 de la re-revisión: el hueco espejo del arreglo anterior.
+    /// Aquel cerró "vendido → faenado"; este cierra "no recibido en planta →
+    /// faenado". Sin la guarda de FechaRecepcionPlanta en
+    /// RegistrarSesionLoteAsync, un cliente que se saltara el selector de
+    /// lotes disponibles podía faenar un lote que sigue en el CAT y luego
+    /// venderlo localmente: el animal quedaría faenado (dentro del
+    /// LoteFaenado que lee el QR) Y cobrado como venta local a la vez.
+    /// </summary>
+    [Fact]
+    public async Task RegistrarUnaSesionSobreUnLoteNoRecibidoEnPlantaSeRechaza()
+    {
+        var codigoLote = await PrepararLoteSinMovilizarAsync();
+
+        int loteId;
+        await using (var db = api.NuevoDbContext())
+        {
+            loteId = await db.Lotes
+                .Where(l => l.CodigoLote == codigoLote)
+                .Select(l => l.Id)
+                .FirstAsync();
+        }
+
+        var respuesta = await api.ComoOperadorFaenamiento()
+            .PostAsJsonAsync("/api/faenamiento/batch", new
+            {
+                operarioResponsable = "Operario de prueba",
+                lotes = new[]
+                {
+                    new
+                    {
+                        loteId,
+                        cuyes = new[]
+                        {
+                            new
+                            {
+                                numeroEnLote = 1,
+                                pesoCanalGramos = 600m,
+                                estado = "Apto"
+                            }
+                        }
+                    }
+                }
+            });
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+
+        var cuerpo = await respuesta.Content.ReadAsStringAsync();
+        cuerpo.ShouldContain("recibido en planta");
+
+        await using var db2 = api.NuevoDbContext();
+        (await db2.Faenamientos.AnyAsync(f => f.LoteId == loteId))
+            .ShouldBeFalse();
+    }
 }
