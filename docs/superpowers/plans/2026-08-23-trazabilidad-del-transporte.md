@@ -506,13 +506,16 @@ public class LlegadaEnMalEstadoTests(ApiFactory api) : IAsyncLifetime
         var (_, movId) = await MovilizarAsync(new[] { "JaulasLimpias" });
 
         var respuesta = await api.ComoOperadorFaenamiento()
-            .PostAsJsonAsync($"/api/recepcion/movilizaciones/{movId}/recepcion", new
+            .PatchAsJsonAsync($"/api/recepcion/movilizaciones/{movId}/recepcion", new
             {
                 recibidoPor = "Operador de planta"
                 // sin llegaronEnBuenEstado
             });
 
-        respuesta.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        // 409 y no 400: decidir que la respuesta es obligatoria exige mirar
+        // el checklist GUARDADO, no el cuerpo de la peticion. Es el criterio
+        // que ya sigue todo el modulo de pagos.
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.Conflict);
 
         await using var db = api.NuevoDbContext();
         var mov = await db.Movilizaciones.AsNoTracking().FirstAsync(m => m.Id == movId);
@@ -529,7 +532,7 @@ public class LlegadaEnMalEstadoTests(ApiFactory api) : IAsyncLifetime
         var (_, movId) = await MovilizarAsync(todas);
 
         var respuesta = await api.ComoOperadorFaenamiento()
-            .PostAsJsonAsync($"/api/recepcion/movilizaciones/{movId}/recepcion", new
+            .PatchAsJsonAsync($"/api/recepcion/movilizaciones/{movId}/recepcion", new
             {
                 recibidoPor = "Operador de planta"
             });
@@ -544,7 +547,7 @@ public class LlegadaEnMalEstadoTests(ApiFactory api) : IAsyncLifetime
         var (_, movId) = await MovilizarAsync(new[] { "JaulasLimpias" });
 
         var respuesta = await api.ComoOperadorFaenamiento()
-            .PostAsJsonAsync($"/api/recepcion/movilizaciones/{movId}/recepcion", new
+            .PatchAsJsonAsync($"/api/recepcion/movilizaciones/{movId}/recepcion", new
             {
                 recibidoPor = "Operador de planta",
                 llegaronEnBuenEstado = false,
@@ -560,7 +563,7 @@ public class LlegadaEnMalEstadoTests(ApiFactory api) : IAsyncLifetime
         var (_, movId) = await MovilizarAsync(new[] { "JaulasLimpias" });
 
         var respuesta = await api.ComoOperadorFaenamiento()
-            .PostAsJsonAsync($"/api/recepcion/movilizaciones/{movId}/recepcion", new
+            .PatchAsJsonAsync($"/api/recepcion/movilizaciones/{movId}/recepcion", new
             {
                 recibidoPor = "Operador de planta",
                 llegaronEnBuenEstado = false,
@@ -576,7 +579,7 @@ public class LlegadaEnMalEstadoTests(ApiFactory api) : IAsyncLifetime
         var (_, movId) = await MovilizarAsync(new[] { "JaulasLimpias" });
 
         var respuesta = await api.ComoOperadorFaenamiento()
-            .PostAsJsonAsync($"/api/recepcion/movilizaciones/{movId}/recepcion", new
+            .PatchAsJsonAsync($"/api/recepcion/movilizaciones/{movId}/recepcion", new
             {
                 recibidoPor = "Operador de planta",
                 llegaronEnBuenEstado = false,
@@ -604,7 +607,7 @@ public class LlegadaEnMalEstadoTests(ApiFactory api) : IAsyncLifetime
         var (_, movId) = await MovilizarAsync(new[] { "JaulasLimpias" });
 
         var respuesta = await api.ComoOperadorFaenamiento()
-            .PostAsJsonAsync($"/api/recepcion/movilizaciones/{movId}/recepcion", new
+            .PatchAsJsonAsync($"/api/recepcion/movilizaciones/{movId}/recepcion", new
             {
                 recibidoPor = "Operador de planta",
                 llegaronEnBuenEstado = true,
@@ -745,8 +748,11 @@ En `MovilizacionService.ConfirmarRecepcionAsync`, después de la comprobación d
             && CondicionTransporte.NoVerificadas(
                    TextosGuia.ClavesDe(movilizacion.CondicionesClaves)).Count > 0;
 
+        // TransicionInvalidaException y no CuerpoInvalidoException: esto
+        // depende del estado guardado, no del cuerpo. El controlador ya
+        // traduce InvalidOperationException —de la que hereda— a 409.
         if (faltaron && dto.LlegaronEnBuenEstado is null)
-            throw new CuerpoInvalidoException(
+            throw new TransicionInvalidaException(
                 "El checklist de transporte quedó incompleto: hay que indicar " +
                 "si los animales llegaron en buen estado.");
 
@@ -780,7 +786,16 @@ Y al escribir:
 
 Añadir los `using` que falten (`CoopagcuyApi.Common.Exceptions`, y `CondicionLlegada` ya está en el mismo namespace de modelos).
 
-**Comprueba** que el controlador traduce `CuerpoInvalidoException` a 400 en esta acción; si no lo hace, añade el `catch`, igual que hacen los demás endpoints del repositorio.
+**El endpoint es `HttpPatch("movilizaciones/{id:int}/recepcion")`**, no POST — las pruebas usan `PatchAsJsonAsync`. Y hoy **solo** captura `InvalidOperationException` y la traduce a **409**; no tiene `catch` de 400. Añádele uno:
+
+```csharp
+        catch (CuerpoInvalidoException ex)
+        {
+            return BadRequest(new { mensaje = ex.Message });
+        }
+```
+
+**Colócalo ANTES del `catch (InvalidOperationException)`.** Si `CuerpoInvalidoException` hereda de `InvalidOperationException` —compruébalo— el orden decide cual gana, y al reves los 400 saldrian como 409.
 
 - [ ] **Step 6: Ejecutar y comprobar por mutación**
 
