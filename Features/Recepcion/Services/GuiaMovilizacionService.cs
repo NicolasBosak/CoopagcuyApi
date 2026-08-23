@@ -52,6 +52,7 @@ public class GuiaMovilizacionService(AppDbContext db) : IGuiaMovilizacionService
             // debería depender de una configuración que vive en otro archivo.
             .Include(l => l.Cuyes).ThenInclude(c => c.Productora)
                 .ThenInclude(p => p!.Comunidad)
+            .Include(l => l.Cuyes).ThenInclude(c => c.VentaLocalPago)
             .FirstOrDefaultAsync(l => l.CodigoLote == codigoLote)
             ?? throw new KeyNotFoundException($"Lote {codigoLote} no encontrado.");
 
@@ -225,6 +226,28 @@ public class GuiaMovilizacionService(AppDbContext db) : IGuiaMovilizacionService
                                 }
                             });
                         });
+                    }
+
+                    // Los animales que no viajaron. Van en la guía porque es
+                    // el documento que acompaña al transporte: sin esto, la
+                    // diferencia entre lo recibido y lo movilizado no tiene
+                    // explicación en el propio papel.
+                    var vendidos = lote.Cuyes
+                        .Where(c => c.VentaLocalPagoId != null)
+                        .OrderBy(c => c.NumeroEnLote)
+                        .ToList();
+
+                    if (vendidos.Count > 0)
+                    {
+                        col.Item().PaddingTop(8).Text("VENDIDOS EN LA COMUNIDAD")
+                            .Bold();
+                        col.Item().Text(
+                            $"{vendidos.Count} de {lote.CantidadAnimales} animales " +
+                            $"no viajaron a la planta:");
+
+                        foreach (var cuy in vendidos)
+                            col.Item().Text(TextosGuia.LineaVentaLocal(
+                                cuy, cuy.VentaLocalPago!.FechaPago)).FontSize(9);
                     }
 
                     // Datos del transporte y declaración de tratamientos

@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Json;
 using CoopagcuyApi.Common;
 using CoopagcuyApi.Features.Productoras.Models;
 using CoopagcuyApi.Features.Recepcion.Models;
@@ -28,23 +29,39 @@ public class GuiaMovilizacionTests(ApiFactory api) : IAsyncLifetime
     private const string CedulaProductora = "0104576277";
 
     /// <summary>
-    /// Jaula mínima con un animal: lo justo para que la guía tenga que
-    /// componer la fila de "DETALLE POR ANIMAL", que es donde estaba el fallo.
+    /// Jaula con <paramref name="cantidadAnimales"/> animales (uno por
+    /// defecto), de una productora nueva: lo justo para que la guía tenga que
+    /// componer la fila de "DETALLE POR ANIMAL", que es donde estaba el
+    /// fallo.
     /// </summary>
-    private async Task<string> SembrarLoteAsync()
+    private async Task<string> SembrarLoteAsync(
+        int cantidadAnimales = 1, string sufijo = "001")
     {
         var productora = await Sembrador.ProductoraAsync(
             api, CedulaProductora, CentroAcopio.PAT, comunidadId: 1);
 
+        return await SembrarLoteParaProductoraAsync(
+            productora.Id, cantidadAnimales, sufijo);
+    }
+
+    /// <summary>
+    /// Igual que <see cref="SembrarLoteAsync"/> pero para una productora ya
+    /// existente: permite sembrar más de un lote en la misma prueba —cada uno
+    /// con su propio <paramref name="sufijo"/> de código— sin chocar contra
+    /// la cédula única de la productora.
+    /// </summary>
+    private async Task<string> SembrarLoteParaProductoraAsync(
+        int productoraId, int cantidadAnimales, string sufijo)
+    {
         await using var db = api.NuevoDbContext();
 
         var lote = new Lote
         {
-            CodigoLote = "PAT-20260818-001",
-            ProductoraId = productora.Id,
+            CodigoLote = $"PAT-20260818-{sufijo}",
+            ProductoraId = productoraId,
             CentroAcopio = CentroAcopio.PAT,
-            CantidadAnimales = 1,
-            PesoTotalGramos = 900,
+            CantidadAnimales = cantidadAnimales,
+            PesoTotalGramos = 900 * cantidadAnimales,
             FechaRecepcion = DateTime.UtcNow,
             Estado = EstadoLote.Aceptado,
             ResponsableRecepcion = "Nicolas Nieves"
@@ -52,17 +69,20 @@ public class GuiaMovilizacionTests(ApiFactory api) : IAsyncLifetime
         db.Lotes.Add(lote);
         await db.SaveChangesAsync();
 
-        db.CuyRegistros.Add(new CuyRegistro
+        for (var numero = 1; numero <= cantidadAnimales; numero++)
         {
-            LoteId = lote.Id,
-            ProductoraId = productora.Id,
-            NumeroEnLote = 1,
-            PesoGramos = 900,
-            ColorPelaje = "Bayo",
-            EstadoOreja = "Semiblanda",
-            TamanoAnimal = "Grande",
-            Estado = EstadoLote.Aceptado
-        });
+            db.CuyRegistros.Add(new CuyRegistro
+            {
+                LoteId = lote.Id,
+                ProductoraId = productoraId,
+                NumeroEnLote = numero,
+                PesoGramos = 900,
+                ColorPelaje = "Bayo",
+                EstadoOreja = "Semiblanda",
+                TamanoAnimal = "Grande",
+                Estado = EstadoLote.Aceptado
+            });
+        }
         await db.SaveChangesAsync();
 
         return lote.CodigoLote;
@@ -129,5 +149,60 @@ public class GuiaMovilizacionTests(ApiFactory api) : IAsyncLifetime
         cuy.Productora.ShouldNotBeNull();
         cuy.Productora.Comunidad.ShouldNotBeNull();
         cuy.Productora.Comunidad.Nombre.ShouldBe("Patococha");
+    }
+
+    [Fact]
+    public async Task LaGuiaListaLosAnimalesVendidosEnLaComunidad()
+    {
+        // Misma técnica que LaGuiaConLogoPesaMasQueElUmbralMinimo: del PDF no
+        // se puede afirmar nada sobre su contenido, pero de que el bloque de
+        // "VENDIDOS EN LA COMUNIDAD" llegó (encabezado + un renglón por
+        // animal) sí se puede afirmar que el documento pesa más.
+        var productora = await Sembrador.ProductoraAsync(
+            api, CedulaProductora, CentroAcopio.PAT, comunidadId: 1);
+
+        var codigoSinVentas = await SembrarLoteParaProductoraAsync(
+            productora.Id, cantidadAnimales: 3, sufijo: "001");
+        var codigoConVentas = await SembrarLoteParaProductoraAsync(
+            productora.Id, cantidadAnimales: 3, sufijo: "002");
+
+        int loteId;
+        int[] cuyIds;
+        await using (var db = api.NuevoDbContext())
+        {
+            var lote = await db.Lotes.SingleAsync(l => l.CodigoLote == codigoConVentas);
+            loteId = lote.Id;
+            cuyIds = await db.CuyRegistros
+                .Where(c => c.LoteId == loteId)
+                .OrderBy(c => c.NumeroEnLote)
+                .Select(c => c.Id)
+                .ToArrayAsync();
+        }
+
+        var venta = await api.ComoOperadorCat("PAT")
+            .PostAsJsonAsync("/api/pagos/venta-local", new
+            {
+                productoraId = productora.Id,
+                loteId,
+                cuyRegistroIds = cuyIds.Take(2).ToArray(),
+                montoUsd = 20m,
+                metodoPago = "Efectivo",
+                responsable = "Operadora de prueba"
+            });
+        venta.EnsureSuccessStatusCode();
+
+        var respuestaSinVentas = await api.ComoOperadorCat("PAT")
+            .GetAsync($"/api/recepcion/lotes/{codigoSinVentas}/guia");
+        var respuestaConVentas = await api.ComoOperadorCat("PAT")
+            .GetAsync($"/api/recepcion/lotes/{codigoConVentas}/guia");
+
+        var bytesSinVentas = await respuestaSinVentas.Content.ReadAsByteArrayAsync();
+        var bytesConVentas = await respuestaConVentas.Content.ReadAsByteArrayAsync();
+
+        // Medido empíricamente: con 2 de 3 animales vendidos el PDF creció
+        // 474 bytes frente al equivalente sin ventas (encabezado "VENDIDOS EN
+        // LA COMUNIDAD" + resumen + dos renglones). Umbral holgadamente por
+        // debajo de ese valor medido.
+        (bytesConVentas.Length - bytesSinVentas.Length).ShouldBeGreaterThan(200);
     }
 }

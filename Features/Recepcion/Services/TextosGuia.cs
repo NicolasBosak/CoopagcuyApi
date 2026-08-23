@@ -1,3 +1,4 @@
+using CoopagcuyApi.Common;
 using CoopagcuyApi.Features.Recepcion.Models;
 
 namespace CoopagcuyApi.Features.Recepcion.Services;
@@ -49,4 +50,14 @@ public static class TextosGuia
 
     private static string? Rotulado(string rotulo, string? valor) =>
         string.IsNullOrWhiteSpace(valor) ? null : $"{rotulo}: {valor}";
+
+    /// <summary>
+    /// "#3 · María Quizhpi (Patococha) · 21/08/2026" — un animal que se vendió
+    /// en la comunidad en vez de viajar a la planta.
+    ///
+    /// Reutiliza <see cref="Productora"/> para el nombre, así que hereda su
+    /// manejo del caso sin productora y del de comunidad sin cargar.
+    /// </summary>
+    public static string LineaVentaLocal(CuyRegistro cuy, DateTime fechaVenta) =>
+        $"#{cuy.NumeroEnLote} · {Productora(cuy)} · {FechaUtc.FechaLocal(fechaVenta)}";
 }
