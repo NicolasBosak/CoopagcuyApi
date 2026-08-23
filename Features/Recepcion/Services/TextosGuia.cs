@@ -49,4 +49,38 @@ public static class TextosGuia
 
     private static string? Rotulado(string rotulo, string? valor) =>
         string.IsNullOrWhiteSpace(valor) ? null : $"{rotulo}: {valor}";
+
+    /// <summary>
+    /// Claves guardadas en una columna, partidas por su separador. Nulo o
+    /// vacío devuelve una lista vacía, no una lista con una cadena vacía
+    /// dentro — eso último haría que NoVerificadas creyera que hay una clave
+    /// marcada que no existe.
+    /// </summary>
+    public static IReadOnlyList<string> ClavesDe(string? csv) =>
+        string.IsNullOrWhiteSpace(csv)
+            ? []
+            : csv.Split(CondicionTransporte.Separador,
+                    StringSplitOptions.RemoveEmptyEntries |
+                    StringSplitOptions.TrimEntries)
+                 .ToList();
+
+    /// <summary>
+    /// "No se verificó: Ventilación adecuada, Vehículo limpio", o NULO cuando
+    /// no hay nada que decir.
+    ///
+    /// Devuelve nulo en DOS casos distintos que la guía trata igual —no
+    /// imprimir nada— pero que no son lo mismo: con todas las condiciones
+    /// marcadas no falta ninguna, y en una movilización anterior a esta
+    /// feature no se registró cuáles se marcaron. Afirmar en ese segundo caso
+    /// que "no se verificó ninguna" sería inventar un dato que nadie guardó.
+    /// </summary>
+    public static string? LineaNoVerificadas(string? clavesCsv)
+    {
+        if (string.IsNullOrWhiteSpace(clavesCsv)) return null;
+
+        var faltan = CondicionTransporte.NoVerificadas(ClavesDe(clavesCsv));
+        return faltan.Count == 0
+            ? null
+            : $"No se verificó: {string.Join(", ", faltan)}";
+    }
 }
