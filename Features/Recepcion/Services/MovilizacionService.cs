@@ -102,8 +102,13 @@ public class MovilizacionService(AppDbContext db) : IMovilizacionService
                    TextosGuia.ClavesDe(movilizacion.CondicionesClaves)).Count > 0;
 
         // TransicionInvalidaException y no CuerpoInvalidoException: esto
-        // depende del estado guardado, no del cuerpo. El controlador ya
-        // traduce InvalidOperationException —de la que hereda— a 409.
+        // depende del estado guardado, no del cuerpo. TransicionInvalidaException
+        // hereda de Exception, no de InvalidOperationException —ninguna
+        // excepción propia del proyecto lo hace, ver Common/Exceptions—, así
+        // que el controlador la captura explícitamente
+        // (catch (TransicionInvalidaException) → 409) antes del catch
+        // genérico. Sin ese catch explícito esto sería un 500 sin mensaje
+        // para el operador de planta.
         if (faltaron && dto.LlegaronEnBuenEstado is null)
             throw new TransicionInvalidaException(
                 "El checklist de transporte quedó incompleto: hay que indicar " +
