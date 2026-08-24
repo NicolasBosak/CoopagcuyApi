@@ -33,6 +33,9 @@ public static class CostoDeLoDespachado
         IReadOnlyList<AnimalDespachado> animales,
         IReadOnlyList<PagoDeLote> pagos)
     {
+        // Se asume que Tarea 5 no produce dos pagos con la misma clave
+        // (LoteId, ProductoraId): si eso pasara, ToDictionary lanza en vez
+        // de silenciosamente sumar o quedarse con el último.
         var porClave = pagos.ToDictionary(p => (p.LoteId, p.ProductoraId));
 
         decimal total = 0m;

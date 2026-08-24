@@ -63,6 +63,19 @@ public class CostoDeLoDespachadoTests
     }
 
     [Fact]
+    public void UnPagoConAnimalesCubiertosNegativoNoDivideEntreCero()
+    {
+        // Dato corrupto o mal cargado: negativo es tan inválido como cero.
+        var animales = new[] { new AnimalDespachado(1, 1, 7) };
+        var pagos = new[] { new PagoDeLote(1, 7, 100m, AnimalesCubiertos: -5) };
+
+        var costo = CostoDeLoDespachado.Calcular(animales, pagos);
+
+        costo.Total.ShouldBe(0m);
+        costo.AnimalesSinCosto.ShouldBe(1);
+    }
+
+    [Fact]
     public void UnAnimalSinProductoraSeCuentaComoSinCosto()
     {
         // Jaula antigua sin detalle por animal: no se sabe de quién era.
@@ -78,7 +91,9 @@ public class CostoDeLoDespachadoTests
     public void CadaAnimalSeAtribuyeAlPagoDeSuPropiaProductora()
     {
         // Jaula compartida: dos productoras en el mismo lote, con pagos
-        // distintos. Atribuir todo al primero sería el error fácil.
+        // distintos Y con tarifas por animal distintas. Si el 2do animal se
+        // atribuyera (por error) al pago de la 1ra productora, el total
+        // saldría 20 (10 + 10) en vez de 40 (10 + 30) — la prueba lo nota.
         var animales = new[]
         {
             new AnimalDespachado(1, 1, 7),
@@ -87,12 +102,34 @@ public class CostoDeLoDespachadoTests
         var pagos = new[]
         {
             new PagoDeLote(1, 7, 100m, 10),   // 10 por animal
-            new PagoDeLote(1, 8, 40m, 4),     // 10 por animal… pero de otra
+            new PagoDeLote(1, 8, 90m, 3),     // 30 por animal (de otra productora)
         };
 
         var costo = CostoDeLoDespachado.Calcular(animales, pagos);
 
-        costo.Total.ShouldBe(20m);
+        costo.Total.ShouldBe(40m);
+        costo.AnimalesSinCosto.ShouldBe(0);
+    }
+
+    [Fact]
+    public void ElRedondeoEsSobreElTotalNoSobreCadaCuotaIndividual()
+    {
+        // Una productora cobró 100 por 3 cuyes; se despacharon 2. La cuota
+        // por animal (100/3 = 33.333...) no cae exacta, así que importa
+        // CUÁNDO se redondea:
+        //   - redondear el TOTAL:    2 * (100/3) = 66.666... -> 66.67
+        //   - redondear CADA cuota:  33.33 + 33.33            -> 66.66
+        // Son valores distintos: la prueba fija la primera decisión.
+        var animales = new[]
+        {
+            new AnimalDespachado(1, 1, 7),
+            new AnimalDespachado(1, 2, 7),
+        };
+        var pagos = new[] { new PagoDeLote(1, 7, 100m, AnimalesCubiertos: 3) };
+
+        var costo = CostoDeLoDespachado.Calcular(animales, pagos);
+
+        costo.Total.ShouldBe(66.67m);
         costo.AnimalesSinCosto.ShouldBe(0);
     }
 }
