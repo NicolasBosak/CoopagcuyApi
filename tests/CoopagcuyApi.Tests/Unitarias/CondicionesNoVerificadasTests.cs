@@ -68,6 +68,21 @@ public class CondicionesNoVerificadasTests
     }
 
     [Fact]
+    public void LineaNoVerificadas_conCadenaVacia_nombraLasSiete()
+    {
+        // "" no es lo mismo que null: aquí SÍ se registró la movilización, y
+        // se registró que no se marcó ninguna de las siete condiciones. Es
+        // el caso alcanzable sin negligencia que motivó este arreglo — antes
+        // se confundía con "no hay nada que decir" y la guía salía en
+        // blanco, indistinguible de una completa.
+        var linea = TextosGuia.LineaNoVerificadas("");
+
+        linea.ShouldNotBeNull();
+        foreach (var etiqueta in CondicionTransporte.Catalogo.Values)
+            linea.ShouldContain(etiqueta);
+    }
+
+    [Fact]
     public void LineaNoVerificadas_conTodasMarcadas_devuelveNulo()
     {
         // Nada que imprimir: la guía de un lote con el checklist completo

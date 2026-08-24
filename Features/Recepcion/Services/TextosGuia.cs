@@ -65,18 +65,28 @@ public static class TextosGuia
                  .ToList();
 
     /// <summary>
-    /// "No se verificó: Ventilación adecuada, Vehículo limpio", o NULO cuando
-    /// no hay nada que decir.
+    /// "No se verificó: Ventilación adecuada, Vehículo limpio", o NULO
+    /// cuando no hay nada que decir.
     ///
     /// Devuelve nulo en DOS casos distintos que la guía trata igual —no
-    /// imprimir nada— pero que no son lo mismo: con todas las condiciones
-    /// marcadas no falta ninguna, y en una movilización anterior a esta
-    /// feature no se registró cuáles se marcaron. Afirmar en ese segundo caso
-    /// que "no se verificó ninguna" sería inventar un dato que nadie guardó.
+    /// imprimir nada— pero que NO son lo mismo, y confundirlos fue el bug
+    /// crítico de esta feature:
+    ///
+    /// - NULO: movilización anterior a esta feature. No se registró qué se
+    ///   marcó, así que no hay nada que decir.
+    /// - "" (cadena vacía): sí se registró, y no se marcó ninguna de las
+    ///   siete. Aquí hay que nombrarlas todas — MovilizacionService.
+    ///   RegistrarAsync escribe string.Join(...) de una lista vacía, que da
+    ///   "", no null, y eso es alcanzable sin negligencia: el validador de
+    ///   movilización no exige ninguna condición marcada.
+    ///
+    /// Por eso la guarda comprueba clavesCsv is null y no
+    /// IsNullOrWhiteSpace: lo segundo trataría "" igual que null y la guía
+    /// volvería a callar justo cuando más tiene que hablar.
     /// </summary>
     public static string? LineaNoVerificadas(string? clavesCsv)
     {
-        if (string.IsNullOrWhiteSpace(clavesCsv)) return null;
+        if (clavesCsv is null) return null;
 
         var faltan = CondicionTransporte.NoVerificadas(ClavesDe(clavesCsv));
         return faltan.Count == 0
