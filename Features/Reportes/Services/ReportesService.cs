@@ -1,6 +1,7 @@
 ﻿using ClosedXML.Excel;
 using CoopagcuyApi.Common;
 using CoopagcuyApi.Common.Branding;
+using CoopagcuyApi.Features.Faenamiento.Models;
 using CoopagcuyApi.Features.Pagos.Models;
 using CoopagcuyApi.Features.Productoras.Models;
 using CoopagcuyApi.Features.Reportes.DTOs;
@@ -44,6 +45,10 @@ public interface IReportesService
     Task<IEnumerable<GananciaProductoraDto>> GananciasPorProductoraAsync(FiltroPeriodoDto filtro);
     Task<IEnumerable<GananciaCatDto>> GananciasPorCatAsync(FiltroPeriodoDto filtro);
     Task<IEnumerable<GananciaMesDto>> GananciasPorMesAsync(FiltroPeriodoDto filtro);
+    // El margen de la reventa: la otra mitad del reporte, y la que NUNCA se
+    // suma con las ganancias de productoras de arriba.
+    Task<IEnumerable<MargenDto>> MargenPorMesAsync(FiltroPeriodoDto filtro);
+    Task<IEnumerable<MargenDto>> MargenPorClienteAsync(FiltroPeriodoDto filtro);
 }
 
 public class ReportesService(AppDbContext db) : IReportesService
@@ -781,6 +786,201 @@ public class ReportesService(AppDbContext db) : IReportesService
                 );
             })
             .OrderBy(r => r.Anio).ThenBy(r => r.Mes)
+            .ToList();
+    }
+
+    // ── Margen de la reventa ────────────────────────────────────────────
+    //
+    // La otra mitad del reporte, y la que NUNCA se suma con las ganancias de
+    // productoras de arriba: un pago a una productora es ingreso para ella y
+    // costo para la cooperativa, la misma fila leída desde dos lados.
+
+    /// <summary>
+    /// Trae los despachos del período con la cadena completa hasta la
+    /// productora de origen de cada animal, y los pagos de planta que
+    /// atribuyen su costo. Alimenta la función pura
+    /// <see cref="CostoDeLoDespachado.Calcular"/>, que no se reescribe aquí.
+    /// </summary>
+    private async Task<(
+        List<Despacho> Despachos,
+        Dictionary<int, List<AnimalDespachado>> AnimalesPorDespacho,
+        List<PagoDeLote> Pagos)> DatosDeMargenAsync(FiltroPeriodoDto filtro)
+    {
+        var (desdeUtc, hastaUtc) = RangoUtc(filtro);
+
+        // Se materializa y se resuelve en memoria a propósito. La cadena
+        // DespachoCuy -> CuyFaenamiento -> RegistroFaenamiento -> Lote, más el
+        // salto de NumeroEnLote a CuyRegistro, produce en SQL una consulta que
+        // nadie va a poder leer dentro de seis meses. Con el volumen del piloto
+        // —cientos de animales por período— traerlo y resolverlo aquí es más
+        // barato en mantenimiento que en milisegundos, y la parte con reglas
+        // vive en una función pura que sí se puede fijar.
+        var despachos = await db.Despachos
+            .Include(d => d.Cuyes)
+                .ThenInclude(dc => dc.CuyFaenamiento)
+                    .ThenInclude(cf => cf.Registro)
+                        .ThenInclude(r => r.Lote)
+                            .ThenInclude(l => l.Cuyes)
+                                .ThenInclude(c => c.Productora)
+            .Where(d => d.FechaDespacho >= desdeUtc && d.FechaDespacho < hastaUtc)
+            .AsNoTracking()
+            .AsSplitQuery()
+            .ToListAsync();
+
+        CentroAcopio? cat = null;
+        if (!string.IsNullOrEmpty(filtro.CentroAcopio) &&
+            Enum.TryParse<CentroAcopio>(filtro.CentroAcopio, out var catParsed))
+            cat = catParsed;
+
+        // Animales de cada despacho, resueltos a su lote y su productora de
+        // origen: el mismo salto de NumeroEnLote que usa el resto del reporte
+        // para encontrar quién entregó cada animal.
+        var animalesPorDespacho = despachos.ToDictionary(
+            d => d.Id,
+            d => d.Cuyes.Select(dc =>
+            {
+                var registro = dc.CuyFaenamiento.Registro;
+                var origen = registro.Lote.Cuyes.FirstOrDefault(
+                    c => c.NumeroEnLote == dc.CuyFaenamiento.NumeroEnLote);
+                return new AnimalDespachado(
+                    registro.LoteId, dc.CuyFaenamiento.NumeroEnLote,
+                    origen?.ProductoraId);
+            }).ToList());
+
+        if (cat.HasValue)
+        {
+            // Un despacho puede reunir animales de varias jaulas —y de
+            // varios CAT—: cuenta para el filtro si AL MENOS UNO viene de
+            // ese centro, la misma técnica que ReporteTransitoAsync usa con
+            // lotes faenados de varias jaulas. Un despacho sin detalle por
+            // animal (legado) no puede atribuirse a ningún CAT y queda
+            // fuera del filtro.
+            var catDelAnimal = cat.Value;
+            despachos = despachos.Where(d => d.Cuyes.Any(dc =>
+            {
+                var registro = dc.CuyFaenamiento.Registro;
+                var origen = registro.Lote.Cuyes.FirstOrDefault(
+                    c => c.NumeroEnLote == dc.CuyFaenamiento.NumeroEnLote);
+                return origen?.Productora?.CatAsignado == catDelAnimal;
+            })).ToList();
+        }
+
+        var loteIds = despachos
+            .SelectMany(d => d.Cuyes.Select(dc => dc.CuyFaenamiento.Registro.LoteId))
+            .Distinct()
+            .ToList();
+
+        // Solo cuentan los pagos de planta: una venta local no es dinero que
+        // la cooperativa haya puesto para comprar el animal, lo puso la CAT,
+        // y ya se contó en las ganancias de productoras.
+        var pagosQuery = db.Pagos
+            .Include(p => p.Productora)
+            .Where(p => p.LoteId != null && loteIds.Contains(p.LoteId.Value)
+                && !p.EsVentaLocal && p.Estado != EstadoPago.Pendiente);
+
+        if (cat.HasValue)
+            pagosQuery = pagosQuery.Where(p => p.Productora!.CatAsignado == cat.Value);
+
+        var pagosCrudos = await pagosQuery.AsNoTracking().ToListAsync();
+
+        var cuyes = despachos
+            .SelectMany(d => d.Cuyes)
+            .Select(dc => dc.CuyFaenamiento.Registro.Lote)
+            .DistinctBy(l => l.Id)
+            .SelectMany(l => l.Cuyes)
+            .ToList();
+
+        // Se agrupa por (LoteId, ProductoraId) antes de construir cada
+        // PagoDeLote: Calcular() asume una sola fila por esa clave y lanza
+        // si le llegan dos, así que aquí es donde se garantiza.
+        var pagos = pagosCrudos
+            .Where(p => p.LoteId.HasValue)
+            .GroupBy(p => (LoteId: p.LoteId!.Value, p.ProductoraId))
+            .Select(g => new PagoDeLote(
+                g.Key.LoteId, g.Key.ProductoraId,
+                MontoPagado: g.Sum(p => p.MontoPagadoUsd ?? 0m),
+                // Los animales que ese pago cubrió: los de esa productora en
+                // ese lote que NO se vendieron en la comunidad. Esos nunca
+                // llegaron a la planta y su pago fue otro; además es el
+                // mismo conteo que la operadora vio al crear el pago.
+                AnimalesCubiertos: cuyes.Count(c => c.LoteId == g.Key.LoteId
+                    && c.ProductoraId == g.Key.ProductoraId
+                    && c.VentaLocalPagoId == null)))
+            .ToList();
+
+        return (despachos, animalesPorDespacho, pagos);
+    }
+
+    // El ingreso solo suma los despachos CON precio; los que no lo tienen se
+    // cuentan en DespachosSinPrecio y no como cero — un despacho sin precio
+    // no se vendió gratis.
+    private static MargenDto ConstruirMargen(
+        string agrupacion,
+        IEnumerable<Despacho> despachosDelGrupo,
+        Dictionary<int, List<AnimalDespachado>> animalesPorDespacho,
+        List<PagoDeLote> pagos)
+    {
+        decimal ingreso = 0m;
+        var sinPrecio = 0;
+        var animales = new List<AnimalDespachado>();
+
+        foreach (var d in despachosDelGrupo)
+        {
+            if (d.PrecioUnitarioUsd is decimal precio)
+                ingreso += precio * d.CantidadUnidades;
+            else
+                sinPrecio++;
+
+            animales.AddRange(animalesPorDespacho[d.Id]);
+        }
+
+        var costo = CostoDeLoDespachado.Calcular(animales, pagos);
+
+        return new MargenDto(
+            Agrupacion: agrupacion,
+            Ingreso: ingreso,
+            CostoAtribuido: costo.Total,
+            Margen: ingreso - costo.Total,
+            DespachosSinPrecio: sinPrecio,
+            AnimalesSinCosto: costo.AnimalesSinCosto);
+    }
+
+    public async Task<IEnumerable<MargenDto>> MargenPorMesAsync(FiltroPeriodoDto filtro)
+    {
+        var (despachos, animalesPorDespacho, pagos) = await DatosDeMargenAsync(filtro);
+
+        // El mes se agrupa por el día LOCAL del piloto, misma técnica que
+        // GananciasPorMesAsync: FechaUtc.ALocal no se traduce a SQL, así que
+        // esta vista materializa (arriba, en DatosDeMargenAsync) antes de
+        // agrupar. El volumen del piloto lo permite de sobra: no cambiar
+        // esto por un GroupBy en base de datos, que rompería la frontera del
+        // mes en silencio.
+        return despachos
+            .Select(d => (Despacho: d, Local: FechaUtc.ALocal(d.FechaDespacho)))
+            .GroupBy(x => new { x.Local.Year, x.Local.Month })
+            .Select(g => ConstruirMargen(
+                $"{g.Key.Year:D4}-{g.Key.Month:D2}",
+                g.Select(x => x.Despacho), animalesPorDespacho, pagos))
+            .OrderBy(m => m.Agrupacion)
+            .ToList();
+    }
+
+    public async Task<IEnumerable<MargenDto>> MargenPorClienteAsync(FiltroPeriodoDto filtro)
+    {
+        var (despachos, animalesPorDespacho, pagos) = await DatosDeMargenAsync(filtro);
+
+        return despachos
+            .GroupBy(d =>
+            {
+                // ClienteDestino es texto libre, así que "Mercado Central" y
+                // "mercado central" serían dos filas. Se normaliza para
+                // agrupar. Un catálogo de clientes lo resolvería de raíz,
+                // pero es otro proyecto.
+                var cliente = (d.ClienteDestino ?? string.Empty).Trim().ToUpperInvariant();
+                return cliente;
+            })
+            .Select(g => ConstruirMargen(g.Key, g, animalesPorDespacho, pagos))
+            .OrderByDescending(m => m.Ingreso)
             .ToList();
     }
 

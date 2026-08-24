@@ -141,6 +141,39 @@ public class ReportesController(IReportesService service) : ControllerBase
     }
 
     /// <summary>
+    /// Margen de la reventa por mes local del piloto. NUNCA se suma con las
+    /// ganancias de productoras: un pago a una productora es ingreso para
+    /// ella y costo para la cooperativa, la misma fila leída desde dos
+    /// lados.
+    /// </summary>
+    [HttpGet("margen/mes")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
+    public async Task<IActionResult> MargenPorMes(
+        [FromQuery] DateTime desde,
+        [FromQuery] DateTime hasta,
+        [FromQuery] string? cat)
+    {
+        var resultado = await service.MargenPorMesAsync(
+            new FiltroPeriodoDto(desde, hasta, cat));
+        return Ok(resultado);
+    }
+
+    /// <summary>
+    /// Margen de la reventa por cliente de destino, normalizado.
+    /// </summary>
+    [HttpGet("margen/cliente")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
+    public async Task<IActionResult> MargenPorCliente(
+        [FromQuery] DateTime desde,
+        [FromQuery] DateTime hasta,
+        [FromQuery] string? cat)
+    {
+        var resultado = await service.MargenPorClienteAsync(
+            new FiltroPeriodoDto(desde, hasta, cat));
+        return Ok(resultado);
+    }
+
+    /// <summary>
     /// Reporte individual por cuy: estado de cada animal registrado.
     /// </summary>
     [HttpGet("cuyes")]

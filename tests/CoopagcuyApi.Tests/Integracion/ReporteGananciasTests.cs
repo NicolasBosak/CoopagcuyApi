@@ -1,8 +1,12 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using CoopagcuyApi.Common;
+using CoopagcuyApi.Features.Faenamiento.Models;
 using CoopagcuyApi.Features.Pagos.Models;
+using CoopagcuyApi.Features.Productoras.Models;
+using CoopagcuyApi.Features.Recepcion.Models;
 using CoopagcuyApi.Tests.Infra;
+using Microsoft.EntityFrameworkCore;
 using Shouldly;
 using Xunit;
 
@@ -23,6 +27,13 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
 
     private const string Cedula = "0104576277";
     private const string CedulaNie = "0102030405";
+
+    // Productoras propias del margen de la reventa, para no compartir Lote
+    // ni Pago con las pruebas de ganancias de arriba.
+    private const string CedulaMargenIngreso = "0104576285";
+    private const string CedulaMargenSinPrecio = "0104576293";
+    private const string CedulaMargenCosto = "0104576301";
+    private const string CedulaMargenDenominador = "0104576319";
 
     // Fecha explícita —no por diferencia contra UtcNow— para ejercitar la
     // frontera del mes: las 02:00 UTC del 1 de septiembre son las 21:00 del
@@ -260,6 +271,100 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
         filas[0].GetProperty("centroAcopio").GetString().ShouldBe("PAT");
     }
 
+    // ── Margen de la reventa ─────────────────────────────────────────────
+    //
+    // La otra mitad del reporte, y la que NUNCA se suma con las ganancias de
+    // productoras de arriba: un pago a una productora es ingreso para ella y
+    // costo para la cooperativa, la misma fila leída desde dos lados.
+    //
+    // El sembrado monta la cadena completa directo a la base —Lote →
+    // CuyRegistro → LoteFaenado → RegistroFaenamiento → CuyFaenamiento →
+    // Despacho → DespachoCuy—, más el Pago de la productora: es más estable
+    // que montar todo el flujo de faenamiento y despacho por HTTP.
+
+    [Fact]
+    public async Task ElIngresoSaleDePrecioPorCantidad()
+    {
+        // El total de venta se deriva de precio x cantidad, nunca se
+        // guarda aparte: un despacho de 2 animales a 8.50 da 17.
+        var (_, lote) = await SembrarLoteAsync(CedulaMargenIngreso, cantidadAnimales: 2);
+        await SembrarDespachoAsync(lote, [1, 2], precioUnitario: 8.50m,
+            cliente: "Mercado Ingreso");
+
+        var fila = await PorClienteAsync("Mercado Ingreso");
+
+        fila.GetProperty("ingreso").GetDecimal().ShouldBe(17m);
+    }
+
+    [Fact]
+    public async Task UnDespachoSinPrecioNoBajaElIngreso()
+    {
+        // Un despacho sin precio no se vendió gratis: se cuenta en
+        // despachosSinPrecio, no se disuelve como cero dentro del ingreso.
+        // Si se contara como cero el ingreso numérico no cambiaría (0
+        // aporta lo mismo que excluirlo) — lo que distingue el
+        // comportamiento correcto es despachosSinPrecio, que debe quedar en
+        // 1 y no en 0.
+        var (_, lote) = await SembrarLoteAsync(CedulaMargenSinPrecio, cantidadAnimales: 3);
+        await SembrarDespachoAsync(lote, [1, 2], precioUnitario: 5m,
+            cliente: "Mercado Sin Precio");
+        await SembrarDespachoAsync(lote, [3], precioUnitario: null,
+            cliente: "Mercado Sin Precio");
+
+        var fila = await PorClienteAsync("Mercado Sin Precio");
+
+        fila.GetProperty("ingreso").GetDecimal().ShouldBe(10m);
+        fila.GetProperty("despachosSinPrecio").GetInt32().ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task ElCostoSaleDelPagoDeLaProductora()
+    {
+        // Una productora cobró 120 por sus 12 cuyes del lote; se
+        // despacharon 3. Costo = 120 / 12 * 3 = 30. Margen = ingreso (45,
+        // 3 animales a 15) - 30 = 15.
+        var (productora, lote) = await SembrarLoteAsync(
+            CedulaMargenCosto, cantidadAnimales: 12);
+        await SembrarDespachoAsync(lote, [1, 2, 3], precioUnitario: 15m,
+            cliente: "Mercado Costo");
+        await SembrarPagoPlantaAsync(productora.Id, lote.Id, montoPagado: 120m);
+        // Un pago de venta local en el mismo lote/productora: si la consulta
+        // lo sumara al costo (Mutación 3), MontoPagado pasaría de 120 a 145
+        // y el costo de 30 a (145/12)*3 = 36.25 — un número claramente
+        // distinto de 30, que es lo que hace visible el error.
+        await SembrarPagoVentaLocalAsync(productora.Id, lote.Id, montoPagado: 25m);
+
+        var fila = await PorClienteAsync("Mercado Costo");
+
+        fila.GetProperty("costoAtribuido").GetDecimal().ShouldBe(30m);
+        fila.GetProperty("margen").GetDecimal().ShouldBe(15m);
+    }
+
+    [Fact]
+    public async Task ElDenominadorExcluyeLoVendidoEnLaComunidad()
+    {
+        // Mismos 12 animales y el mismo pago de 120 que la prueba anterior,
+        // pero 2 se vendieron en la comunidad: el costo por animal sale de
+        // dividir entre 10, no entre 12.
+        //   dividir entre 12: (120/12)*3 = 30
+        //   dividir entre 10: (120/10)*3 = 36
+        // Números claramente distintos: si el denominador no excluyera la
+        // venta local, la prueba lo notaría.
+        var (productora, lote) = await SembrarLoteAsync(
+            CedulaMargenDenominador, cantidadAnimales: 12);
+        await SembrarDespachoAsync(lote, [1, 2, 3], precioUnitario: 15m,
+            cliente: "Mercado Denominador");
+        var pagoVentaLocalId = await SembrarPagoVentaLocalAsync(
+            productora.Id, lote.Id, montoPagado: 25m);
+        await MarcarVentaLocalAsync(lote.Id, [4, 5], pagoVentaLocalId);
+        await SembrarPagoPlantaAsync(productora.Id, lote.Id, montoPagado: 120m);
+
+        var fila = await PorClienteAsync("Mercado Denominador");
+
+        fila.GetProperty("costoAtribuido").GetDecimal().ShouldBe(36m);
+        fila.GetProperty("margen").GetDecimal().ShouldBe(9m);
+    }
+
     // ── Sembradores ─────────────────────────────────────────────────────
     // Los Pago se escriben directo a la base: es más estable que montar todo
     // el flujo de venta local / pago de planta / verificación solo para
@@ -344,6 +449,164 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
 
     private static int MesAnterior() => FinDeMesUtc.AddMonths(-1).Month;
 
+    // ── Sembradores del margen de la reventa ──────────────────────────
+
+    /// Productora con su lote de recepción y un CuyRegistro por animal
+    /// (NumeroEnLote 1..cantidadAnimales), todos suyos y ninguno vendido en
+    /// la comunidad todavía.
+    private async Task<(Productora Productora, Lote Lote)> SembrarLoteAsync(
+        string cedula, int cantidadAnimales, CentroAcopio cat = CentroAcopio.PAT)
+    {
+        var productora = await Sembrador.ProductoraAsync(api, cedula, cat);
+
+        await using var db = api.NuevoDbContext();
+
+        var lote = new Lote
+        {
+            CodigoLote = ("PAT-" + Guid.NewGuid().ToString("N"))[..20],
+            ProductoraId = productora.Id,
+            CentroAcopio = cat,
+            CantidadAnimales = cantidadAnimales,
+            PesoTotalGramos = cantidadAnimales * 900m,
+            FechaRecepcion = DateTime.UtcNow,
+            Estado = EstadoLote.Aceptado,
+            ResponsableRecepcion = "Operadora de prueba"
+        };
+        db.Lotes.Add(lote);
+        await db.SaveChangesAsync();
+
+        var registros = Enumerable.Range(1, cantidadAnimales)
+            .Select(n => new CuyRegistro
+            {
+                LoteId = lote.Id,
+                ProductoraId = productora.Id,
+                NumeroEnLote = n,
+                PesoGramos = 900m,
+                ColorPelaje = "Blanco",
+                EstadoOreja = "Normal",
+                TamanoAnimal = "Normal",
+                Estado = EstadoLote.Aceptado
+            }).ToList();
+        db.CuyRegistros.AddRange(registros);
+        await db.SaveChangesAsync();
+
+        return (productora, lote);
+    }
+
+    /// Faena y despacha los animales indicados (por NumeroEnLote) de un
+    /// lote ya sembrado: una sesión de faenamiento propia por despacho, para
+    /// no chocar con el índice único de DespachoCuy.CuyFaenamientoId.
+    private async Task SembrarDespachoAsync(
+        Lote lote, int[] numerosEnLote, decimal? precioUnitario, string cliente)
+    {
+        await using var db = api.NuevoDbContext();
+
+        var loteFaenado = new LoteFaenado
+        {
+            Codigo = ("FAE-" + Guid.NewGuid().ToString("N"))[..20],
+            FechaFaenamiento = DateTime.UtcNow,
+            OperarioResponsable = "Operario de prueba"
+        };
+        db.LotesFaenados.Add(loteFaenado);
+        await db.SaveChangesAsync();
+
+        var sesion = new RegistroFaenamiento
+        {
+            LoteId = lote.Id,
+            LoteFaenadoId = loteFaenado.Id,
+            NumeroSesion = 1,
+            FechaFaenamiento = DateTime.UtcNow,
+            OperarioResponsable = "Operario de prueba",
+            UnidadesFaenadas = numerosEnLote.Length,
+            PesoTotalCanalGramos = numerosEnLote.Length * 600m,
+            EstadoCanal = EstadoCanal.Apto
+        };
+        db.Faenamientos.Add(sesion);
+        await db.SaveChangesAsync();
+
+        var cuyesFaenados = numerosEnLote
+            .Select(n => new CuyFaenamiento
+            {
+                RegistroFaenamientoId = sesion.Id,
+                NumeroEnLote = n,
+                PesoCanalGramos = 600m,
+                Estado = EstadoCanal.Apto
+            }).ToList();
+        db.CuyFaenamientos.AddRange(cuyesFaenados);
+        await db.SaveChangesAsync();
+
+        var despacho = new Despacho
+        {
+            LoteFaenadoId = loteFaenado.Id,
+            ClienteDestino = cliente,
+            FechaDespacho = DateTime.UtcNow,
+            CantidadUnidades = numerosEnLote.Length,
+            PrecioUnitarioUsd = precioUnitario,
+            Responsable = "Responsable de prueba"
+        };
+        db.Despachos.Add(despacho);
+        await db.SaveChangesAsync();
+
+        db.DespachoCuys.AddRange(cuyesFaenados.Select(cf => new DespachoCuy
+        {
+            DespachoId = despacho.Id,
+            CuyFaenamientoId = cf.Id
+        }));
+        await db.SaveChangesAsync();
+    }
+
+    private async Task SembrarPagoPlantaAsync(
+        int productoraId, int loteId, decimal montoPagado)
+    {
+        await using var db = api.NuevoDbContext();
+        db.Pagos.Add(new Pago
+        {
+            ProductoraId = productoraId,
+            LoteId = loteId,
+            MontoUsd = montoPagado,
+            MontoPagadoUsd = montoPagado,
+            FechaPago = DateTime.UtcNow,
+            MetodoPago = "Transferencia",
+            Estado = EstadoPago.Pagado,
+            EsVentaLocal = false,
+            Responsable = "Operadora de prueba"
+        });
+        await db.SaveChangesAsync();
+    }
+
+    private async Task<int> SembrarPagoVentaLocalAsync(
+        int productoraId, int loteId, decimal montoPagado)
+    {
+        await using var db = api.NuevoDbContext();
+        var pago = new Pago
+        {
+            ProductoraId = productoraId,
+            LoteId = loteId,
+            MontoUsd = montoPagado,
+            MontoPagadoUsd = montoPagado,
+            FechaPago = DateTime.UtcNow,
+            MetodoPago = "Efectivo",
+            Estado = EstadoPago.Recibido,
+            EsVentaLocal = true,
+            Responsable = "Operadora de prueba"
+        };
+        db.Pagos.Add(pago);
+        await db.SaveChangesAsync();
+        return pago.Id;
+    }
+
+    private async Task MarcarVentaLocalAsync(
+        int loteId, int[] numerosEnLote, int pagoVentaLocalId)
+    {
+        await using var db = api.NuevoDbContext();
+        var registros = await db.CuyRegistros
+            .Where(c => c.LoteId == loteId && numerosEnLote.Contains(c.NumeroEnLote))
+            .ToListAsync();
+        foreach (var registro in registros)
+            registro.VentaLocalPagoId = pagoVentaLocalId;
+        await db.SaveChangesAsync();
+    }
+
     // ── Llamadas HTTP ───────────────────────────────────────────────────
 
     private async Task<JsonElement> PorCatAsync(string cat)
@@ -384,5 +647,18 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
         respuesta.EnsureSuccessStatusCode();
 
         return (await respuesta.Content.ReadFromJsonAsync<JsonElement[]>())!;
+    }
+
+    private async Task<JsonElement> PorClienteAsync(string cliente)
+    {
+        var hoy = (DateTime.UtcNow + FechaUtc.DesfasePiloto).ToString("yyyy-MM-dd");
+
+        var respuesta = await api.ComoAdmin()
+            .GetAsync($"/api/reportes/margen/cliente?desde={hoy}&hasta={hoy}");
+        respuesta.EnsureSuccessStatusCode();
+
+        var filas = (await respuesta.Content.ReadFromJsonAsync<JsonElement[]>())!;
+        return filas.Single(f => f.GetProperty("agrupacion").GetString()
+            == cliente.Trim().ToUpperInvariant());
     }
 }

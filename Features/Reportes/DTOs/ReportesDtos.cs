@@ -201,6 +201,26 @@ public record GananciaMesDto(
     int TotalPagos
 );
 
+// ── Margen de la reventa ───────────────────────────────────────────────
+//
+// La otra mitad del reporte, y la que NUNCA se suma con las ganancias de
+// productoras de arriba: un pago a una productora es ingreso para ella y
+// costo para la cooperativa, la misma fila leída desde dos lados.
+//
+// DespachosSinPrecio y AnimalesSinCosto se muestran junto a la cifra en vez
+// de contarse como cero: un despacho sin precio no se vendió gratis, y un
+// animal cuya productora no ha cobrado no costó cero. Un margen que los
+// ignorase sería optimista justo cuando más falta pagar.
+
+public record MargenDto(
+    string Agrupacion,
+    decimal Ingreso,
+    decimal CostoAtribuido,
+    decimal Margen,
+    int DespachosSinPrecio,
+    int AnimalesSinCosto
+);
+
 // ── Filtros compartidos ───────────────────────────────────────────────
 
 public record FiltroPeriodoDto(
