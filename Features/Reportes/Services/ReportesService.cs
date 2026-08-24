@@ -713,14 +713,21 @@ public class ReportesService(AppDbContext db) : IReportesService
     public async Task<IEnumerable<GananciaCatDto>> GananciasPorCatAsync(
         FiltroPeriodoDto filtro)
     {
-        // Sin filtrar por filtro.CentroAcopio a propósito, igual que
-        // ReportePorCATAsync: la vista existe para comparar CAT entre sí, y
-        // filtrar antes de agrupar por ese mismo campo solo devolvería una
-        // fila menos útil que la que ya está en la respuesta sin filtrar.
-        var pagos = await PagosDelPeriodo(filtro)
-            .Include(p => p.Productora)
-            .AsNoTracking()
-            .ToListAsync();
+        // A diferencia de ReportePorCATAsync (que sí deja el parámetro sin
+        // efecto porque agrupa por el mismo campo), aquí SÍ se filtra: las
+        // otras dos vistas de ganancias (productoras y mes) honran ?cat=, y
+        // un consumidor que pase el mismo parámetro a las tres esperaría el
+        // mismo comportamiento. Sin este filtro, ?cat=PAT devolvía TODAS las
+        // filas (una por CAT) en vez de acotar a una — mismo parámetro, tres
+        // endpoints, forma de respuesta distinta sin ninguna señal.
+        IQueryable<Pago> query = PagosDelPeriodo(filtro)
+            .Include(p => p.Productora);
+
+        if (!string.IsNullOrEmpty(filtro.CentroAcopio) &&
+            Enum.TryParse<CentroAcopio>(filtro.CentroAcopio, out var catFiltro))
+            query = query.Where(p => p.Productora!.CatAsignado == catFiltro);
+
+        var pagos = await query.AsNoTracking().ToListAsync();
 
         return pagos
             .GroupBy(p => p.Productora!.CatAsignado)

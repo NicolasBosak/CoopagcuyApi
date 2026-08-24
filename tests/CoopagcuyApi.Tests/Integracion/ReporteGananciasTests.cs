@@ -165,6 +165,101 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
             .ShouldBe(enPat.NombreCompleto);
     }
 
+    [Fact]
+    public async Task FiltrarPorCatEnGananciasPorMesSoloTraeEsaCat()
+    {
+        // Mismo riesgo que en la vista por productora: sin este filtro, un
+        // front que pida ?cat=PAT en /ganancias/mes recibiría el mes con los
+        // pagos de NIE mezclados adentro, sin ningún error ni señal.
+        var enPat = await Sembrador.ProductoraAsync(
+            api, Cedula, CentroAcopio.PAT);
+        var enNie = await Sembrador.ProductoraAsync(
+            api, CedulaNie, CentroAcopio.NIE, comunidadId: 2);
+
+        await using (var db = api.NuevoDbContext())
+        {
+            db.Pagos.AddRange(
+                new Pago
+                {
+                    ProductoraId = enPat.Id,
+                    MontoUsd = 40m,
+                    MontoPagadoUsd = 40m,
+                    FechaPago = DateTime.UtcNow,
+                    MetodoPago = "Efectivo",
+                    Estado = EstadoPago.Recibido,
+                    EsVentaLocal = true,
+                    Responsable = "Operadora de prueba"
+                },
+                new Pago
+                {
+                    ProductoraId = enNie.Id,
+                    MontoUsd = 25m,
+                    MontoPagadoUsd = 25m,
+                    FechaPago = DateTime.UtcNow,
+                    MetodoPago = "Efectivo",
+                    Estado = EstadoPago.Recibido,
+                    EsVentaLocal = true,
+                    Responsable = "Operadora de prueba"
+                });
+            await db.SaveChangesAsync();
+        }
+
+        var meses = await PorMesAsync(cat: "PAT");
+
+        meses.Length.ShouldBe(1);
+        meses[0].GetProperty("cobradoLocal").GetDecimal().ShouldBe(40m);
+    }
+
+    [Fact]
+    public async Task FiltrarPorCatEnGananciasPorCatSoloTraeEsaFila()
+    {
+        // Las otras dos vistas de ganancias ya acotan por ?cat=; esta
+        // agrupa por el mismo campo, así que antes del fix devolvía TODAS
+        // las filas (una por CAT) en vez de acotar a una — mismo parámetro,
+        // comportamiento distinto entre los tres endpoints hermanos.
+        var enPat = await Sembrador.ProductoraAsync(
+            api, Cedula, CentroAcopio.PAT);
+        var enNie = await Sembrador.ProductoraAsync(
+            api, CedulaNie, CentroAcopio.NIE, comunidadId: 2);
+
+        await using (var db = api.NuevoDbContext())
+        {
+            db.Pagos.AddRange(
+                new Pago
+                {
+                    ProductoraId = enPat.Id,
+                    MontoUsd = 40m,
+                    MontoPagadoUsd = 40m,
+                    FechaPago = DateTime.UtcNow,
+                    MetodoPago = "Efectivo",
+                    Estado = EstadoPago.Recibido,
+                    EsVentaLocal = true,
+                    Responsable = "Operadora de prueba"
+                },
+                new Pago
+                {
+                    ProductoraId = enNie.Id,
+                    MontoUsd = 25m,
+                    MontoPagadoUsd = 25m,
+                    FechaPago = DateTime.UtcNow,
+                    MetodoPago = "Efectivo",
+                    Estado = EstadoPago.Recibido,
+                    EsVentaLocal = true,
+                    Responsable = "Operadora de prueba"
+                });
+            await db.SaveChangesAsync();
+        }
+
+        var hoy = (DateTime.UtcNow + FechaUtc.DesfasePiloto).ToString("yyyy-MM-dd");
+        var respuesta = await api.ComoAdmin()
+            .GetAsync($"/api/reportes/ganancias/cat?desde={hoy}&hasta={hoy}&cat=PAT");
+        respuesta.EnsureSuccessStatusCode();
+        var filas = (await respuesta.Content.ReadFromJsonAsync<JsonElement[]>())!;
+
+        filas.Length.ShouldBe(1);
+        filas[0].GetProperty("centroAcopio").GetString().ShouldBe("PAT");
+    }
+
     // ── Sembradores ─────────────────────────────────────────────────────
     // Los Pago se escriben directo a la base: es más estable que montar todo
     // el flujo de venta local / pago de planta / verificación solo para
@@ -276,12 +371,16 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
         return (await respuesta.Content.ReadFromJsonAsync<JsonElement[]>())!;
     }
 
-    private async Task<JsonElement[]> PorMesAsync()
+    private async Task<JsonElement[]> PorMesAsync(string? cat = null)
     {
         // Rango fijo que cubre FinDeMesUtc de sobra a ambos lados de la
-        // frontera de mes que esta prueba ejercita.
+        // frontera de mes que esa prueba ejercita, y que también cubre
+        // "hoy" para las pruebas que siembran con DateTime.UtcNow.
+        var querystring = "desde=2026-08-01&hasta=2026-09-30"
+            + (cat is null ? "" : $"&cat={cat}");
+
         var respuesta = await api.ComoAdmin()
-            .GetAsync("/api/reportes/ganancias/mes?desde=2026-08-01&hasta=2026-09-30");
+            .GetAsync($"/api/reportes/ganancias/mes?{querystring}");
         respuesta.EnsureSuccessStatusCode();
 
         return (await respuesta.Content.ReadFromJsonAsync<JsonElement[]>())!;
