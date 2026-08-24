@@ -80,8 +80,15 @@ public class GuiaMovilizacionTests(ApiFactory api, ITestOutputHelper output) : I
     /// Movilización insertada directamente en la base, sin pasar por el
     /// endpoint: lo único que estas pruebas necesitan es un registro con
     /// CondicionesClaves fijado a lo que se quiere comprobar en la guía.
+    ///
+    /// condicionesTransporte es opcional y por defecto se deriva de
+    /// condicionesClaves, como hace MovilizacionService.RegistrarAsync. Se
+    /// puede fijar aparte para reproducir una fila anterior a esta feature:
+    /// CondicionesClaves nulo pero con la frase de CondicionesTransporte ya
+    /// guardada de antes.
     /// </summary>
-    private async Task MovilizarAsync(string codigoLote, string? condicionesClaves)
+    private async Task MovilizarAsync(
+        string codigoLote, string? condicionesClaves, string? condicionesTransporte = null)
     {
         await using var db = api.NuevoDbContext();
         var lote = await db.Lotes.FirstAsync(l => l.CodigoLote == codigoLote);
@@ -92,9 +99,9 @@ public class GuiaMovilizacionTests(ApiFactory api, ITestOutputHelper output) : I
             FechaDespacho = DateTime.UtcNow,
             Conductor = "Conductor de prueba",
             CantidadMovilizada = 1,
-            CondicionesTransporte = condicionesClaves is null
+            CondicionesTransporte = condicionesTransporte ?? (condicionesClaves is null
                 ? null
-                : CondicionTransporte.Describir(TextosGuia.ClavesDe(condicionesClaves)),
+                : CondicionTransporte.Describir(TextosGuia.ClavesDe(condicionesClaves))),
             CondicionesClaves = condicionesClaves,
             SinAntibioticos7Dias = true,
             ResponsableDespacho = "Responsable de prueba"
@@ -210,16 +217,34 @@ public class GuiaMovilizacionTests(ApiFactory api, ITestOutputHelper output) : I
     {
         // Con las siete condiciones marcadas no hay nada que imprimir de
         // más, así que la guía tiene que salir igual que antes de esta
-        // feature. Como eso no se puede comparar contra el pasado, la forma
-        // honesta es sembrar dos lotes gemelos —mismo contenido, distinto
-        // código— y comprobar que sus PDF miden prácticamente lo mismo.
+        // feature. Comparar dos gemelos generados los dos por el código
+        // nuevo no prueba eso: mide determinismo, no ausencia de regresión
+        // —una línea pintada fuera de su condición crecería igual en los
+        // dos PDF y esta prueba seguiría en verde—. La forma honesta es
+        // comparar contra lo que de verdad representa el estado anterior a
+        // la feature: CondicionesClaves nulo, con la misma frase ya guardada
+        // en CondicionesTransporte. Eso es exactamente el aspecto de una
+        // fila anterior.
+        //
+        // NOTA sobre la mutación pedida ("sacar la línea del bloque `if
+        // (noVerificadas is not null)` para que se pinte siempre"): en este
+        // par de gemelos concretos NoVerificadas(claves) da null para LOS
+        // DOS (A tiene las siete marcadas; B tiene CondicionesClaves nulo),
+        // así que quitar ese guard no agrega contenido visible a ninguno de
+        // los dos y no debería, por diseño, diferenciarlos. Verificado por
+        // mutación: al quitar el guard la prueba SÍ cayó, pero con la misma
+        // magnitud de diferencia (~227 bytes) que ya aparecía de forma
+        // intermitente con el guard puesto — ver el hallazgo de flakiness
+        // documentado en el informe de esta ronda. No asumir que esta
+        // mutación puntual queda cubierta por esta prueba.
+        var frase = CondicionTransporte.Describir(CondicionTransporte.Catalogo.Keys);
+
         var codigoA = await SembrarLoteAsync("PAT-20260818-003", "0104576277");
         await MovilizarAsync(codigoA,
             string.Join(CondicionTransporte.Separador, CondicionTransporte.Catalogo.Keys));
 
         var codigoB = await SembrarLoteAsync("PAT-20260818-004", "0102030405");
-        await MovilizarAsync(codigoB,
-            string.Join(CondicionTransporte.Separador, CondicionTransporte.Catalogo.Keys));
+        await MovilizarAsync(codigoB, condicionesClaves: null, condicionesTransporte: frase);
 
         var respuestaA = await api.ComoOperadorCat("PAT")
             .GetAsync($"/api/recepcion/lotes/{codigoA}/guia");
