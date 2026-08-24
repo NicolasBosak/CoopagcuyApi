@@ -6,7 +6,7 @@
 # misma razón; si el ejecutor de pruebas no las tiene, las pruebas de PDF corren
 # contra un entorno que no se parece al real y una regresión de tipografía
 # pasaría entera por delante de ellas.
-FROM mcr.microsoft.com/dotnet/sdk:8.0
+FROM mcr.microsoft.com/dotnet/sdk:10.0
 
 # Exactamente la misma línea que el Dockerfile de producción, incluidos los
 # paquetes recomendados: con --no-install-recommends el conjunto de fuentes
