@@ -39,7 +39,7 @@ public static class TextosVentaLocal
     {
         if (!pago.EsVentaLocal) return TicketPagoService.TextoEstado(pago.Estado);
 
-        return EsCuotas(pago)
+        return pago.EsCuotas()
             ? "VENDIDO EN LA COMUNIDAD — A CUOTAS"
             : "VENDIDO EN LA COMUNIDAD — COBRADO";
     }
@@ -53,7 +53,7 @@ public static class TextosVentaLocal
     /// </summary>
     public static string LineaMetodo(Pago pago)
     {
-        if (!EsCuotas(pago)) return pago.MetodoPago;
+        if (!pago.EsCuotas()) return pago.MetodoPago;
 
         var valor = (pago.ValorPorDia ?? 0)
             .ToString("N2", CultureInfo.InvariantCulture)
@@ -61,7 +61,4 @@ public static class TextosVentaLocal
 
         return $"A cuotas: {pago.NumeroDias} días × USD {valor}";
     }
-
-    private static bool EsCuotas(Pago pago) =>
-        string.Equals(pago.MetodoPago, "Cuotas", StringComparison.OrdinalIgnoreCase);
 }

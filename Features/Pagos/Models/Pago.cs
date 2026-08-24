@@ -74,4 +74,15 @@ public class Pago
     public DateTime? ComprobanteExpiraEn { get; set; }
 
     public ICollection<DescuentoPago> Descuentos { get; set; } = [];
+
+    // Sin distinguir mayúsculas: PagoService.MetodosVentaLocal valida el
+    // método de pago con StringComparer.OrdinalIgnoreCase y lo persiste tal
+    // cual llega, así que un cliente que mande "cuotas" en minúsculas pasa
+    // la validación y termina guardado así. Una comparación ordinal aquí
+    // clasificaría ese pago como cobrado en mano cuando en realidad es un
+    // compromiso que todavía no ha llegado — el ticket (TextosVentaLocal) y
+    // cualquier reporte deben coincidir en este criterio, así que viven del
+    // mismo método en vez de cada uno con su propia comparación literal.
+    public bool EsCuotas() =>
+        string.Equals(MetodoPago, "Cuotas", StringComparison.OrdinalIgnoreCase);
 }

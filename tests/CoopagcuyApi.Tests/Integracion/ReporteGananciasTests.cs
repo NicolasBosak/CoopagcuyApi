@@ -22,6 +22,7 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
     public Task DisposeAsync() => Task.CompletedTask;
 
     private const string Cedula = "0104576277";
+    private const string CedulaNie = "0102030405";
 
     // Fecha explícita —no por diferencia contra UtcNow— para ejercitar la
     // frontera del mes: las 02:00 UTC del 1 de septiembre son las 21:00 del
@@ -81,6 +82,87 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
         // último día del mes anterior en el CAT.
         meses.Length.ShouldBe(1);
         meses[0].GetProperty("mes").GetInt32().ShouldBe(MesAnterior());
+    }
+
+    [Fact]
+    public async Task CuotasEnMinusculaTambienEsPactado()
+    {
+        // PagoService.MetodosVentaLocal valida el método de pago sin
+        // distinguir mayúsculas (StringComparer.OrdinalIgnoreCase) y lo
+        // persiste tal cual llega: un cliente que mande "cuotas" pasa la
+        // validación y queda guardado en minúsculas. Si el reporte comparara
+        // en forma ordinal, este pago caería en CobradoLocal —dinero que la
+        // CAT todavía no tiene en mano— y el ticket (que sí compara sin
+        // distinguir mayúsculas) diría "A CUOTAS" para la misma fila.
+        var productora = await Sembrador.ProductoraAsync(
+            api, Cedula, CentroAcopio.PAT);
+
+        await using (var db = api.NuevoDbContext())
+        {
+            db.Pagos.Add(new Pago
+            {
+                ProductoraId = productora.Id,
+                MontoUsd = 30m,
+                MontoPagadoUsd = 30m,
+                FechaPago = DateTime.UtcNow,
+                MetodoPago = "cuotas",
+                Estado = EstadoPago.Recibido,
+                EsVentaLocal = true,
+                Responsable = "Operadora de prueba"
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var fila = await PorCatAsync("PAT");
+
+        fila.GetProperty("cobradoLocal").GetDecimal().ShouldBe(0m);
+        fila.GetProperty("pactadoCuotas").GetDecimal().ShouldBe(30m);
+    }
+
+    [Fact]
+    public async Task FiltrarPorCatSoloTraeLaProductoraDeEsaCat()
+    {
+        // Sin este filtro, el front-end que pide ?cat=PAT recibiría también
+        // las productoras de NIE, sin ningún error ni señal de que el
+        // filtro no hizo nada.
+        var enPat = await Sembrador.ProductoraAsync(
+            api, Cedula, CentroAcopio.PAT);
+        var enNie = await Sembrador.ProductoraAsync(
+            api, CedulaNie, CentroAcopio.NIE, comunidadId: 2);
+
+        await using (var db = api.NuevoDbContext())
+        {
+            db.Pagos.AddRange(
+                new Pago
+                {
+                    ProductoraId = enPat.Id,
+                    MontoUsd = 40m,
+                    MontoPagadoUsd = 40m,
+                    FechaPago = DateTime.UtcNow,
+                    MetodoPago = "Efectivo",
+                    Estado = EstadoPago.Recibido,
+                    EsVentaLocal = true,
+                    Responsable = "Operadora de prueba"
+                },
+                new Pago
+                {
+                    ProductoraId = enNie.Id,
+                    MontoUsd = 25m,
+                    MontoPagadoUsd = 25m,
+                    FechaPago = DateTime.UtcNow,
+                    MetodoPago = "Efectivo",
+                    Estado = EstadoPago.Recibido,
+                    EsVentaLocal = true,
+                    Responsable = "Operadora de prueba"
+                });
+            await db.SaveChangesAsync();
+        }
+
+        var filas = await PorProductoraAsync("PAT");
+
+        filas.Length.ShouldBe(1);
+        filas[0].GetProperty("nombreProductora").GetString()
+            .ShouldBe(enPat.NombreCompleto);
     }
 
     // ── Sembradores ─────────────────────────────────────────────────────
@@ -179,6 +261,19 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
 
         var filas = await respuesta.Content.ReadFromJsonAsync<JsonElement[]>();
         return filas!.Single(f => f.GetProperty("centroAcopio").GetString() == cat);
+    }
+
+    private async Task<JsonElement[]> PorProductoraAsync(string? cat = null)
+    {
+        var hoy = (DateTime.UtcNow + FechaUtc.DesfasePiloto).ToString("yyyy-MM-dd");
+        var querystring = $"desde={hoy}&hasta={hoy}"
+            + (cat is null ? "" : $"&cat={cat}");
+
+        var respuesta = await api.ComoAdmin()
+            .GetAsync($"/api/reportes/ganancias/productoras?{querystring}");
+        respuesta.EnsureSuccessStatusCode();
+
+        return (await respuesta.Content.ReadFromJsonAsync<JsonElement[]>())!;
     }
 
     private async Task<JsonElement[]> PorMesAsync()

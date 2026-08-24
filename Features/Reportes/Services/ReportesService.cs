@@ -657,30 +657,52 @@ public class ReportesService(AppDbContext db) : IReportesService
                 && p.Estado != EstadoPago.Pendiente);
     }
 
+    // Clasifica los pagos de un grupo (una productora, un CAT o un mes) en
+    // las tres columnas que no se suman entre sí. Único lugar que sabe cómo
+    // distinguir un pago cobrado, pactado o de planta: si mañana ese
+    // criterio cambia (como acaba de pasar con "Cuotas") y una de las tres
+    // vistas quedara con su propia copia, podrían desincronizarse en
+    // silencio entre sí sobre los mismos datos.
+    private static (decimal Cobrado, decimal Pactado, decimal Planta) SumarPorCanal(
+        IEnumerable<Pago> pagos)
+    {
+        decimal cobrado = 0, pactado = 0, planta = 0;
+        foreach (var p in pagos)
+        {
+            var monto = p.MontoPagadoUsd ?? 0;
+            if (!p.EsVentaLocal) planta += monto;
+            else if (p.EsCuotas()) pactado += monto;
+            else cobrado += monto;
+        }
+        return (cobrado, pactado, planta);
+    }
+
     public async Task<IEnumerable<GananciaProductoraDto>> GananciasPorProductoraAsync(
         FiltroPeriodoDto filtro)
     {
-        var pagos = await PagosDelPeriodo(filtro)
-            .Include(p => p.Productora).ThenInclude(pr => pr.Comunidad)
-            .AsNoTracking()
-            .ToListAsync();
+        IQueryable<Pago> query = PagosDelPeriodo(filtro)
+            .Include(p => p.Productora).ThenInclude(pr => pr.Comunidad);
+
+        if (!string.IsNullOrEmpty(filtro.CentroAcopio) &&
+            Enum.TryParse<CentroAcopio>(filtro.CentroAcopio, out var cat))
+            query = query.Where(p => p.Productora!.CatAsignado == cat);
+
+        var pagos = await query.AsNoTracking().ToListAsync();
 
         return pagos
             .GroupBy(p => p.ProductoraId)
             .Select(g =>
             {
                 var p = g.First().Productora!;
+                var (cobrado, pactado, planta) = SumarPorCanal(g);
                 return new GananciaProductoraDto(
                     ProductoraId: p.Id,
                     NombreProductora: p.NombreCompleto,
                     Comunidad: p.Comunidad.Nombre,
                     CentroAcopio: p.CatAsignado.ToString(),
-                    CobradoLocal: g.Where(x => x.EsVentaLocal && x.MetodoPago != "Cuotas")
-                                    .Sum(x => x.MontoPagadoUsd ?? 0),
-                    PactadoCuotas: g.Where(x => x.EsVentaLocal && x.MetodoPago == "Cuotas")
-                                     .Sum(x => x.MontoPagadoUsd ?? 0),
-                    PagadoPlanta: g.Where(x => !x.EsVentaLocal)
-                                    .Sum(x => x.MontoPagadoUsd ?? 0),
+                    CobradoLocal: cobrado,
+                    PactadoCuotas: pactado,
+                    PagadoPlanta: planta,
                     TotalPagos: g.Count()
                 );
             })
@@ -691,6 +713,10 @@ public class ReportesService(AppDbContext db) : IReportesService
     public async Task<IEnumerable<GananciaCatDto>> GananciasPorCatAsync(
         FiltroPeriodoDto filtro)
     {
+        // Sin filtrar por filtro.CentroAcopio a propósito, igual que
+        // ReportePorCATAsync: la vista existe para comparar CAT entre sí, y
+        // filtrar antes de agrupar por ese mismo campo solo devolvería una
+        // fila menos útil que la que ya está en la respuesta sin filtrar.
         var pagos = await PagosDelPeriodo(filtro)
             .Include(p => p.Productora)
             .AsNoTracking()
@@ -698,16 +724,17 @@ public class ReportesService(AppDbContext db) : IReportesService
 
         return pagos
             .GroupBy(p => p.Productora!.CatAsignado)
-            .Select(g => new GananciaCatDto(
-                CentroAcopio: g.Key.ToString(),
-                CobradoLocal: g.Where(x => x.EsVentaLocal && x.MetodoPago != "Cuotas")
-                                .Sum(x => x.MontoPagadoUsd ?? 0),
-                PactadoCuotas: g.Where(x => x.EsVentaLocal && x.MetodoPago == "Cuotas")
-                                 .Sum(x => x.MontoPagadoUsd ?? 0),
-                PagadoPlanta: g.Where(x => !x.EsVentaLocal)
-                                .Sum(x => x.MontoPagadoUsd ?? 0),
-                TotalPagos: g.Count()
-            ))
+            .Select(g =>
+            {
+                var (cobrado, pactado, planta) = SumarPorCanal(g);
+                return new GananciaCatDto(
+                    CentroAcopio: g.Key.ToString(),
+                    CobradoLocal: cobrado,
+                    PactadoCuotas: pactado,
+                    PagadoPlanta: planta,
+                    TotalPagos: g.Count()
+                );
+            })
             .OrderBy(r => r.CentroAcopio)
             .ToList();
     }
@@ -715,9 +742,13 @@ public class ReportesService(AppDbContext db) : IReportesService
     public async Task<IEnumerable<GananciaMesDto>> GananciasPorMesAsync(
         FiltroPeriodoDto filtro)
     {
-        var pagos = await PagosDelPeriodo(filtro)
-            .AsNoTracking()
-            .ToListAsync();
+        var query = PagosDelPeriodo(filtro);
+
+        if (!string.IsNullOrEmpty(filtro.CentroAcopio) &&
+            Enum.TryParse<CentroAcopio>(filtro.CentroAcopio, out var cat))
+            query = query.Where(p => p.Productora!.CatAsignado == cat);
+
+        var pagos = await query.AsNoTracking().ToListAsync();
 
         // El mes se agrupa por el día LOCAL del piloto, no por el UTC: un
         // pago de las 20:00 del 31 de agosto pertenece a agosto, y agrupar
@@ -730,17 +761,18 @@ public class ReportesService(AppDbContext db) : IReportesService
         return pagos
             .Select(p => (Pago: p, Local: FechaUtc.ALocal(p.FechaPago)))
             .GroupBy(x => new { x.Local.Year, x.Local.Month })
-            .Select(g => new GananciaMesDto(
-                Anio: g.Key.Year,
-                Mes: g.Key.Month,
-                CobradoLocal: g.Where(x => x.Pago.EsVentaLocal && x.Pago.MetodoPago != "Cuotas")
-                                .Sum(x => x.Pago.MontoPagadoUsd ?? 0),
-                PactadoCuotas: g.Where(x => x.Pago.EsVentaLocal && x.Pago.MetodoPago == "Cuotas")
-                                 .Sum(x => x.Pago.MontoPagadoUsd ?? 0),
-                PagadoPlanta: g.Where(x => !x.Pago.EsVentaLocal)
-                                .Sum(x => x.Pago.MontoPagadoUsd ?? 0),
-                TotalPagos: g.Count()
-            ))
+            .Select(g =>
+            {
+                var (cobrado, pactado, planta) = SumarPorCanal(g.Select(x => x.Pago));
+                return new GananciaMesDto(
+                    Anio: g.Key.Year,
+                    Mes: g.Key.Month,
+                    CobradoLocal: cobrado,
+                    PactadoCuotas: pactado,
+                    PagadoPlanta: planta,
+                    TotalPagos: g.Count()
+                );
+            })
             .OrderBy(r => r.Anio).ThenBy(r => r.Mes)
             .ToList();
     }
