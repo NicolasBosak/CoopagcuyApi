@@ -139,9 +139,9 @@ Tailwind y no aplicaría nada.**
 | Claves guardadas | Integración | Las claves marcadas se persisten y se recuperan |
 | Derivación | Unitaria | Las no verificadas salen del catálogo por diferencia, y una lista nula no es una lista vacía |
 | Texto de la guía | Unitaria | El renglón de lo no verificado, como función pura |
-| Guía sin faltas | Integración | Con las siete marcadas, el PDF **no crece**: no regresión |
-| Guía con faltas | Integración | Con faltas, el PDF crece de forma medida |
-| Obligatoriedad | Integración | Con checklist incompleto, confirmar sin responder da 400; con checklist completo, se admite |
+| Guía con faltas | Integración | La guía de un lote con checklist incompleto se descarga y no revienta. **El contenido no se afirma**: ver los límites |
+| Obligatoriedad | Integración | Con checklist incompleto, confirmar sin responder da **409**; con checklist completo, se admite |
+| Movilización histórica | Integración | Con las claves sin registrar, confirmar sin responder **sí** se admite |
 | Catálogo cerrado | Integración | Una clave de llegada desconocida se rechaza con 400 |
 | Cuestionario | Integración | Un «no» sin ninguna condición marcada se rechaza |
 
