@@ -89,6 +89,58 @@ public class ReportesController(IReportesService service) : ControllerBase
     }
 
     /// <summary>
+    /// Ganancias de productoras — lo que cobraron, por productora.
+    /// Cobrado en venta local, pactado a cuotas y pagado por la planta van
+    /// en columnas separadas porque no son dinero disponible del mismo modo.
+    /// </summary>
+    [HttpGet("ganancias/productoras")]
+    // Ampliado a propósito respecto de la petición original, que solo
+    // nombraba a los dos administradores: el operador de faenamiento
+    // atiende consultas sobre este reporte igual que sobre los demás
+    // reportes de gestión. El OperadorCAT no entra.
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
+    public async Task<IActionResult> GananciasPorProductora(
+        [FromQuery] DateTime desde,
+        [FromQuery] DateTime hasta,
+        [FromQuery] string? cat)
+    {
+        var resultado = await service.GananciasPorProductoraAsync(
+            new FiltroPeriodoDto(desde, hasta, cat));
+        return Ok(resultado);
+    }
+
+    /// <summary>
+    /// Ganancias de productoras — lo que cobraron, agrupado por CAT.
+    /// </summary>
+    [HttpGet("ganancias/cat")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
+    public async Task<IActionResult> GananciasPorCat(
+        [FromQuery] DateTime desde,
+        [FromQuery] DateTime hasta,
+        [FromQuery] string? cat)
+    {
+        var resultado = await service.GananciasPorCatAsync(
+            new FiltroPeriodoDto(desde, hasta, cat));
+        return Ok(resultado);
+    }
+
+    /// <summary>
+    /// Ganancias de productoras — lo que cobraron, agrupado por mes local
+    /// del piloto.
+    /// </summary>
+    [HttpGet("ganancias/mes")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
+    public async Task<IActionResult> GananciasPorMes(
+        [FromQuery] DateTime desde,
+        [FromQuery] DateTime hasta,
+        [FromQuery] string? cat)
+    {
+        var resultado = await service.GananciasPorMesAsync(
+            new FiltroPeriodoDto(desde, hasta, cat));
+        return Ok(resultado);
+    }
+
+    /// <summary>
     /// Reporte individual por cuy: estado de cada animal registrado.
     /// </summary>
     [HttpGet("cuyes")]

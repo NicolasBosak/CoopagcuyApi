@@ -1,6 +1,7 @@
 ﻿using ClosedXML.Excel;
 using CoopagcuyApi.Common;
 using CoopagcuyApi.Common.Branding;
+using CoopagcuyApi.Features.Pagos.Models;
 using CoopagcuyApi.Features.Productoras.Models;
 using CoopagcuyApi.Features.Reportes.DTOs;
 using CoopagcuyApi.Infrastructure.Data;
@@ -38,6 +39,11 @@ public interface IReportesService
     Task<IEnumerable<ReporteCuyDto>> ReporteCuyesAsync(FiltroPeriodoDto filtro);
     Task<byte[]> ExportarExcelCuyesAsync(FiltroPeriodoDto filtro);
     Task<ReporteDevolucionesDto> ReporteDevolucionesAsync(FiltroPeriodoDto filtro);
+    // Lo que ganaron las productoras: NUNCA se suma con el margen de la
+    // reventa (tareas aparte). Tres vistas de la misma consulta base.
+    Task<IEnumerable<GananciaProductoraDto>> GananciasPorProductoraAsync(FiltroPeriodoDto filtro);
+    Task<IEnumerable<GananciaCatDto>> GananciasPorCatAsync(FiltroPeriodoDto filtro);
+    Task<IEnumerable<GananciaMesDto>> GananciasPorMesAsync(FiltroPeriodoDto filtro);
 }
 
 public class ReportesService(AppDbContext db) : IReportesService
@@ -626,6 +632,117 @@ public class ReportesService(AppDbContext db) : IReportesService
             DevolucionesClientes: devoluciones,
             RetornosProductora: retornos
         );
+    }
+
+    // ── Ganancias de productoras ───────────────────────────────────────
+    //
+    // El reporte publica dos cifras que NUNCA se suman: lo que ganaron las
+    // productoras (esta sección) y el margen de la reventa. Un pago a una
+    // productora es ingreso para ella y costo para la cooperativa — la
+    // misma fila leída desde dos lados.
+
+    // Pagos que cuentan como dinero movido: los pendientes son tickets que la
+    // planta todavía no ha transferido, y no son dinero movido.
+    //
+    // Se suma MontoPagadoUsd y no MontoUsd: la diferencia son los descuentos
+    // por novedades, y contarlos como pagados inflaría la cifra justo donde
+    // el sistema ya sabe que no lo fueron. En las ventas locales los dos
+    // valores coinciden —el servicio los iguala al registrar— así que la
+    // regla es uniforme.
+    private IQueryable<Pago> PagosDelPeriodo(FiltroPeriodoDto filtro)
+    {
+        var (desde, hasta) = RangoUtc(filtro);
+        return db.Pagos
+            .Where(p => p.FechaPago >= desde && p.FechaPago < hasta
+                && p.Estado != EstadoPago.Pendiente);
+    }
+
+    public async Task<IEnumerable<GananciaProductoraDto>> GananciasPorProductoraAsync(
+        FiltroPeriodoDto filtro)
+    {
+        var pagos = await PagosDelPeriodo(filtro)
+            .Include(p => p.Productora).ThenInclude(pr => pr.Comunidad)
+            .AsNoTracking()
+            .ToListAsync();
+
+        return pagos
+            .GroupBy(p => p.ProductoraId)
+            .Select(g =>
+            {
+                var p = g.First().Productora!;
+                return new GananciaProductoraDto(
+                    ProductoraId: p.Id,
+                    NombreProductora: p.NombreCompleto,
+                    Comunidad: p.Comunidad.Nombre,
+                    CentroAcopio: p.CatAsignado.ToString(),
+                    CobradoLocal: g.Where(x => x.EsVentaLocal && x.MetodoPago != "Cuotas")
+                                    .Sum(x => x.MontoPagadoUsd ?? 0),
+                    PactadoCuotas: g.Where(x => x.EsVentaLocal && x.MetodoPago == "Cuotas")
+                                     .Sum(x => x.MontoPagadoUsd ?? 0),
+                    PagadoPlanta: g.Where(x => !x.EsVentaLocal)
+                                    .Sum(x => x.MontoPagadoUsd ?? 0),
+                    TotalPagos: g.Count()
+                );
+            })
+            .OrderByDescending(r => r.CobradoLocal + r.PactadoCuotas + r.PagadoPlanta)
+            .ToList();
+    }
+
+    public async Task<IEnumerable<GananciaCatDto>> GananciasPorCatAsync(
+        FiltroPeriodoDto filtro)
+    {
+        var pagos = await PagosDelPeriodo(filtro)
+            .Include(p => p.Productora)
+            .AsNoTracking()
+            .ToListAsync();
+
+        return pagos
+            .GroupBy(p => p.Productora!.CatAsignado)
+            .Select(g => new GananciaCatDto(
+                CentroAcopio: g.Key.ToString(),
+                CobradoLocal: g.Where(x => x.EsVentaLocal && x.MetodoPago != "Cuotas")
+                                .Sum(x => x.MontoPagadoUsd ?? 0),
+                PactadoCuotas: g.Where(x => x.EsVentaLocal && x.MetodoPago == "Cuotas")
+                                 .Sum(x => x.MontoPagadoUsd ?? 0),
+                PagadoPlanta: g.Where(x => !x.EsVentaLocal)
+                                .Sum(x => x.MontoPagadoUsd ?? 0),
+                TotalPagos: g.Count()
+            ))
+            .OrderBy(r => r.CentroAcopio)
+            .ToList();
+    }
+
+    public async Task<IEnumerable<GananciaMesDto>> GananciasPorMesAsync(
+        FiltroPeriodoDto filtro)
+    {
+        var pagos = await PagosDelPeriodo(filtro)
+            .AsNoTracking()
+            .ToListAsync();
+
+        // El mes se agrupa por el día LOCAL del piloto, no por el UTC: un
+        // pago de las 20:00 del 31 de agosto pertenece a agosto, y agrupar
+        // por UTC lo mandaría a septiembre.
+        //
+        // FechaUtc.ALocal no se traduce a SQL, así que esta vista materializa
+        // (arriba, con ToListAsync) antes de agrupar. El volumen del piloto
+        // lo permite de sobra: no cambiar esto por un GroupBy en base de
+        // datos, que rompería la frontera del mes en silencio.
+        return pagos
+            .Select(p => (Pago: p, Local: FechaUtc.ALocal(p.FechaPago)))
+            .GroupBy(x => new { x.Local.Year, x.Local.Month })
+            .Select(g => new GananciaMesDto(
+                Anio: g.Key.Year,
+                Mes: g.Key.Month,
+                CobradoLocal: g.Where(x => x.Pago.EsVentaLocal && x.Pago.MetodoPago != "Cuotas")
+                                .Sum(x => x.Pago.MontoPagadoUsd ?? 0),
+                PactadoCuotas: g.Where(x => x.Pago.EsVentaLocal && x.Pago.MetodoPago == "Cuotas")
+                                 .Sum(x => x.Pago.MontoPagadoUsd ?? 0),
+                PagadoPlanta: g.Where(x => !x.Pago.EsVentaLocal)
+                                .Sum(x => x.Pago.MontoPagadoUsd ?? 0),
+                TotalPagos: g.Count()
+            ))
+            .OrderBy(r => r.Anio).ThenBy(r => r.Mes)
+            .ToList();
     }
 
     // ── Flujo de trazabilidad: Entrada / Tránsito / Salida ────────────
