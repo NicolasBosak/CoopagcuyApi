@@ -76,6 +76,81 @@ public static class Sembrador
     }
 
     /// <summary>
+    /// Cadena mínima hasta tener animales despachables: jaula → sesión de
+    /// faenamiento → lote faenado. Devuelve el Id del lote faenado y los Id
+    /// de los cuyes faenados, listos para POSTear a /api/faenamiento/despachos.
+    ///
+    /// Compartido entre DespachoExtremoAExtremoTests y PrecioDeVentaTests:
+    /// ambas necesitan exactamente este mismo montaje antes de registrar un
+    /// despacho por HTTP, y duplicarlo abriría la puerta a que una de las
+    /// dos copias se desincronice en silencio de la otra.
+    /// </summary>
+    public static async Task<(int LoteFaenadoId, List<int> CuyIds)> DespachableAsync(
+        ApiFactory api,
+        string cedulaProductora)
+    {
+        var productora = await ProductoraAsync(
+            api, cedulaProductora, CentroAcopio.PAT, comunidadId: 1);
+
+        await using var db = api.NuevoDbContext();
+
+        var lote = new Lote
+        {
+            CodigoLote = "PAT-20260818-001",
+            ProductoraId = productora.Id,
+            CentroAcopio = CentroAcopio.PAT,
+            CantidadAnimales = 2,
+            PesoTotalGramos = 1800,
+            FechaRecepcion = DateTime.UtcNow,
+            Estado = EstadoLote.Aceptado,
+            ResponsableRecepcion = "Nicolas Nieves"
+        };
+        db.Lotes.Add(lote);
+        await db.SaveChangesAsync();
+
+        var loteFaenado = new LoteFaenado
+        {
+            Codigo = "FAE-20260818-001",
+            FechaFaenamiento = DateTime.UtcNow,
+            OperarioResponsable = "Operario de prueba"
+        };
+        db.LotesFaenados.Add(loteFaenado);
+        await db.SaveChangesAsync();
+
+        var sesion = new RegistroFaenamiento
+        {
+            LoteId = lote.Id,
+            LoteFaenadoId = loteFaenado.Id,
+            NumeroSesion = 1,
+            FechaFaenamiento = DateTime.UtcNow,
+            OperarioResponsable = "Operario de prueba",
+            UnidadesFaenadas = 2,
+            PesoTotalCanalGramos = 1200,
+            EstadoCanal = EstadoCanal.Apto
+        };
+        db.Faenamientos.Add(sesion);
+        await db.SaveChangesAsync();
+
+        var cuyes = new[]
+        {
+            new CuyFaenamiento
+            {
+                RegistroFaenamientoId = sesion.Id, NumeroEnLote = 1,
+                PesoCanalGramos = 600, Estado = EstadoCanal.Apto
+            },
+            new CuyFaenamiento
+            {
+                RegistroFaenamientoId = sesion.Id, NumeroEnLote = 2,
+                PesoCanalGramos = 600, Estado = EstadoCanal.Apto
+            }
+        };
+        db.CuyFaenamientos.AddRange(cuyes);
+        await db.SaveChangesAsync();
+
+        return (loteFaenado.Id, cuyes.Select(c => c.Id).ToList());
+    }
+
+    /// <summary>
     /// Inserta un despacho directamente en la base, sin pasar por
     /// RegistrarDespachoAsync. Aísla la consulta del reporte del camino de
     /// registro: si el reporte encuentra este despacho pero no los de

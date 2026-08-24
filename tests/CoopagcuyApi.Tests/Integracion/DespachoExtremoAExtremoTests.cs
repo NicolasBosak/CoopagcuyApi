@@ -1,9 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
 using CoopagcuyApi.Common;
-using CoopagcuyApi.Features.Faenamiento.Models;
-using CoopagcuyApi.Features.Productoras.Models;
-using CoopagcuyApi.Features.Recepcion.Models;
 using CoopagcuyApi.Tests.Infra;
 using Shouldly;
 using Xunit;
@@ -36,73 +33,6 @@ public class DespachoExtremoAExtremoTests(ApiFactory api) : IAsyncLifetime
         string CodigoLoteFaenado, DateTime FechaDespacho, string Cliente,
         string Chofer, string Ruta, string TipoMercado, string Ubicacion,
         int Unidades, string Responsable);
-
-    /// <summary>
-    /// Cadena mínima hasta tener animales despachables: jaula → sesión de
-    /// faenamiento → lote faenado. Devuelve los Id de los cuyes faenados.
-    /// </summary>
-    private async Task<(int LoteFaenadoId, List<int> CuyIds)> SembrarDespachableAsync()
-    {
-        var productora = await Sembrador.ProductoraAsync(
-            api, CedulaProductora, CentroAcopio.PAT, comunidadId: 1);
-
-        await using var db = api.NuevoDbContext();
-
-        var lote = new Lote
-        {
-            CodigoLote = "PAT-20260818-001",
-            ProductoraId = productora.Id,
-            CentroAcopio = CentroAcopio.PAT,
-            CantidadAnimales = 2,
-            PesoTotalGramos = 1800,
-            FechaRecepcion = DateTime.UtcNow,
-            Estado = EstadoLote.Aceptado,
-            ResponsableRecepcion = "Nicolas Nieves"
-        };
-        db.Lotes.Add(lote);
-        await db.SaveChangesAsync();
-
-        var loteFaenado = new LoteFaenado
-        {
-            Codigo = "FAE-20260818-001",
-            FechaFaenamiento = DateTime.UtcNow,
-            OperarioResponsable = "Operario de prueba"
-        };
-        db.LotesFaenados.Add(loteFaenado);
-        await db.SaveChangesAsync();
-
-        var sesion = new RegistroFaenamiento
-        {
-            LoteId = lote.Id,
-            LoteFaenadoId = loteFaenado.Id,
-            NumeroSesion = 1,
-            FechaFaenamiento = DateTime.UtcNow,
-            OperarioResponsable = "Operario de prueba",
-            UnidadesFaenadas = 2,
-            PesoTotalCanalGramos = 1200,
-            EstadoCanal = EstadoCanal.Apto
-        };
-        db.Faenamientos.Add(sesion);
-        await db.SaveChangesAsync();
-
-        var cuyes = new[]
-        {
-            new CuyFaenamiento
-            {
-                RegistroFaenamientoId = sesion.Id, NumeroEnLote = 1,
-                PesoCanalGramos = 600, Estado = EstadoCanal.Apto
-            },
-            new CuyFaenamiento
-            {
-                RegistroFaenamientoId = sesion.Id, NumeroEnLote = 2,
-                PesoCanalGramos = 600, Estado = EstadoCanal.Apto
-            }
-        };
-        db.CuyFaenamientos.AddRange(cuyes);
-        await db.SaveChangesAsync();
-
-        return (loteFaenado.Id, cuyes.Select(c => c.Id).ToList());
-    }
 
     private async Task RegistrarAsync(int loteFaenadoId, int cuyId, DateTime fechaUtc)
     {
@@ -140,7 +70,7 @@ public class DespachoExtremoAExtremoTests(ApiFactory api) : IAsyncLifetime
     [Fact]
     public async Task UnDespachoDeAhora_apareceEnElReporteDelMesEnCurso()
     {
-        var (loteFaenadoId, cuyes) = await SembrarDespachableAsync();
+        var (loteFaenadoId, cuyes) = await Sembrador.DespachableAsync(api, CedulaProductora);
 
         // "Ahora" y no una hora fija: el validador rechaza fechas pasadas
         // (FaenamientoValidators), así que una hora inventada del día haría
@@ -167,7 +97,7 @@ public class DespachoExtremoAExtremoTests(ApiFactory api) : IAsyncLifetime
         // como días UTC. Resultado: las últimas cinco horas de cada día local
         // —de 19:00 a medianoche— quedaban fuera de todo reporte, y un
         // despacho de la noche desaparecía aunque estuviera bien guardado.
-        var (loteFaenadoId, cuyes) = await SembrarDespachableAsync();
+        var (loteFaenadoId, cuyes) = await Sembrador.DespachableAsync(api, CedulaProductora);
 
         var hoyLocal = (DateTime.UtcNow + FechaUtc.DesfasePiloto).Date;
         // 19:30 de hoy en Ecuador = 00:30 UTC de mañana
