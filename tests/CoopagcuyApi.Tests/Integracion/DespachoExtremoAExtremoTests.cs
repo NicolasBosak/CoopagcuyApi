@@ -49,6 +49,7 @@ public class DespachoExtremoAExtremoTests(ApiFactory api) : IAsyncLifetime
                 chofer = "Chofer de prueba",
                 ruta = "Cuenca",
                 tipoMercado = "Local",
+                precioUnitarioUsd = 8.50m,
                 ciudad = "Cuenca",
                 pais = "Ecuador"
             });

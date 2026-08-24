@@ -1,4 +1,5 @@
 ﻿using CoopagcuyApi.Common;
+using CoopagcuyApi.Common.Exceptions;
 using CoopagcuyApi.Features.Faenamiento.DTOs;
 using CoopagcuyApi.Features.Faenamiento.Models;
 using CoopagcuyApi.Features.Productoras.Models;
@@ -459,6 +460,12 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
     public async Task<DespachoResponseDto> RegistrarDespachoAsync(
         RegistrarDespachoDto dto)
     {
+        // Obligatorio en los despachos nuevos. Sin precio, el reporte de
+        // margen tendría un hueco que nadie recuerda llenar después.
+        if (dto.PrecioUnitarioUsd is not > 0)
+            throw new CuerpoInvalidoException(
+                "El precio unitario de venta es obligatorio y debe ser mayor a cero.");
+
         // La disponibilidad se valida bajo un advisory lock por lote
         // faenado; el índice único de DespachoCuys.CuyFaenamientoId es la
         // red final: un animal jamás puede despacharse dos veces
@@ -526,6 +533,7 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
                 ClienteDestino = dto.ClienteDestino,
                 FechaDespacho = FechaUtc.Normalizar(dto.FechaDespacho),
                 CantidadUnidades = detalle.Count,
+                PrecioUnitarioUsd = dto.PrecioUnitarioUsd,
                 Responsable = dto.Responsable,
                 Chofer = dto.Chofer,
                 Ruta = dto.Ruta,
@@ -550,6 +558,9 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
                 ClienteDestino: despacho.ClienteDestino,
                 FechaDespacho: despacho.FechaDespacho,
                 CantidadUnidades: despacho.CantidadUnidades,
+                PrecioUnitarioUsd: despacho.PrecioUnitarioUsd,
+                // Derivado, nunca almacenado.
+                TotalVentaUsd: despacho.PrecioUnitarioUsd * despacho.CantidadUnidades,
                 UnidadesDevueltas: 0,
                 Responsable: despacho.Responsable,
                 Chofer: despacho.Chofer,
@@ -604,6 +615,8 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
             d.LoteFaenado?.Codigo,
             d.Lote?.CodigoLote,
             d.ClienteDestino, d.FechaDespacho, d.CantidadUnidades,
+            // Derivado, nunca almacenado.
+            d.PrecioUnitarioUsd, d.PrecioUnitarioUsd * d.CantidadUnidades,
             devueltas.GetValueOrDefault(d.Id),
             d.Responsable, d.Chofer, d.Ruta,
             d.TipoMercado, d.Ciudad, d.Pais, d.Observaciones,

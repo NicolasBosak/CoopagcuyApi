@@ -1,4 +1,5 @@
-﻿using CoopagcuyApi.Features.Faenamiento.DTOs;
+﻿using CoopagcuyApi.Common.Exceptions;
+using CoopagcuyApi.Features.Faenamiento.DTOs;
 using CoopagcuyApi.Features.Faenamiento.Services;
 using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
@@ -149,6 +150,12 @@ public class FaenamientoController(
         catch (InvalidOperationException ex)
         {
             return Conflict(new { mensaje = ex.Message });
+        }
+        catch (CuerpoInvalidoException ex)
+        {
+            // 400: el precio de venta falta o no es positivo. Se sabe
+            // leyendo el cuerpo, sin consultar nada del servidor.
+            return BadRequest(new { mensaje = ex.Message });
         }
     }
 
