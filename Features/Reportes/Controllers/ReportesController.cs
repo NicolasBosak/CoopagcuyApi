@@ -145,31 +145,35 @@ public class ReportesController(IReportesService service) : ControllerBase
     /// ganancias de productoras: un pago a una productora es ingreso para
     /// ella y costo para la cooperativa, la misma fila leída desde dos
     /// lados.
+    ///
+    /// Sin filtro por CAT — a propósito, no un olvido: un despacho reúne
+    /// animales de varias jaulas y por tanto de varios CAT (ver el
+    /// comentario en <c>ReportesService.DatosDeMargenAsync</c>).
     /// </summary>
     [HttpGet("margen/mes")]
     [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
     public async Task<IActionResult> MargenPorMes(
         [FromQuery] DateTime desde,
-        [FromQuery] DateTime hasta,
-        [FromQuery] string? cat)
+        [FromQuery] DateTime hasta)
     {
         var resultado = await service.MargenPorMesAsync(
-            new FiltroPeriodoDto(desde, hasta, cat));
+            new FiltroPeriodoDto(desde, hasta));
         return Ok(resultado);
     }
 
     /// <summary>
     /// Margen de la reventa por cliente de destino, normalizado.
+    ///
+    /// Sin filtro por CAT, mismo motivo que <see cref="MargenPorMes"/>.
     /// </summary>
     [HttpGet("margen/cliente")]
     [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
     public async Task<IActionResult> MargenPorCliente(
         [FromQuery] DateTime desde,
-        [FromQuery] DateTime hasta,
-        [FromQuery] string? cat)
+        [FromQuery] DateTime hasta)
     {
         var resultado = await service.MargenPorClienteAsync(
-            new FiltroPeriodoDto(desde, hasta, cat));
+            new FiltroPeriodoDto(desde, hasta));
         return Ok(resultado);
     }
 

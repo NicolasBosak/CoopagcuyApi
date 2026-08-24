@@ -365,6 +365,36 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
         fila.GetProperty("margen").GetDecimal().ShouldBe(9m);
     }
 
+    [Fact]
+    public async Task UnDespachoLegadoSinDetalleDeclaraSusAnimalesSinCosto()
+    {
+        // Despacho legado: apunta a Lote directo, sin ninguna fila
+        // DespachoCuy (el detalle por animal no existía todavía cuando se
+        // registró). Antes del fix, un despacho así sumaba su ingreso
+        // completo pero no aportaba NINGÚN animal al pool de costo —ni
+        // como costo, ni como AnimalesSinCosto—, así que reportaba como
+        // margen puro. Con el fix, sus CantidadUnidades entran declaradas
+        // como sin costo.
+        //
+        // Ingreso = 6.00 * 4 = 24.
+        //   Antes del fix: AnimalesSinCosto = 0, CostoAtribuido = 0
+        //     (el despacho no aporta NINGÚN AnimalDespachado).
+        //   Con el fix:    AnimalesSinCosto = 4, CostoAtribuido = 0
+        //     (los 4 entran al pool sin productora conocida).
+        // El costo numérico es 0 en ambos casos —no hay pago que pueda
+        // cubrir animales no identificados—, así que lo que distingue el
+        // comportamiento correcto del incorrecto es AnimalesSinCosto, no
+        // CostoAtribuido: por eso la prueba lo verifica explícitamente.
+        await SembrarDespachoLegadoAsync(
+            cantidadUnidades: 4, precioUnitario: 6m, cliente: "Mercado Legado");
+
+        var fila = await PorClienteAsync("Mercado Legado");
+
+        fila.GetProperty("ingreso").GetDecimal().ShouldBe(24m);
+        fila.GetProperty("costoAtribuido").GetDecimal().ShouldBe(0m);
+        fila.GetProperty("animalesSinCosto").GetInt32().ShouldBe(4);
+    }
+
     // ── Sembradores ─────────────────────────────────────────────────────
     // Los Pago se escriben directo a la base: es más estable que montar todo
     // el flujo de venta local / pago de planta / verificación solo para
@@ -552,6 +582,25 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
             DespachoId = despacho.Id,
             CuyFaenamientoId = cf.Id
         }));
+        await db.SaveChangesAsync();
+    }
+
+    /// Despacho legado sin ninguna fila DespachoCuy: como los que registró
+    /// el sistema antes de que existiera el detalle por animal. No apunta a
+    /// ningún Lote ni LoteFaenado —no hace falta para ejercitar el hueco de
+    /// costo, que depende solo de que Cuyes esté vacío.
+    private async Task SembrarDespachoLegadoAsync(
+        int cantidadUnidades, decimal? precioUnitario, string cliente)
+    {
+        await using var db = api.NuevoDbContext();
+        db.Despachos.Add(new Despacho
+        {
+            ClienteDestino = cliente,
+            FechaDespacho = DateTime.UtcNow,
+            CantidadUnidades = cantidadUnidades,
+            PrecioUnitarioUsd = precioUnitario,
+            Responsable = "Responsable de prueba"
+        });
         await db.SaveChangesAsync();
     }
 

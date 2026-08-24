@@ -4,6 +4,7 @@ using CoopagcuyApi.Common.Branding;
 using CoopagcuyApi.Features.Faenamiento.Models;
 using CoopagcuyApi.Features.Pagos.Models;
 using CoopagcuyApi.Features.Productoras.Models;
+using CoopagcuyApi.Features.Recepcion.Models;
 using CoopagcuyApi.Features.Reportes.DTOs;
 using CoopagcuyApi.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
@@ -800,6 +801,18 @@ public class ReportesService(AppDbContext db) : IReportesService
     /// productora de origen de cada animal, y los pagos de planta que
     /// atribuyen su costo. Alimenta la función pura
     /// <see cref="CostoDeLoDespachado.Calcular"/>, que no se reescribe aquí.
+    ///
+    /// Deliberadamente NO filtra por CAT (ni aquí ni en el <c>cat</c> de
+    /// <see cref="FiltroPeriodoDto"/>, que este método ignora): un despacho
+    /// reúne animales de varias jaulas y por tanto de varios CAT. Filtrar
+    /// por CAT obligaría a elegir entre sumar el ingreso completo de un
+    /// despacho mixto bajo un único CAT (contando de más si se repitiera el
+    /// filtro para cada CAT) o excluir del pool de costo a un animal cuya
+    /// productora sí cobró —solo porque esa productora pertenece a otro
+    /// CAT—, etiquetando un costo conocido como desconocido. El margen es
+    /// de la cooperativa, no de un CAT: mismo criterio que
+    /// <see cref="ReporteSalidaAsync"/>, el otro reporte que también gira
+    /// sobre <c>Despacho</c> y tampoco filtra por CAT.
     /// </summary>
     private async Task<(
         List<Despacho> Despachos,
@@ -821,49 +834,33 @@ public class ReportesService(AppDbContext db) : IReportesService
                     .ThenInclude(cf => cf.Registro)
                         .ThenInclude(r => r.Lote)
                             .ThenInclude(l => l.Cuyes)
-                                .ThenInclude(c => c.Productora)
             .Where(d => d.FechaDespacho >= desdeUtc && d.FechaDespacho < hastaUtc)
             .AsNoTracking()
             .AsSplitQuery()
             .ToListAsync();
 
-        CentroAcopio? cat = null;
-        if (!string.IsNullOrEmpty(filtro.CentroAcopio) &&
-            Enum.TryParse<CentroAcopio>(filtro.CentroAcopio, out var catParsed))
-            cat = catParsed;
-
         // Animales de cada despacho, resueltos a su lote y su productora de
         // origen: el mismo salto de NumeroEnLote que usa el resto del reporte
-        // para encontrar quién entregó cada animal.
+        // para encontrar quién entregó cada animal. Un despacho legado (sin
+        // filas DespachoCuy, apuntando directo a Lote) no tiene ese detalle:
+        // sus CantidadUnidades animales entran igual al pool de costo, pero
+        // sin productora — CostoDeLoDespachado.Calcular los declara
+        // AnimalesSinCosto en vez de tratarlos como si costaran cero.
         var animalesPorDespacho = despachos.ToDictionary(
             d => d.Id,
-            d => d.Cuyes.Select(dc =>
-            {
-                var registro = dc.CuyFaenamiento.Registro;
-                var origen = registro.Lote.Cuyes.FirstOrDefault(
-                    c => c.NumeroEnLote == dc.CuyFaenamiento.NumeroEnLote);
-                return new AnimalDespachado(
-                    registro.LoteId, dc.CuyFaenamiento.NumeroEnLote,
-                    origen?.ProductoraId);
-            }).ToList());
-
-        if (cat.HasValue)
-        {
-            // Un despacho puede reunir animales de varias jaulas —y de
-            // varios CAT—: cuenta para el filtro si AL MENOS UNO viene de
-            // ese centro, la misma técnica que ReporteTransitoAsync usa con
-            // lotes faenados de varias jaulas. Un despacho sin detalle por
-            // animal (legado) no puede atribuirse a ningún CAT y queda
-            // fuera del filtro.
-            var catDelAnimal = cat.Value;
-            despachos = despachos.Where(d => d.Cuyes.Any(dc =>
-            {
-                var registro = dc.CuyFaenamiento.Registro;
-                var origen = registro.Lote.Cuyes.FirstOrDefault(
-                    c => c.NumeroEnLote == dc.CuyFaenamiento.NumeroEnLote);
-                return origen?.Productora?.CatAsignado == catDelAnimal;
-            })).ToList();
-        }
+            d => d.Cuyes.Count > 0
+                ? d.Cuyes.Select(dc =>
+                {
+                    var registro = dc.CuyFaenamiento.Registro;
+                    var origen = OrigenDelAnimal(
+                        registro.Lote, dc.CuyFaenamiento.NumeroEnLote);
+                    return new AnimalDespachado(
+                        registro.LoteId, dc.CuyFaenamiento.NumeroEnLote,
+                        origen?.ProductoraId);
+                }).ToList()
+                : Enumerable.Repeat(
+                    new AnimalDespachado(d.LoteId ?? 0, 0, null),
+                    d.CantidadUnidades).ToList());
 
         var loteIds = despachos
             .SelectMany(d => d.Cuyes.Select(dc => dc.CuyFaenamiento.Registro.LoteId))
@@ -873,15 +870,11 @@ public class ReportesService(AppDbContext db) : IReportesService
         // Solo cuentan los pagos de planta: una venta local no es dinero que
         // la cooperativa haya puesto para comprar el animal, lo puso la CAT,
         // y ya se contó en las ganancias de productoras.
-        var pagosQuery = db.Pagos
-            .Include(p => p.Productora)
+        var pagosCrudos = await db.Pagos
             .Where(p => p.LoteId != null && loteIds.Contains(p.LoteId.Value)
-                && !p.EsVentaLocal && p.Estado != EstadoPago.Pendiente);
-
-        if (cat.HasValue)
-            pagosQuery = pagosQuery.Where(p => p.Productora!.CatAsignado == cat.Value);
-
-        var pagosCrudos = await pagosQuery.AsNoTracking().ToListAsync();
+                && !p.EsVentaLocal && p.Estado != EstadoPago.Pendiente)
+            .AsNoTracking()
+            .ToListAsync();
 
         var cuyes = despachos
             .SelectMany(d => d.Cuyes)
@@ -910,6 +903,12 @@ public class ReportesService(AppDbContext db) : IReportesService
 
         return (despachos, animalesPorDespacho, pagos);
     }
+
+    // El salto de NumeroEnLote a CuyRegistro para encontrar quién entregó un
+    // animal: un único punto para no dejar que dos copias de este lambda se
+    // aparten con el tiempo.
+    private static CuyRegistro? OrigenDelAnimal(Lote lote, int numeroEnLote) =>
+        lote.Cuyes.FirstOrDefault(c => c.NumeroEnLote == numeroEnLote);
 
     // El ingreso solo suma los despachos CON precio; los que no lo tienen se
     // cuentan en DespachosSinPrecio y no como cero — un despacho sin precio
