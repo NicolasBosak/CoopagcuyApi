@@ -1,8 +1,10 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text;
 using CoopagcuyApi.Common;
 using CoopagcuyApi.Features.Productoras.Models;
 using CoopagcuyApi.Features.Recepcion.Models;
+using CoopagcuyApi.Features.Recepcion.Services;
 using CoopagcuyApi.Tests.Infra;
 using Microsoft.EntityFrameworkCore;
 using Shouldly;
@@ -19,6 +21,33 @@ namespace CoopagcuyApi.Tests.Integracion;
 /// pruebas cubren dos cosas distintas: que el documento se genera de punta a
 /// punta, y que la consulta carga la comunidad de cada cuy —que es la
 /// condición sin la cual la celda no puede componerse bien.
+///
+/// LÍMITE MEDIDO — por qué esta clase no compara PDF por longitud en bytes:
+/// el contenido no se puede afirmar desde código porque QuestPDF comprime
+/// los flujos de texto del documento, así que no hay forma razonable de leer
+/// "qué dice" la guía desde una prueba. Se intentó rodear ese límite
+/// comparando el TAMAÑO de dos PDF en vez de su contenido —un lote con el
+/// checklist completo contra uno incompleto, o dos "gemelos" entre sí— pero
+/// esa técnica tampoco sirve a esta escala: el subconjunto de fuentes que
+/// QuestPDF/SkiaSharp embebe en cada documento introduce hasta ~238 bytes de
+/// variación entre dos PDF equivalentes generados por invocaciones de
+/// proceso separadas (medido en este mismo entorno Docker, con tres de
+/// cuatro corridas aisladas cayendo por ese ruido). El bloque de "No se
+/// verificó" que esta feature agrega pesa ~100 bytes — la señal queda por
+/// debajo del ruido, así que ninguna prueba de longitud puede distinguir un
+/// cambio real de una variación del subconjunto de fuentes. (En proyectos
+/// anteriores de este repo la comparación por bytes sí funcionó: el bloque
+/// medido entonces pesaba ~2600 bytes y aplastaba un ruido del mismo orden.
+/// Aquí la señal es demasiado chica para el mismo método.)
+///
+/// Por eso el contenido impreso de la guía —incluido el bloque de "No se
+/// verificó"— se verifica a mano, y las pruebas de esta clase se limitan a
+/// confirmar que el documento se genera correctamente (200, tipo
+/// application/pdf, cabecera %PDF, tamaño no trivial) sin afirmar nada sobre
+/// su contenido. La garantía de no regresión del checklist completo la
+/// sostienen, por construcción, las pruebas unitarias de
+/// TextosGuia.LineaNoVerificadas (CondicionesNoVerificadasTests): son
+/// deterministas porque no pasan por QuestPDF.
 /// </summary>
 [Collection(ColeccionApi.Nombre)]
 public class GuiaMovilizacionTests(ApiFactory api) : IAsyncLifetime
@@ -86,6 +115,32 @@ public class GuiaMovilizacionTests(ApiFactory api) : IAsyncLifetime
         await db.SaveChangesAsync();
 
         return lote.CodigoLote;
+    }
+
+    /// <summary>
+    /// Movilización insertada directamente en la base, sin pasar por el
+    /// endpoint: lo único que estas pruebas necesitan es un registro con
+    /// CondicionesClaves fijado a lo que se quiere comprobar en la guía.
+    /// </summary>
+    private async Task MovilizarAsync(string codigoLote, string? condicionesClaves)
+    {
+        await using var db = api.NuevoDbContext();
+        var lote = await db.Lotes.FirstAsync(l => l.CodigoLote == codigoLote);
+
+        db.Movilizaciones.Add(new Movilizacion
+        {
+            LoteId = lote.Id,
+            FechaDespacho = DateTime.UtcNow,
+            Conductor = "Conductor de prueba",
+            CantidadMovilizada = 1,
+            CondicionesTransporte = condicionesClaves is null
+                ? null
+                : CondicionTransporte.Describir(TextosGuia.ClavesDe(condicionesClaves)),
+            CondicionesClaves = condicionesClaves,
+            SinAntibioticos7Dias = true,
+            ResponsableDespacho = "Responsable de prueba"
+        });
+        await db.SaveChangesAsync();
     }
 
     [Fact]
@@ -204,5 +259,28 @@ public class GuiaMovilizacionTests(ApiFactory api) : IAsyncLifetime
         // LA COMUNIDAD" + resumen + dos renglones). Umbral holgadamente por
         // debajo de ese valor medido.
         (bytesConVentas.Length - bytesSinVentas.Length).ShouldBeGreaterThan(200);
+    }
+
+    [Fact]
+    public async Task LaGuiaDeUnLoteConChecklistIncompletoSeGeneraSinReventar()
+    {
+        // No se puede afirmar el CONTENIDO del bloque de "No se verificó"
+        // desde aquí (ver el límite documentado en la clase), pero sí que el
+        // camino de renderizado que lo pinta no revienta: un Include mal
+        // puesto, un valor nulo sin manejar en TextosGuia, o un contenedor
+        // QuestPDF equivocado alrededor del bloque nuevo sí lo harían, y esta
+        // prueba los atraparía con un 500 o un tipo de contenido incorrecto.
+        var codigo = await SembrarLoteAsync();
+        await MovilizarAsync(codigo, "JaulasLimpias");
+
+        var respuesta = await api.ComoOperadorCat("PAT")
+            .GetAsync($"/api/recepcion/lotes/{codigo}/guia");
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.OK);
+        respuesta.Content.Headers.ContentType?.MediaType.ShouldBe("application/pdf");
+
+        var bytes = await respuesta.Content.ReadAsByteArrayAsync();
+        bytes.Length.ShouldBeGreaterThan(1000);
+        Encoding.ASCII.GetString(bytes, 0, 4).ShouldBe("%PDF");
     }
 }

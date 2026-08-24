@@ -296,6 +296,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(m => m.Observaciones).HasMaxLength(500);
             e.Property(m => m.RecibidoPor).HasMaxLength(150);
             e.Property(m => m.CondicionLlegada).HasMaxLength(300);
+            // Siete claves del catálogo separadas por punto y coma caben de
+            // sobra en 300; el mismo tamaño que ya tiene la frase compuesta.
+            e.Property(m => m.CondicionesClaves).HasMaxLength(300);
+            e.Property(m => m.CondicionesLlegadaClaves).HasMaxLength(300);
             e.HasOne(m => m.Lote)
              .WithOne(l => l.Movilizacion)
              .HasForeignKey<Movilizacion>(m => m.LoteId);

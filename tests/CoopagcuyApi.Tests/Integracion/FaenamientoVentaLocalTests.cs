@@ -122,6 +122,12 @@ public class FaenamientoVentaLocalTests(ApiFactory api) : IAsyncLifetime
             .PatchAsJsonAsync($"/api/recepcion/movilizaciones/{movilizacionId}/recepcion", new
             {
                 recibidoPor = "Operario de planta",
+                // El checklist de transporte de este sembrado quedo incompleto
+                // (solo "JaulasLimpias"), asi que desde la fusion con
+                // trazabilidad la pregunta de llegada es obligatoria. Se
+                // responde que si: a estas pruebas les da igual como llego, lo
+                // que verifican es el faenamiento aguas abajo.
+                llegaronEnBuenEstado = true,
                 condicionLlegada = "Buena"
             });
         recepcion.EnsureSuccessStatusCode();

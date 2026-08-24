@@ -139,9 +139,9 @@ Tailwind y no aplicaría nada.**
 | Claves guardadas | Integración | Las claves marcadas se persisten y se recuperan |
 | Derivación | Unitaria | Las no verificadas salen del catálogo por diferencia, y una lista nula no es una lista vacía |
 | Texto de la guía | Unitaria | El renglón de lo no verificado, como función pura |
-| Guía sin faltas | Integración | Con las siete marcadas, el PDF **no crece**: no regresión |
-| Guía con faltas | Integración | Con faltas, el PDF crece de forma medida |
-| Obligatoriedad | Integración | Con checklist incompleto, confirmar sin responder da 400; con checklist completo, se admite |
+| Guía con faltas | Integración | La guía de un lote con checklist incompleto se descarga y no revienta. **El contenido no se afirma**: ver los límites |
+| Obligatoriedad | Integración | Con checklist incompleto, confirmar sin responder da **409**; con checklist completo, se admite |
+| Movilización histórica | Integración | Con las claves sin registrar, confirmar sin responder **sí** se admite |
 | Catálogo cerrado | Integración | Una clave de llegada desconocida se rechaza con 400 |
 | Cuestionario | Integración | Un «no» sin ninguna condición marcada se rechaza |
 
@@ -158,11 +158,17 @@ Control bloquea la carga del DLL desde OneDrive.
 - **La guía acaba en papel.** Se pueden fijar las funciones puras y el
   crecimiento del documento, no la maquetación. Necesita que alguien imprima una
   guía con faltas y otra sin ellas y las mire.
-- **El tamaño de un PDF no es proporcional al texto añadido.** El subconjunto de
-  fuentes embebido cambia con los glifos usados: en el Proyecto B, quitar una
-  línea corta llegó a hacer el documento *más pequeño*. La técnica de comparar
-  longitudes sirve para un bloque, no para un renglón — **hay que medirlo antes
-  de fijar el umbral**.
+- **Comparar longitudes de PDF NO sirve a esta escala.** Medido durante la
+  implementación: el subconjunto de fuentes embebido introduce hasta **~238
+  bytes de variación entre dos guías equivalentes**, mientras que el bloque
+  nuevo mide ~100. La señal queda por debajo del ruido. La técnica funcionó en
+  proyectos anteriores porque allí el bloque medía ~2600 bytes y lo aplastaba;
+  aquí no. **Se retiraron las dos pruebas que lo intentaban**, y la aparición
+  del bloque en el papel pasa a ser verificación manual.
+
+  La garantía de no regresión no se pierde: se sostiene **por construcción**,
+  porque `LineaNoVerificadas` devuelve nulo en los dos casos en que no hay nada
+  que imprimir, y eso lo fijan las unitarias de forma determinista.
 - **El front no tiene Vitest ni Playwright.** Las dos pantallas se verifican a
   mano, además de `pnpm lint`, `pnpm exec tsc -b` y `pnpm build`.
 

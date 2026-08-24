@@ -60,4 +60,47 @@ public static class TextosGuia
     /// </summary>
     public static string LineaVentaLocal(CuyRegistro cuy, DateTime fechaVenta) =>
         $"#{cuy.NumeroEnLote} · {Productora(cuy)} · {FechaUtc.FechaLocal(fechaVenta)}";
+
+    /// Claves guardadas en una columna, partidas por su separador. Nulo o
+    /// vacío devuelve una lista vacía, no una lista con una cadena vacía
+    /// dentro — eso último haría que NoVerificadas creyera que hay una clave
+    /// marcada que no existe.
+    /// </summary>
+    public static IReadOnlyList<string> ClavesDe(string? csv) =>
+        string.IsNullOrWhiteSpace(csv)
+            ? []
+            : csv.Split(CondicionTransporte.Separador,
+                    StringSplitOptions.RemoveEmptyEntries |
+                    StringSplitOptions.TrimEntries)
+                 .ToList();
+
+    /// <summary>
+    /// "No se verificó: Ventilación adecuada · Vehículo limpio", o NULO
+    /// cuando no hay nada que decir.
+    ///
+    /// Devuelve nulo en DOS casos distintos que la guía trata igual —no
+    /// imprimir nada— pero que NO son lo mismo, y confundirlos fue el bug
+    /// crítico de esta feature:
+    ///
+    /// - NULO: movilización anterior a esta feature. No se registró qué se
+    ///   marcó, así que no hay nada que decir.
+    /// - "" (cadena vacía): sí se registró, y no se marcó ninguna de las
+    ///   siete. Aquí hay que nombrarlas todas — MovilizacionService.
+    ///   RegistrarAsync escribe string.Join(...) de una lista vacía, que da
+    ///   "", no null, y eso es alcanzable sin negligencia: el validador de
+    ///   movilización no exige ninguna condición marcada.
+    ///
+    /// Por eso la guarda comprueba clavesCsv is null y no
+    /// IsNullOrWhiteSpace: lo segundo trataría "" igual que null y la guía
+    /// volvería a callar justo cuando más tiene que hablar.
+    /// </summary>
+    public static string? LineaNoVerificadas(string? clavesCsv)
+    {
+        if (clavesCsv is null) return null;
+
+        var faltan = CondicionTransporte.NoVerificadas(ClavesDe(clavesCsv));
+        return faltan.Count == 0
+            ? null
+            : $"No se verificó: {string.Join(" · ", faltan)}";
+    }
 }

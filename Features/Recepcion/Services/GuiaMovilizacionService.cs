@@ -270,6 +270,19 @@ public class GuiaMovilizacionService(AppDbContext db) : IGuiaMovilizacionService
                                 r.RelativeItem().Text(
                                     $"Condiciones: {movilizacion.CondicionesTransporte ?? "-"}");
                             });
+
+                            // Lo que NO se verificó. Va aquí y no en una nota
+                            // al pie porque es el mismo dato que la línea de
+                            // arriba, leído del otro lado: sin esto, una
+                            // jaula que salió con tres casillas sin marcar
+                            // produce una guía indistinguible de una completa.
+                            var noVerificadas = TextosGuia.LineaNoVerificadas(
+                                movilizacion.CondicionesClaves);
+
+                            if (noVerificadas is not null)
+                                c.Item().PaddingTop(2).Text(noVerificadas)
+                                    .FontSize(9).Bold();
+
                             c.Item().Row(r =>
                             {
                                 r.RelativeItem().Text(

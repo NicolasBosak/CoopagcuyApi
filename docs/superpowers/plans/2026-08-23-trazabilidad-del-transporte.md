@@ -506,13 +506,16 @@ public class LlegadaEnMalEstadoTests(ApiFactory api) : IAsyncLifetime
         var (_, movId) = await MovilizarAsync(new[] { "JaulasLimpias" });
 
         var respuesta = await api.ComoOperadorFaenamiento()
-            .PostAsJsonAsync($"/api/recepcion/movilizaciones/{movId}/recepcion", new
+            .PatchAsJsonAsync($"/api/recepcion/movilizaciones/{movId}/recepcion", new
             {
                 recibidoPor = "Operador de planta"
                 // sin llegaronEnBuenEstado
             });
 
-        respuesta.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        // 409 y no 400: decidir que la respuesta es obligatoria exige mirar
+        // el checklist GUARDADO, no el cuerpo de la peticion. Es el criterio
+        // que ya sigue todo el modulo de pagos.
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.Conflict);
 
         await using var db = api.NuevoDbContext();
         var mov = await db.Movilizaciones.AsNoTracking().FirstAsync(m => m.Id == movId);
@@ -529,7 +532,7 @@ public class LlegadaEnMalEstadoTests(ApiFactory api) : IAsyncLifetime
         var (_, movId) = await MovilizarAsync(todas);
 
         var respuesta = await api.ComoOperadorFaenamiento()
-            .PostAsJsonAsync($"/api/recepcion/movilizaciones/{movId}/recepcion", new
+            .PatchAsJsonAsync($"/api/recepcion/movilizaciones/{movId}/recepcion", new
             {
                 recibidoPor = "Operador de planta"
             });
@@ -544,7 +547,7 @@ public class LlegadaEnMalEstadoTests(ApiFactory api) : IAsyncLifetime
         var (_, movId) = await MovilizarAsync(new[] { "JaulasLimpias" });
 
         var respuesta = await api.ComoOperadorFaenamiento()
-            .PostAsJsonAsync($"/api/recepcion/movilizaciones/{movId}/recepcion", new
+            .PatchAsJsonAsync($"/api/recepcion/movilizaciones/{movId}/recepcion", new
             {
                 recibidoPor = "Operador de planta",
                 llegaronEnBuenEstado = false,
@@ -560,7 +563,7 @@ public class LlegadaEnMalEstadoTests(ApiFactory api) : IAsyncLifetime
         var (_, movId) = await MovilizarAsync(new[] { "JaulasLimpias" });
 
         var respuesta = await api.ComoOperadorFaenamiento()
-            .PostAsJsonAsync($"/api/recepcion/movilizaciones/{movId}/recepcion", new
+            .PatchAsJsonAsync($"/api/recepcion/movilizaciones/{movId}/recepcion", new
             {
                 recibidoPor = "Operador de planta",
                 llegaronEnBuenEstado = false,
@@ -576,7 +579,7 @@ public class LlegadaEnMalEstadoTests(ApiFactory api) : IAsyncLifetime
         var (_, movId) = await MovilizarAsync(new[] { "JaulasLimpias" });
 
         var respuesta = await api.ComoOperadorFaenamiento()
-            .PostAsJsonAsync($"/api/recepcion/movilizaciones/{movId}/recepcion", new
+            .PatchAsJsonAsync($"/api/recepcion/movilizaciones/{movId}/recepcion", new
             {
                 recibidoPor = "Operador de planta",
                 llegaronEnBuenEstado = false,
@@ -598,13 +601,40 @@ public class LlegadaEnMalEstadoTests(ApiFactory api) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task UnaMovilizacionAnteriorALaFeatureNoExigeRespuesta()
+    {
+        // CondicionesClaves nulo = fila anterior a esta feature: no se sabe
+        // que se marco, asi que no se puede reclamar nada. Si alguien tratara
+        // ese nulo como lista vacia, TODAS las movilizaciones que ya existen
+        // en produccion pasarian a exigir respuesta y quedarian imposibles de
+        // confirmar. Es el invariante que protege los datos que ya estan.
+        var (_, movId) = await MovilizarAsync(new[] { "JaulasLimpias" });
+
+        await using (var db = api.NuevoDbContext())
+        {
+            var mov = await db.Movilizaciones.FirstAsync(m => m.Id == movId);
+            mov.CondicionesClaves = null;
+            await db.SaveChangesAsync();
+        }
+
+        var respuesta = await api.ComoOperadorFaenamiento()
+            .PatchAsJsonAsync($"/api/recepcion/movilizaciones/{movId}/recepcion", new
+            {
+                recibidoPor = "Operador de planta"
+                // sin llegaronEnBuenEstado, y aun asi debe aceptarse
+            });
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
     public async Task UnSiNoArrastraCondiciones()
     {
         // Si llegaron bien, no puede quedar un cuestionario guardado.
         var (_, movId) = await MovilizarAsync(new[] { "JaulasLimpias" });
 
         var respuesta = await api.ComoOperadorFaenamiento()
-            .PostAsJsonAsync($"/api/recepcion/movilizaciones/{movId}/recepcion", new
+            .PatchAsJsonAsync($"/api/recepcion/movilizaciones/{movId}/recepcion", new
             {
                 recibidoPor = "Operador de planta",
                 llegaronEnBuenEstado = true,
@@ -726,7 +756,7 @@ En `MovilizacionService.RegistrarAsync`, en el objeto `new Movilizacion { … }`
             // lo único que tienen las movilizaciones anteriores a este
             // cambio, y reimprimir una guía antigua no puede perder ese dato.
             CondicionesClaves = string.Join(
-                CondicionTransporte.Separador, dto.CondicionesTransporte),
+                CondicionTransporte.Separador, dto.CondicionesTransporte.Distinct()),
 ```
 
 - [ ] **Step 5: Validar la llegada**
@@ -745,8 +775,11 @@ En `MovilizacionService.ConfirmarRecepcionAsync`, después de la comprobación d
             && CondicionTransporte.NoVerificadas(
                    TextosGuia.ClavesDe(movilizacion.CondicionesClaves)).Count > 0;
 
+        // TransicionInvalidaException y no CuerpoInvalidoException: esto
+        // depende del estado guardado, no del cuerpo. El controlador ya
+        // traduce InvalidOperationException —de la que hereda— a 409.
         if (faltaron && dto.LlegaronEnBuenEstado is null)
-            throw new CuerpoInvalidoException(
+            throw new TransicionInvalidaException(
                 "El checklist de transporte quedó incompleto: hay que indicar " +
                 "si los animales llegaron en buen estado.");
 
@@ -780,7 +813,33 @@ Y al escribir:
 
 Añadir los `using` que falten (`CoopagcuyApi.Common.Exceptions`, y `CondicionLlegada` ya está en el mismo namespace de modelos).
 
-**Comprueba** que el controlador traduce `CuerpoInvalidoException` a 400 en esta acción; si no lo hace, añade el `catch`, igual que hacen los demás endpoints del repositorio.
+**El endpoint es `HttpPatch("movilizaciones/{id:int}/recepcion")`**, no POST — las pruebas usan `PatchAsJsonAsync`. Y hoy **solo** captura `InvalidOperationException` y la traduce a **409**; no tiene `catch` de 400. Añádele uno:
+
+```csharp
+        catch (CuerpoInvalidoException ex)
+        {
+            return BadRequest(new { mensaje = ex.Message });
+        }
+```
+
+Y **también** uno para el 409, porque hace falta:
+
+```csharp
+        catch (TransicionInvalidaException ex)
+        {
+            return Conflict(new { mensaje = ex.Message });
+        }
+```
+
+> **Corrección salida de ejecutar este plan.** El borrador daba por hecho que
+> `TransicionInvalidaException` heredaba de `InvalidOperationException` y que el
+> `catch` ya existente la traduciría sola a 409. **Es falso:** las dos
+> excepciones del proyecto heredan directamente de `Exception`. Sin el `catch`
+> explícito, el caso de la respuesta obligatoria habría devuelto **500** en vez
+> de 409. `PagosController` ya las captura ambas por separado — ese es el
+> patrón a seguir.
+
+**Coloca los dos ANTES del `catch (InvalidOperationException)`.**
 
 - [ ] **Step 6: Ejecutar y comprobar por mutación**
 
