@@ -65,7 +65,7 @@ public static class TextosGuia
                  .ToList();
 
     /// <summary>
-    /// "No se verificó: Ventilación adecuada, Vehículo limpio", o NULO
+    /// "No se verificó: Ventilación adecuada · Vehículo limpio", o NULO
     /// cuando no hay nada que decir.
     ///
     /// Devuelve nulo en DOS casos distintos que la guía trata igual —no
@@ -91,6 +91,6 @@ public static class TextosGuia
         var faltan = CondicionTransporte.NoVerificadas(ClavesDe(clavesCsv));
         return faltan.Count == 0
             ? null
-            : $"No se verificó: {string.Join(", ", faltan)}";
+            : $"No se verificó: {string.Join(" · ", faltan)}";
     }
 }

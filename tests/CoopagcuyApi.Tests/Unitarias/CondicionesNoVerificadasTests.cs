@@ -65,6 +65,11 @@ public class CondicionesNoVerificadasTests
 
         linea.ShouldNotBeNull();
         linea.ShouldContain("Vehículo limpio");
+        // Las etiquetas del catálogo llevan comas dentro ("Jaulas
+        // aseguradas, sin apilar"), así que unir con ", " sería ambiguo:
+        // separadas con " · " no hay duda de dónde termina una condición y
+        // empieza la siguiente.
+        linea.ShouldContain(" · ");
     }
 
     [Fact]
