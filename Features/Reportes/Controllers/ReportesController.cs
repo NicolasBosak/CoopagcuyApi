@@ -392,6 +392,28 @@ public class ReportesController(IReportesService service) : ControllerBase
     }
 
     /// <summary>
+    /// Exporta el reporte de ganancias a Excel — RF-505. Cinco hojas: las
+    /// tres primeras (por CAT, por productora, por mes) sí respetan
+    /// ?cat=; las dos de margen (por mes, por cliente) no, porque un
+    /// despacho reúne animales de varias CAT (ver el comentario en
+    /// <c>ReportesService.ExportarExcelGananciasAsync</c>).
+    /// </summary>
+    [HttpGet("exportar/excel/ganancias")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
+    public async Task<IActionResult> ExcelGanancias(
+        [FromQuery] DateTime desde,
+        [FromQuery] DateTime hasta,
+        [FromQuery] string? cat)
+    {
+        var bytes = await service.ExportarExcelGananciasAsync(
+            new FiltroPeriodoDto(desde, hasta, cat));
+
+        return File(bytes,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            $"Reporte-Ganancias-{desde:yyyyMMdd}-{hasta:yyyyMMdd}.xlsx");
+    }
+
+    /// <summary>
     /// Exporta la ficha de trazabilidad de un lote en PDF — RF-505.
     /// </summary>
     [HttpGet("exportar/pdf/lote/{codigoLote}")]

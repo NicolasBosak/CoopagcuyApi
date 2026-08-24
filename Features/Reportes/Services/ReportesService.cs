@@ -50,6 +50,10 @@ public interface IReportesService
     // suma con las ganancias de productoras de arriba.
     Task<IEnumerable<MargenDto>> MargenPorMesAsync(FiltroPeriodoDto filtro);
     Task<IEnumerable<MargenDto>> MargenPorClienteAsync(FiltroPeriodoDto filtro);
+    // Las cinco vistas de arriba, en un solo libro, cada una en su propia
+    // hoja: nunca en la misma celda, porque las dos mitades del reporte
+    // (ganancias de productoras y margen de la reventa) no se suman.
+    Task<byte[]> ExportarExcelGananciasAsync(FiltroPeriodoDto filtro);
 }
 
 public class ReportesService(AppDbContext db) : IReportesService
@@ -981,6 +985,173 @@ public class ReportesService(AppDbContext db) : IReportesService
             .Select(g => ConstruirMargen(g.Key, g, animalesPorDespacho, pagos))
             .OrderByDescending(m => m.Ingreso)
             .ToList();
+    }
+
+    // ── Exportar Excel del reporte de ganancias — RF-505 ───────────────
+    //
+    // Cinco hojas, sin ninguna celda que sume las dos cifras que NUNCA se
+    // suman: lo que ganaron las productoras (las tres primeras hojas) y el
+    // margen de la reventa (las dos últimas). Un pago a una productora es
+    // ingreso para ella y costo para la cooperativa — la misma fila leída
+    // desde dos lados, y cada lado se queda en su propia hoja.
+    //
+    // Las dos hojas de margen ignoran filtro.CentroAcopio a propósito, con
+    // el mismo motivo que MargenPorMesAsync y MargenPorClienteAsync (ver el
+    // comentario en DatosDeMargenAsync): un despacho reúne animales de
+    // varias CAT. Las tres primeras hojas sí lo respetan. Quien abra este
+    // libro con ?cat= puesto puede extrañarse de que las dos últimas hojas
+    // no se hayan acotado igual — es deliberado, no un olvido.
+    public async Task<byte[]> ExportarExcelGananciasAsync(FiltroPeriodoDto filtro)
+    {
+        var porCat = await GananciasPorCatAsync(filtro);
+        var porProductora = await GananciasPorProductoraAsync(filtro);
+        var porMes = await GananciasPorMesAsync(filtro);
+        var margenPorMes = await MargenPorMesAsync(filtro);
+        var margenPorCliente = await MargenPorClienteAsync(filtro);
+
+        using var libro = new XLWorkbook();
+
+        AgregarHojaGananciaCat(libro, porCat);
+        AgregarHojaGananciaProductora(libro, porProductora);
+        AgregarHojaGananciaMes(libro, porMes);
+        AgregarHojaMargen(libro, "Margen por mes", margenPorMes);
+        AgregarHojaMargen(libro, "Margen por cliente", margenPorCliente);
+
+        using var stream = new MemoryStream();
+        libro.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    private static void EscribirEncabezadosGanancias(
+        IXLWorksheet hoja, string[] encabezados)
+    {
+        for (int i = 0; i < encabezados.Length; i++)
+        {
+            var celda = hoja.Cell(1, i + 1);
+            celda.Value = encabezados[i];
+            celda.Style.Font.Bold = true;
+            celda.Style.Fill.BackgroundColor = XLColor.FromHtml("#2E7D32");
+            celda.Style.Font.FontColor = XLColor.White;
+        }
+    }
+
+    private static void AgregarHojaGananciaCat(
+        XLWorkbook libro, IEnumerable<GananciaCatDto> datos)
+    {
+        var hoja = libro.Worksheets.Add("Ganancias por CAT");
+        EscribirEncabezadosGanancias(hoja, new[]
+        {
+            "Centro de Acopio", "Cobrado local", "Pactado a cuotas",
+            "Pagado planta", "Total pagos"
+        });
+
+        int fila = 2;
+        foreach (var r in datos)
+        {
+            hoja.Cell(fila, 1).Value = r.CentroAcopio;
+            hoja.Cell(fila, 2).Value = r.CobradoLocal;
+            hoja.Cell(fila, 3).Value = r.PactadoCuotas;
+            hoja.Cell(fila, 4).Value = r.PagadoPlanta;
+            hoja.Cell(fila, 5).Value = r.TotalPagos;
+            fila++;
+        }
+        hoja.Columns().AdjustToContents();
+    }
+
+    private static void AgregarHojaGananciaProductora(
+        XLWorkbook libro, IEnumerable<GananciaProductoraDto> datos)
+    {
+        var hoja = libro.Worksheets.Add("Ganancias por productora");
+        EscribirEncabezadosGanancias(hoja, new[]
+        {
+            "Productora", "Comunidad", "Centro de Acopio", "Cobrado local",
+            "Pactado a cuotas", "Pagado planta", "Total pagos"
+        });
+
+        int fila = 2;
+        foreach (var r in datos)
+        {
+            hoja.Cell(fila, 1).Value = r.NombreProductora;
+            hoja.Cell(fila, 2).Value = r.Comunidad;
+            hoja.Cell(fila, 3).Value = r.CentroAcopio;
+            hoja.Cell(fila, 4).Value = r.CobradoLocal;
+            hoja.Cell(fila, 5).Value = r.PactadoCuotas;
+            hoja.Cell(fila, 6).Value = r.PagadoPlanta;
+            hoja.Cell(fila, 7).Value = r.TotalPagos;
+            fila++;
+        }
+        hoja.Columns().AdjustToContents();
+    }
+
+    private static void AgregarHojaGananciaMes(
+        XLWorkbook libro, IEnumerable<GananciaMesDto> datos)
+    {
+        var hoja = libro.Worksheets.Add("Ganancias por mes");
+        EscribirEncabezadosGanancias(hoja, new[]
+        {
+            "Año", "Mes", "Cobrado local", "Pactado a cuotas",
+            "Pagado planta", "Total pagos"
+        });
+
+        int fila = 2;
+        foreach (var r in datos)
+        {
+            hoja.Cell(fila, 1).Value = r.Anio;
+            hoja.Cell(fila, 2).Value = r.Mes;
+            hoja.Cell(fila, 3).Value = r.CobradoLocal;
+            hoja.Cell(fila, 4).Value = r.PactadoCuotas;
+            hoja.Cell(fila, 5).Value = r.PagadoPlanta;
+            hoja.Cell(fila, 6).Value = r.TotalPagos;
+            fila++;
+        }
+        hoja.Columns().AdjustToContents();
+    }
+
+    // Las dos advertencias van DEBAJO de la tabla, en texto: un libro que
+    // alguien lleva a una reunión no puede dejarlas solo en la pantalla de
+    // origen. Un despacho sin precio no se vendió gratis; un animal cuya
+    // productora no ha cobrado no costó cero — un margen que las omitiera
+    // sería optimista justo cuando más falta pagar.
+    private static void AgregarHojaMargen(
+        XLWorkbook libro, string nombreHoja, IEnumerable<MargenDto> datos)
+    {
+        var hoja = libro.Worksheets.Add(nombreHoja);
+        EscribirEncabezadosGanancias(hoja, new[]
+        {
+            "Agrupación", "Ingreso", "Costo atribuido", "Margen",
+            "Despachos sin precio", "Animales sin costo"
+        });
+
+        int fila = 2;
+        var totalDespachosSinPrecio = 0;
+        var totalAnimalesSinCosto = 0;
+        foreach (var r in datos)
+        {
+            hoja.Cell(fila, 1).Value = r.Agrupacion;
+            hoja.Cell(fila, 2).Value = r.Ingreso;
+            hoja.Cell(fila, 3).Value = r.CostoAtribuido;
+            hoja.Cell(fila, 4).Value = r.Margen;
+            hoja.Cell(fila, 5).Value = r.DespachosSinPrecio;
+            hoja.Cell(fila, 6).Value = r.AnimalesSinCosto;
+            totalDespachosSinPrecio += r.DespachosSinPrecio;
+            totalAnimalesSinCosto += r.AnimalesSinCosto;
+            fila++;
+        }
+        hoja.Columns().AdjustToContents();
+
+        // Debajo de la tabla, no en una columna más: son advertencias sobre
+        // el libro entero, no un dato por fila.
+        var filaAdvertencia = fila + 1;
+        hoja.Cell(filaAdvertencia, 1).Value =
+            $"Despachos sin precio (no se vendieron gratis): {totalDespachosSinPrecio}";
+        hoja.Cell(filaAdvertencia, 1).Style.Font.Bold = true;
+        hoja.Cell(filaAdvertencia, 1).Style.Font.FontColor = XLColor.FromHtml("#B71C1C");
+
+        hoja.Cell(filaAdvertencia + 1, 1).Value =
+            "Animales sin costo (su productora no ha cobrado, no costaron " +
+            $"cero): {totalAnimalesSinCosto}";
+        hoja.Cell(filaAdvertencia + 1, 1).Style.Font.Bold = true;
+        hoja.Cell(filaAdvertencia + 1, 1).Style.Font.FontColor = XLColor.FromHtml("#B71C1C");
     }
 
     // ── Flujo de trazabilidad: Entrada / Tránsito / Salida ────────────

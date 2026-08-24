@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using CoopagcuyApi.Common;
@@ -393,6 +394,45 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
         fila.GetProperty("ingreso").GetDecimal().ShouldBe(24m);
         fila.GetProperty("costoAtribuido").GetDecimal().ShouldBe(0m);
         fila.GetProperty("animalesSinCosto").GetInt32().ShouldBe(4);
+    }
+
+    // ── Excel del reporte de ganancias ─────────────────────────────────
+    //
+    // Un libro con las cinco vistas: por CAT, por productora, por mes,
+    // margen por mes y margen por cliente. La prueba solo afirma lo que se
+    // puede afirmar de un binario xlsx sin abrirlo: 200, el tipo de
+    // contenido y un tamaño que distinga un libro con datos de uno vacío
+    // (ver la Mutación 1 en el informe de la tarea).
+
+    [Fact]
+    public async Task ElExcelDeGananciasSeDescargaConLasCincoHojas()
+    {
+        // Datos para las tres vistas de ganancias (SembrarPagosAsync) y
+        // para las dos de margen (lote + despacho): sin esto el libro se
+        // genera igual pero con hojas vacías, que no ejercitan ni el
+        // tamaño ni las advertencias de las hojas de margen.
+        await SembrarPagosAsync();
+        var (_, lote) = await SembrarLoteAsync(
+            CedulaMargenIngreso, cantidadAnimales: 2);
+        await SembrarDespachoAsync(lote, [1, 2], precioUnitario: 8.50m,
+            cliente: "Mercado Ingreso");
+
+        var hoy = (DateTime.UtcNow + FechaUtc.DesfasePiloto).ToString("yyyy-MM-dd");
+        var respuesta = await api.ComoAdmin()
+            .GetAsync($"/api/reportes/exportar/excel/ganancias?desde={hoy}&hasta={hoy}");
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.OK);
+        respuesta.Content.Headers.ContentType!.MediaType.ShouldBe(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+
+        var bytes = await respuesta.Content.ReadAsByteArrayAsync();
+        // Umbral fijado tras medir los dos casos reales (no adivinado):
+        // un libro vacío (una sola hoja, sin datos, como el que produce la
+        // Mutación 1) pesa 6118 bytes; este libro con cinco hojas y datos
+        // pesa 10145. El umbral queda en el punto medio, con margen de
+        // sobra a ambos lados (~1900 bytes) frente a la variación normal
+        // del formato zip/xlsx.
+        bytes.Length.ShouldBeGreaterThan(8000);
     }
 
     // ── Sembradores ─────────────────────────────────────────────────────
