@@ -79,6 +79,14 @@ jobs:
           # Cuenta de desarrollo de Azurite: credencial pública y fija del
           # emulador, documentada por Microsoft. No es un secreto.
           TEST_BLOB_CONNECTION: "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://localhost:10000/devstoreaccount1;"
+          # Sin esto el runner corre en UTC, donde DateTimeKind.Local es
+          # idéntico a DateTimeKind.Utc: la rama Local de FechaUtc.Normalizar
+          # quedaría indistinguible de la de Utc y sus dos pruebas fallan
+          # (FechaLocalTests). America/Guayaquil coincide con DesfasePiloto
+          # (UTC-5) a propósito. Igual que en docker-compose.tests.yml: este
+          # job corre las pruebas con `dotnet test` directo, no por compose,
+          # así que la variable hay que repetirla aquí.
+          TZ: "America/Guayaquil"
         run: >-
           dotnet test tests/CoopagcuyApi.Tests/CoopagcuyApi.Tests.csproj -c Release --no-build
           --logger "trx;LogFileName=resultados.trx"
