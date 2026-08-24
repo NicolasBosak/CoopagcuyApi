@@ -1,4 +1,5 @@
-﻿using CoopagcuyApi.Common.Branding;
+﻿using CoopagcuyApi.Common;
+using CoopagcuyApi.Common.Branding;
 using CoopagcuyApi.Features.Recepcion.Models;
 using CoopagcuyApi.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
@@ -51,6 +52,7 @@ public class GuiaMovilizacionService(AppDbContext db) : IGuiaMovilizacionService
             // debería depender de una configuración que vive en otro archivo.
             .Include(l => l.Cuyes).ThenInclude(c => c.Productora)
                 .ThenInclude(p => p!.Comunidad)
+            .Include(l => l.Cuyes).ThenInclude(c => c.VentaLocalPago)
             .FirstOrDefaultAsync(l => l.CodigoLote == codigoLote)
             ?? throw new KeyNotFoundException($"Lote {codigoLote} no encontrado.");
 
@@ -102,7 +104,7 @@ public class GuiaMovilizacionService(AppDbContext db) : IGuiaMovilizacionService
                         {
                             c.Item().Text(lote.CodigoLote)
                                 .FontSize(12).Bold().FontColor("#B71C1C");
-                            c.Item().Text($"Emitida: {DateTime.Now:dd/MM/yyyy HH:mm}")
+                            c.Item().Text($"Emitida: {FechaUtc.FechaHoraLocal(DateTime.UtcNow)}")
                                 .FontSize(7).FontColor("#777777");
                         });
                     });
@@ -151,7 +153,7 @@ public class GuiaMovilizacionService(AppDbContext db) : IGuiaMovilizacionService
                         c.Item().Row(r =>
                         {
                             r.RelativeItem().Text(
-                                $"Recepción: {lote.FechaRecepcion:dd/MM/yyyy HH:mm}");
+                                $"Recepción: {FechaUtc.FechaHoraLocal(lote.FechaRecepcion)}");
                             r.RelativeItem().Text(
                                 $"Estado: {lote.Estado}");
                         });
@@ -226,6 +228,28 @@ public class GuiaMovilizacionService(AppDbContext db) : IGuiaMovilizacionService
                         });
                     }
 
+                    // Los animales que no viajaron. Van en la guía porque es
+                    // el documento que acompaña al transporte: sin esto, la
+                    // diferencia entre lo recibido y lo movilizado no tiene
+                    // explicación en el propio papel.
+                    var vendidos = lote.Cuyes
+                        .Where(c => c.VentaLocalPagoId != null)
+                        .OrderBy(c => c.NumeroEnLote)
+                        .ToList();
+
+                    if (vendidos.Count > 0)
+                    {
+                        col.Item().PaddingTop(8).Text("VENDIDOS EN LA COMUNIDAD")
+                            .Bold();
+                        col.Item().Text(
+                            $"{vendidos.Count} de {lote.CantidadAnimales} animales " +
+                            $"no viajaron a la planta:");
+
+                        foreach (var cuy in vendidos)
+                            col.Item().Text(TextosGuia.LineaVentaLocal(
+                                cuy, cuy.VentaLocalPago!.FechaPago)).FontSize(9);
+                    }
+
                     // Datos del transporte y declaración de tratamientos
                     if (movilizacion is not null)
                     {
@@ -237,7 +261,7 @@ public class GuiaMovilizacionService(AppDbContext db) : IGuiaMovilizacionService
                                 r.RelativeItem().Text(
                                     $"Conductor: {movilizacion.Conductor}");
                                 r.RelativeItem().Text(
-                                    $"Despacho: {movilizacion.FechaDespacho:dd/MM/yyyy HH:mm}");
+                                    $"Despacho: {FechaUtc.FechaHoraLocal(movilizacion.FechaDespacho)}");
                             });
                             c.Item().Row(r =>
                             {
@@ -246,6 +270,19 @@ public class GuiaMovilizacionService(AppDbContext db) : IGuiaMovilizacionService
                                 r.RelativeItem().Text(
                                     $"Condiciones: {movilizacion.CondicionesTransporte ?? "-"}");
                             });
+
+                            // Lo que NO se verificó. Va aquí y no en una nota
+                            // al pie porque es el mismo dato que la línea de
+                            // arriba, leído del otro lado: sin esto, una
+                            // jaula que salió con tres casillas sin marcar
+                            // produce una guía indistinguible de una completa.
+                            var noVerificadas = TextosGuia.LineaNoVerificadas(
+                                movilizacion.CondicionesClaves);
+
+                            if (noVerificadas is not null)
+                                c.Item().PaddingTop(2).Text(noVerificadas)
+                                    .FontSize(9).Bold();
+
                             c.Item().Row(r =>
                             {
                                 r.RelativeItem().Text(
@@ -256,7 +293,7 @@ public class GuiaMovilizacionService(AppDbContext db) : IGuiaMovilizacionService
                             if (movilizacion.FechaRecepcionPlanta is not null)
                             {
                                 c.Item().Text(
-                                    $"Recibido en planta: {movilizacion.FechaRecepcionPlanta:dd/MM/yyyy HH:mm} " +
+                                    $"Recibido en planta: {FechaUtc.FechaHoraLocal(movilizacion.FechaRecepcionPlanta)} " +
                                     $"por {movilizacion.RecibidoPor}");
                             }
                         });

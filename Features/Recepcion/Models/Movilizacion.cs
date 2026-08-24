@@ -43,5 +43,31 @@ public class Movilizacion
     public string? RecibidoPor { get; set; }
     public string? CondicionLlegada { get; set; }
 
+    // Claves del checklist que SÍ se marcaron, separadas por punto y coma.
+    //
+    // CondicionesTransporte guarda una frase ya compuesta y pierde las
+    // claves, así que con ella sola es imposible saber qué faltó: habría que
+    // parsear texto, y el propio catálogo advierte de que las etiquetas
+    // cambian mientras las claves no ("Maximo20" sigue llamándose así aunque
+    // el tope sea 15).
+    //
+    // NULO significa "movilización anterior a este cambio, no se registró",
+    // que NO es lo mismo que "no se verificó ninguna". La guía distingue los
+    // dos casos.
+    public string? CondicionesClaves { get; set; }
+
+    // Respuesta a "¿llegaron en buen estado?". Nula en las movilizaciones
+    // anteriores, en las que nunca se preguntó. Obligatoria en el servicio
+    // cuando el checklist de transporte salió incompleto.
+    public bool? LlegaronEnBuenEstado { get; set; }
+
+    // Claves del cuestionario de llegada, separadas por punto y coma. Solo
+    // se llenan cuando LlegaronEnBuenEstado es false.
+    //
+    // La observación libre sigue viviendo en CondicionLlegada, que ya era
+    // texto libre: reutilizarla mantiene legibles las recepciones antiguas
+    // en vez de dejar una columna con dos significados.
+    public string? CondicionesLlegadaClaves { get; set; }
+
     public DateTime FechaRegistro { get; set; } = DateTime.UtcNow;
 }

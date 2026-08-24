@@ -173,7 +173,6 @@ public class QRService(
                 .Where(cf => cf.Estado != EstadoCanal.Rechazado)
                 .Select(cf => (
                     Faenado: cf,
-                    Jaula: f.Lote,
                     Comunidad: f.Lote.Cuyes
                         .FirstOrDefault(c => c.NumeroEnLote == cf.NumeroEnLote)
                         ?.Productora?.Comunidad.Nombre
@@ -191,24 +190,15 @@ public class QRService(
             ? string.Join(" y ", comunidadesAporte.Select(c => c.Comunidad))
             : "Azuay";
 
+        // Ya no se expone —salió de la página pública en 2026-08— pero el
+        // indicador de novedad se calcula a partir de aquí. Borrar esta
+        // variable rompería `estadoCalidad` sin que se note al leer el diff.
         var detalleCuyes = animales
-            .OrderBy(a => a.Jaula.CodigoLote)
-            .ThenBy(a => a.Faenado.NumeroEnLote)
-            .Select(a => new CuyPublicoDto(
-                Comunidad: a.Comunidad,
-                CodigoJaula: a.Jaula.CodigoLote,
-                NumeroEnLote: a.Faenado.NumeroEnLote,
-                PesoCanalGramos: a.Faenado.PesoCanalGramos,
-                Estado: a.Faenado.Estado == EstadoCanal.ConNovedad
-                    ? "Con novedad" : "Apto"))
-            .ToList();
-
-        var observacionesProceso = sesiones
-            .SelectMany(f => f.Cuyes)
-            .Where(cf => cf.Estado == EstadoCanal.ConNovedad &&
-                         !string.IsNullOrWhiteSpace(cf.Motivo))
-            .Select(cf => cf.Motivo!.Trim())
-            .Distinct()
+            .Select(a => new
+            {
+                Estado = a.Faenado.Estado == EstadoCanal.ConNovedad
+                    ? "Con novedad" : "Apto"
+            })
             .ToList();
 
         var unidadesTotales = animales.Count;
@@ -291,9 +281,7 @@ public class QRService(
             TipoMercado: ultimoDespacho?.TipoMercado,
             UbicacionMercado: string.IsNullOrWhiteSpace(ubicacionMercado)
                 ? null : ubicacionMercado,
-            ObservacionesProceso: observacionesProceso,
-            ComunidadesAporte: comunidadesAporte,
-            DetalleCuyes: detalleCuyes
+            ComunidadesAporte: comunidadesAporte
         );
     }
 

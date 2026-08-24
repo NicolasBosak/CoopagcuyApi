@@ -3,6 +3,7 @@ using System;
 using CoopagcuyApi.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CoopagcuyApi.Infrastructure.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260823071849_TrazabilidadTransporte")]
+    partial class TrazabilidadTransporte
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -638,11 +641,6 @@ namespace CoopagcuyApi.Infrastructure.Data.Migrations
                     b.Property<string>("ComprobanteUrl")
                         .HasColumnType("text");
 
-                    b.Property<bool>("EsVentaLocal")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(false);
-
                     b.Property<int>("Estado")
                         .IsConcurrencyToken()
                         .HasColumnType("integer");
@@ -945,14 +943,9 @@ namespace CoopagcuyApi.Infrastructure.Data.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
-                    b.Property<int?>("VentaLocalPagoId")
-                        .HasColumnType("integer");
-
                     b.HasKey("Id");
 
                     b.HasIndex("ProductoraId");
-
-                    b.HasIndex("VentaLocalPagoId");
 
                     b.HasIndex("LoteId", "NumeroEnLote")
                         .IsUnique();
@@ -1405,16 +1398,9 @@ namespace CoopagcuyApi.Infrastructure.Data.Migrations
                         .WithMany()
                         .HasForeignKey("ProductoraId");
 
-                    b.HasOne("CoopagcuyApi.Features.Pagos.Models.Pago", "VentaLocalPago")
-                        .WithMany()
-                        .HasForeignKey("VentaLocalPagoId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.Navigation("Lote");
 
                     b.Navigation("Productora");
-
-                    b.Navigation("VentaLocalPago");
                 });
 
             modelBuilder.Entity("CoopagcuyApi.Features.Recepcion.Models.Movilizacion", b =>

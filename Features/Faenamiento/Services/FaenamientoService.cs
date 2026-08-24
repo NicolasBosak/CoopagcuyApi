@@ -70,11 +70,21 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
                 var usados = l.Faenamientos.Sum(f =>
                     f.Cuyes.Count > 0 ? f.Cuyes.Count
                         : f.UnidadesFaenadas + f.UnidadesDecomisadas);
-                var disponibles = Math.Max(0, l.CantidadAnimales - usados);
+
+                // Lo que la CAT vendió en la comunidad tampoco está disponible
+                // para faenar. Se CUENTA lo vendido y se resta de
+                // CantidadAnimales — nunca se cuenta "lo no vendido" sobre
+                // Cuyes — por el mismo motivo que MovilizacionService: una
+                // jaula histórica sin detalle por animal no tiene filas en
+                // CuyRegistros, y contar sobre esa colección vacía daría
+                // vendidos = 0 igual, así que restar conserva su conducta.
+                var vendidos = l.Cuyes.Count(c => c.VentaLocalPagoId != null);
+                var disponibles = Math.Max(0, l.CantidadAnimales - usados - vendidos);
 
                 var cuyesDisponibles = l.Cuyes
                     .Where(c => !numerosUsados.Contains(c.NumeroEnLote)
-                                && c.Estado != EstadoLote.Rechazado)
+                                && c.Estado != EstadoLote.Rechazado
+                                && c.VentaLocalPagoId == null)
                     .OrderBy(c => c.NumeroEnLote)
                     .Select(c => new CuyDisponibleDto(
                         c.NumeroEnLote, c.PesoGramos,
@@ -184,6 +194,7 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
             .Include(l => l.Productora)
             .Include(l => l.Cuyes).ThenInclude(c => c.Productora)
             .Include(l => l.Faenamientos).ThenInclude(f => f.Cuyes)
+            .Include(l => l.Movilizacion)
             .FirstOrDefaultAsync(l => l.Id == sesion.LoteId)
             ?? throw new KeyNotFoundException(
                 $"Lote con Id {sesion.LoteId} no encontrado.");
@@ -192,9 +203,37 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
             throw new InvalidOperationException(
                 $"El lote {lote.CodigoLote} está rechazado y no puede faenarse.");
 
+        // Arreglo 1 de la re-revisión: el hueco espejo del Arreglo 1 de la
+        // revisión final. Aquel cerró "vendido → faenado"; este cierra la
+        // dirección inversa, "faenado (o ni siquiera recibido) → vendido".
+        // Sin esta guarda, un cliente que se saltara /api/faenamiento/
+        // lotes-disponibles podía registrar una sesión sobre un lote que
+        // sigue físicamente en el CAT —nunca se movilizó ni se recibió en
+        // planta— y luego vender localmente ese mismo animal: quedaría
+        // faenado (dentro del LoteFaenado que lee el QR) Y cobrado como
+        // venta local a la vez. Es el mismo modelo de amenaza que el
+        // Arreglo 5 ya bloquea del otro lado ("un cliente que se salte esa
+        // pantalla y cite el Id a mano tiene que chocar aquí"). Con las dos
+        // guardas puestas el ciclo queda cerrado por ambos lados: un lote
+        // recibido en planta ya no es vendible localmente
+        // (RegistrarVentaLocalAsync rechaza con cualquier fila en
+        // Movilizaciones), y un lote no recibido en planta ya no es
+        // faenable.
+        if (lote.Movilizacion?.FechaRecepcionPlanta == null)
+            throw new InvalidOperationException(
+                $"El lote {lote.CodigoLote} no se ha recibido en planta " +
+                "todavía: no puede faenarse.");
+
         // Validar que los números elegidos siguen disponibles
         var numerosUsados = lote.Faenamientos
             .SelectMany(f => f.Cuyes.Select(c => c.NumeroEnLote))
+            .ToHashSet();
+
+        // Números vendidos localmente: esos animales no están en el centro y
+        // no pueden faenarse aunque el número siga dentro del rango del lote.
+        var numerosVendidos = lote.Cuyes
+            .Where(c => c.VentaLocalPagoId != null)
+            .Select(c => c.NumeroEnLote)
             .ToHashSet();
 
         foreach (var c in sesion.Cuyes)
@@ -203,6 +242,11 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
                 throw new InvalidOperationException(
                     $"El cuy #{c.NumeroEnLote} del lote {lote.CodigoLote} " +
                     "ya fue procesado en una sesión anterior.");
+
+            if (numerosVendidos.Contains(c.NumeroEnLote))
+                throw new InvalidOperationException(
+                    $"El cuy #{c.NumeroEnLote} del lote {lote.CodigoLote} " +
+                    "se vendió en la comunidad y no llegó a la planta.");
 
             if (c.NumeroEnLote < 1 || c.NumeroEnLote > lote.CantidadAnimales)
                 throw new InvalidOperationException(
@@ -754,9 +798,9 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
 
             return new InkJetCodigoDto(
                 CodigoLote: loteFaenado.Codigo,
-                FechaFaenamiento: loteFaenado.FechaFaenamiento.ToString("dd/MM/yyyy"),
-                FechaVencimiento: loteFaenado.FechaFaenamiento.AddDays(5)
-                                             .ToString("dd/MM/yyyy"),
+                FechaFaenamiento: FechaUtc.FechaLocal(loteFaenado.FechaFaenamiento),
+                FechaVencimiento: FechaUtc.FechaLocal(
+                    loteFaenado.FechaFaenamiento.AddDays(5)),
                 ComunidadOrigen: comunidadesLf.Count > 0
                     ? string.Join(" y ", comunidadesLf) : "Azuay",
                 NombreProductora: comunidadesLf.Count > 1
@@ -802,9 +846,9 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
 
         return new InkJetCodigoDto(
             CodigoLote: faenamiento.Lote.CodigoLote,
-            FechaFaenamiento: faenamiento.FechaFaenamiento.ToString("dd/MM/yyyy"),
-            FechaVencimiento: faenamiento.FechaFaenamiento.AddDays(5)
-                                         .ToString("dd/MM/yyyy"),
+            FechaFaenamiento: FechaUtc.FechaLocal(faenamiento.FechaFaenamiento),
+            FechaVencimiento: FechaUtc.FechaLocal(
+                faenamiento.FechaFaenamiento.AddDays(5)),
             ComunidadOrigen: comunidadOrigen,
             NombreProductora: comunidades.Count > 1
                 ? "Varias productoras"

@@ -24,19 +24,10 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
     private const string CedulaA = "0104576277";
     private const string CedulaB = "0102030405";
 
-    // JPEG mínimo válido: SOI + APP0 + EOI
-    private static readonly byte[] JpegMinimo =
-    [
-        0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00,
-        0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0xFF, 0xD9
-    ];
-
-    private static string Comprobante => Convert.ToBase64String(JpegMinimo);
-
     [Fact]
     public async Task ElMontoPagadoSaleDeLaRestaDelServidor()
     {
-        var (pagoId, novedadId) = await TicketConNovedadAsync(CedulaA, 120m);
+        var (pagoId, novedadId) = await Sembrador.PagoConNovedadAsync(api, CedulaA, 120m);
 
         var respuesta = await api.ComoOperadorFaenamiento()
             .PostAsJsonAsync($"/api/pagos/{pagoId}/pagar", new
@@ -47,7 +38,7 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
                     descripcion = "llegó con la lesión abierta",
                     montoUsd = 17m
                 }},
-                comprobanteBase64 = Comprobante,
+                comprobanteBase64 = Sembrador.ComprobanteBase64,
                 pagadoPor = "Operador de planta"
             });
 
@@ -81,8 +72,8 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
     {
         // El corazón de la trazabilidad: la planta no puede citar el defecto
         // de otra para descontarle a esta.
-        var (pagoId, _) = await TicketConNovedadAsync(CedulaA, 120m);
-        var (_, novedadAjena) = await TicketConNovedadAsync(CedulaB, 90m);
+        var (pagoId, _) = await Sembrador.PagoConNovedadAsync(api, CedulaA, 120m);
+        var (_, novedadAjena) = await Sembrador.PagoConNovedadAsync(api, CedulaB, 90m);
 
         var respuesta = await api.ComoOperadorFaenamiento()
             .PostAsJsonAsync($"/api/pagos/{pagoId}/pagar", new
@@ -93,7 +84,7 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
                     descripcion = "defecto que no es de esta productora",
                     montoUsd = 10m
                 }},
-                comprobanteBase64 = Comprobante,
+                comprobanteBase64 = Sembrador.ComprobanteBase64,
                 pagadoPor = "Operador de planta"
             });
 
@@ -105,12 +96,57 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
         pago.ComprobanteUrl.ShouldBeNull();
     }
 
+    /// <summary>
+    /// Arreglo 5 de la revisión final, capa 2 (lo que de verdad ESCRIBE el
+    /// descuento). La capa 1 (BandejaPlantaTests.
+    /// UnCuyVendidoLocalmenteNoApareceEnCuyesConNovedad) ya prueba que el
+    /// operador no la ve en la pantalla normal; esta prueba cubre al cliente
+    /// que se salta esa pantalla y cita el Id de la novedad a mano. Sin el
+    /// filtro de VentaLocalPagoId en ValidarDescuentosAsync, ese cuy
+    /// —vendido en la comunidad, ya cobrado ahí— seguía siendo citable para
+    /// descontarle a la misma productora en el pago de planta: un cobro
+    /// doble sobre un animal que la planta nunca recibió.
+    /// </summary>
+    [Fact]
+    public async Task UnaNovedadDeUnCuyVendidoLocalmenteSeRechaza()
+    {
+        var (pagoId, novedadId) = await Sembrador.PagoConNovedadDeCuyVendidoAsync(
+            api, CedulaA, 90m);
+
+        var respuesta = await api.ComoOperadorFaenamiento()
+            .PostAsJsonAsync($"/api/pagos/{pagoId}/pagar", new
+            {
+                descuentos = new[] { new
+                {
+                    novedadCatId = novedadId,
+                    descripcion = "defecto de un cuy que ya se vendió en la comunidad",
+                    montoUsd = 10m
+                }},
+                comprobanteBase64 = Sembrador.ComprobanteBase64,
+                pagadoPor = "Operador de planta"
+            });
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+
+        await using var db = api.NuevoDbContext();
+        var pago = await db.Pagos.AsNoTracking().FirstAsync(p => p.Id == pagoId);
+        pago.Estado.ShouldBe(EstadoPago.Pendiente);
+        pago.ComprobanteUrl.ShouldBeNull();
+
+        // No solo el estado del ticket: ningún DescuentoPago debe haber
+        // quedado escrito citando esta novedad. Es la fila que de verdad
+        // habilitaría el cobro doble si la validación fallara en silencio.
+        (await db.Descuentos.AsNoTracking()
+            .AnyAsync(d => d.NovedadCatId == novedadId))
+            .ShouldBeFalse();
+    }
+
     [Fact]
     public async Task UnaNovedadSinCuyAsociadoSeRechaza()
     {
         // Las novedades de entrega (SinAyuno) no pertenecen a ningún animal:
         // no se puede descontar un cuy que no existe.
-        var (pagoId, _) = await TicketConNovedadAsync(CedulaA, 120m);
+        var (pagoId, _) = await Sembrador.PagoConNovedadAsync(api, CedulaA, 120m);
 
         int novedadDeEntrega;
         await using (var db = api.NuevoDbContext())
@@ -137,7 +173,7 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
                     descripcion = "descuento sin animal",
                     montoUsd = 10m
                 }},
-                comprobanteBase64 = Comprobante,
+                comprobanteBase64 = Sembrador.ComprobanteBase64,
                 pagadoPor = "Operador de planta"
             });
 
@@ -147,7 +183,7 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
     [Fact]
     public async Task LaSumaDeDescuentosNoPuedeSuperarElTicket()
     {
-        var (pagoId, novedadId) = await TicketConNovedadAsync(CedulaA, 120m);
+        var (pagoId, novedadId) = await Sembrador.PagoConNovedadAsync(api, CedulaA, 120m);
 
         var respuesta = await api.ComoOperadorFaenamiento()
             .PostAsJsonAsync($"/api/pagos/{pagoId}/pagar", new
@@ -158,7 +194,7 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
                     descripcion = "descuento mayor que el ticket",
                     montoUsd = 500m
                 }},
-                comprobanteBase64 = Comprobante,
+                comprobanteBase64 = Sembrador.ComprobanteBase64,
                 pagadoPor = "Operador de planta"
             });
 
@@ -175,7 +211,7 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
         // — algo que ya no es un pago. Este es el espejo en el servidor de
         // la misma regla, para que un cliente que se salte la pantalla no
         // pueda colarlo.
-        var (pagoId, novedadId) = await TicketConNovedadAsync(CedulaA, 120m);
+        var (pagoId, novedadId) = await Sembrador.PagoConNovedadAsync(api, CedulaA, 120m);
 
         var respuesta = await api.ComoOperadorFaenamiento()
             .PostAsJsonAsync($"/api/pagos/{pagoId}/pagar", new
@@ -186,7 +222,7 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
                     descripcion = "descuento igual al ticket entero",
                     montoUsd = 120m
                 }},
-                comprobanteBase64 = Comprobante,
+                comprobanteBase64 = Sembrador.ComprobanteBase64,
                 pagadoPor = "Operador de planta"
             });
 
@@ -202,7 +238,7 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
     [Fact]
     public async Task NoSePuedePagarDosVecesElMismoTicket()
     {
-        var (pagoId, novedadId) = await TicketConNovedadAsync(CedulaA, 120m);
+        var (pagoId, novedadId) = await Sembrador.PagoConNovedadAsync(api, CedulaA, 120m);
 
         object Cuerpo() => new
         {
@@ -212,7 +248,7 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
                 descripcion = "lesión",
                 montoUsd = 10m
             }},
-            comprobanteBase64 = Comprobante,
+            comprobanteBase64 = Sembrador.ComprobanteBase64,
             pagadoPor = "Operador de planta"
         };
 
@@ -230,8 +266,8 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
     {
         // Se cuenta por DIFERENCIA DE BLOBS y no por filas: una prueba que
         // solo mira filas pasa con el fallo presente. Ya ocurrió una vez.
-        var (pagoId, novedadId) = await TicketConNovedadAsync(CedulaA, 120m);
-        var (_, novedadAjena) = await TicketConNovedadAsync(CedulaB, 90m);
+        var (pagoId, novedadId) = await Sembrador.PagoConNovedadAsync(api, CedulaA, 120m);
+        var (_, novedadAjena) = await Sembrador.PagoConNovedadAsync(api, CedulaB, 90m);
 
         var antes = await ContarBlobsAsync();
 
@@ -270,7 +306,7 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
                     descripcion = "defecto que no es de esta productora",
                     montoUsd = 10m
                 }},
-                comprobanteBase64 = Comprobante,
+                comprobanteBase64 = Sembrador.ComprobanteBase64,
                 pagadoPor = "Operador de planta"
             });
 
@@ -289,7 +325,7 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
         // huérfana. Se afirman las DOS mitades porque solo la del conteo
         // distingue el arreglo del fallo: un 500 y un 409 dejan la misma fila
         // (ninguna), pero no el mismo blob.
-        var (pagoId, _) = await TicketConNovedadAsync(CedulaA, 120m);
+        var (pagoId, _) = await Sembrador.PagoConNovedadAsync(api, CedulaA, 120m);
 
         var antes = await ContarBlobsAsync();
 
@@ -302,7 +338,7 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
                     descripcion = "cita una novedad que no existe",
                     montoUsd = 10m
                 }},
-                comprobanteBase64 = Comprobante,
+                comprobanteBase64 = Sembrador.ComprobanteBase64,
                 pagadoPor = "Operador de planta"
             });
 
@@ -325,7 +361,7 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
         // Se afirma el MENSAJE y no solo el 409 porque el rescate de
         // DbUpdateException responde 409 también: mirando solo el código,
         // quitar la guardia previa no se notaría.
-        var (pagoId, novedadId) = await TicketConNovedadAsync(CedulaA, 120m);
+        var (pagoId, novedadId) = await Sembrador.PagoConNovedadAsync(api, CedulaA, 120m);
 
         var antes = await ContarBlobsAsync();
 
@@ -339,7 +375,7 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
                     new { novedadCatId = novedadId,
                           descripcion = "la misma, otra vez", montoUsd = 5m }
                 },
-                comprobanteBase64 = Comprobante,
+                comprobanteBase64 = Sembrador.ComprobanteBase64,
                 pagadoPor = "Operador de planta"
             });
 
@@ -355,7 +391,7 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
         // Sin el "> 0" un monto negativo SUMA: -50 sobre un ticket de 120
         // daría un MontoPagadoUsd de 170 y pasaría limpio por el tope, que
         // solo compara la suma CONTRA el monto y nunca por debajo de cero.
-        var (pagoId, novedadId) = await TicketConNovedadAsync(CedulaA, 120m);
+        var (pagoId, novedadId) = await Sembrador.PagoConNovedadAsync(api, CedulaA, 120m);
 
         var respuesta = await api.ComoOperadorFaenamiento()
             .PostAsJsonAsync($"/api/pagos/{pagoId}/pagar", new
@@ -366,7 +402,7 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
                     descripcion = "descuento negativo",
                     montoUsd = -50m
                 }},
-                comprobanteBase64 = Comprobante,
+                comprobanteBase64 = Sembrador.ComprobanteBase64,
                 pagadoPor = "Operador de planta"
             });
 
@@ -388,7 +424,7 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
         // La novedad del CAT dice lo que se vio al recibir; el descuento
         // tiene que decir lo que se vio al faenar. En blanco, la productora
         // recibe una rebaja que nadie explica.
-        var (pagoId, novedadId) = await TicketConNovedadAsync(CedulaA, 120m);
+        var (pagoId, novedadId) = await Sembrador.PagoConNovedadAsync(api, CedulaA, 120m);
 
         var respuesta = await api.ComoOperadorFaenamiento()
             .PostAsJsonAsync($"/api/pagos/{pagoId}/pagar", new
@@ -399,7 +435,7 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
                     descripcion = "   ",
                     montoUsd = 10m
                 }},
-                comprobanteBase64 = Comprobante,
+                comprobanteBase64 = Sembrador.ComprobanteBase64,
                 pagadoPor = "Operador de planta"
             });
 
@@ -424,7 +460,7 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
         // MontoUsd y MontoPagadoUsd son HasPrecision(10,2): 10.005 se
         // guardaría redondeado a 10.01 mientras la resta se calcula con
         // 10.005, y la fila dejaría de justificar el monto que acompaña.
-        var (pagoId, novedadId) = await TicketConNovedadAsync(CedulaA, 120m);
+        var (pagoId, novedadId) = await Sembrador.PagoConNovedadAsync(api, CedulaA, 120m);
 
         var respuesta = await api.ComoOperadorFaenamiento()
             .PostAsJsonAsync($"/api/pagos/{pagoId}/pagar", new
@@ -435,7 +471,7 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
                     descripcion = "medio centavo",
                     montoUsd = 10.005m
                 }},
-                comprobanteBase64 = Comprobante,
+                comprobanteBase64 = Sembrador.ComprobanteBase64,
                 pagadoPor = "Operador de planta"
             });
 
@@ -455,7 +491,7 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
         // de la subida: en blanco se detectaba al armar la fila, ya con la
         // captura arriba. Antes de esta guardia, "   " respondía 200 y
         // dejaba el ticket pagado sin decir por quién.
-        var (pagoId, _) = await TicketConNovedadAsync(CedulaA, 120m);
+        var (pagoId, _) = await Sembrador.PagoConNovedadAsync(api, CedulaA, 120m);
 
         var antes = await ContarBlobsAsync();
 
@@ -463,7 +499,7 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
             .PostAsJsonAsync($"/api/pagos/{pagoId}/pagar", new
             {
                 descuentos = Array.Empty<object>(),
-                comprobanteBase64 = Comprobante,
+                comprobanteBase64 = Sembrador.ComprobanteBase64,
                 pagadoPor = "   "
             });
 
@@ -486,7 +522,7 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
         // de la propia petición— y muere al guardar, cuando la captura ya
         // está subida. Es el único tramo que la validación previa no puede
         // cubrir, y el motivo de que el rescate borre el blob.
-        var (pagoId, novedadId) = await TicketConNovedadAsync(CedulaA, 120m);
+        var (pagoId, novedadId) = await Sembrador.PagoConNovedadAsync(api, CedulaA, 120m);
 
         await using (var siembra = api.NuevoDbContext())
         {
@@ -513,7 +549,7 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
                     descripcion = "la misma novedad, otra vez",
                     montoUsd = 10m
                 }},
-                comprobanteBase64 = Comprobante,
+                comprobanteBase64 = Sembrador.ComprobanteBase64,
                 pagadoPor = "Operador de planta"
             });
 
@@ -543,7 +579,7 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
         // contenedor ajeno y siempre vacío: todos los ShouldBe(antes) de esta
         // clase pasarían valiendo 0 == 0, sin medir nada. Esta prueba se cae
         // primero y delata la desconexión.
-        var (pagoId, novedadId) = await TicketConNovedadAsync(CedulaA, 120m);
+        var (pagoId, novedadId) = await Sembrador.PagoConNovedadAsync(api, CedulaA, 120m);
 
         var antes = await ContarBlobsAsync();
 
@@ -556,7 +592,7 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
                     descripcion = "lesión abierta",
                     montoUsd = 10m
                 }},
-                comprobanteBase64 = Comprobante,
+                comprobanteBase64 = Sembrador.ComprobanteBase64,
                 pagadoPor = "Operador de planta"
             });
 
@@ -569,7 +605,7 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
     {
         // Un pago marcado sin su captura es peor que un error: la CAT no
         // tendría nada que verificar y el ticket quedaría bloqueado.
-        var (pagoId, _) = await TicketConNovedadAsync(CedulaA, 120m);
+        var (pagoId, _) = await Sembrador.PagoConNovedadAsync(api, CedulaA, 120m);
 
         var respuesta = await api.ComoOperadorFaenamiento()
             .PostAsJsonAsync($"/api/pagos/{pagoId}/pagar", new
@@ -591,13 +627,13 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
     [Fact]
     public async Task SinDescuentosSePagaElTicketCompleto()
     {
-        var (pagoId, _) = await TicketConNovedadAsync(CedulaA, 120m);
+        var (pagoId, _) = await Sembrador.PagoConNovedadAsync(api, CedulaA, 120m);
 
         var respuesta = await api.ComoOperadorFaenamiento()
             .PostAsJsonAsync($"/api/pagos/{pagoId}/pagar", new
             {
                 descuentos = Array.Empty<object>(),
-                comprobanteBase64 = Comprobante,
+                comprobanteBase64 = Sembrador.ComprobanteBase64,
                 pagadoPor = "Operador de planta"
             });
 
@@ -629,69 +665,5 @@ public class DescuentoTrazableTests(ApiFactory api) : IAsyncLifetime
         var total = 0;
         await foreach (var _ in contenedor.GetBlobsAsync()) total++;
         return total;
-    }
-
-    /// Entrega con un cuy con signos clínicos + ticket. Devuelve (pagoId, novedadId).
-    private async Task<(int PagoId, int NovedadId)> TicketConNovedadAsync(
-        string cedula, decimal monto)
-    {
-        var productora = await Sembrador.ProductoraAsync(
-            api, cedula, CentroAcopio.PAT);
-
-        var cuyes = new object[]
-        {
-            new { pesoGramos = 1300m, colorPelaje = "Blanco",
-                  estadoOreja = "Blanda", tamanoAnimal = "Normal",
-                  signosClinicos = "lesion-visible" },
-            new { pesoGramos = 1300m, colorPelaje = "Blanco",
-                  estadoOreja = "Blanda", tamanoAnimal = "Normal",
-                  signosClinicos = (string?)null },
-        };
-
-        var entrega = await api.ComoOperadorCat("PAT")
-            .PostAsJsonAsync("/api/recepcion/entregas", new
-            {
-                centroAcopio = "PAT",
-                productoraId = productora.Id,
-                cuyes,
-                enAyunas = true,
-                responsableRecepcion = "Operadora de prueba"
-            });
-        entrega.EnsureSuccessStatusCode();
-
-        int loteId, novedadId;
-        await using (var db = api.NuevoDbContext())
-        {
-            loteId = await db.CuyRegistros
-                .Where(c => c.ProductoraId == productora.Id)
-                .Select(c => c.LoteId)
-                .FirstAsync();
-
-            novedadId = await db.Novedades
-                .Where(n => n.LoteId == loteId
-                    && n.CuyRegistro != null
-                    && n.CuyRegistro.ProductoraId == productora.Id
-                    && n.Tipo == TipoNovedad.SignosClinicos)
-                .Select(n => n.Id)
-                .FirstAsync();
-        }
-
-        var pago = await api.ComoOperadorCat("PAT")
-            .PostAsJsonAsync("/api/pagos", new
-            {
-                productoraId = productora.Id,
-                loteId,
-                montoUsd = monto,
-                responsable = "Operadora de prueba"
-            });
-        pago.EnsureSuccessStatusCode();
-
-        await using var db2 = api.NuevoDbContext();
-        var pagoId = await db2.Pagos
-            .Where(p => p.ProductoraId == productora.Id)
-            .Select(p => p.Id)
-            .FirstAsync();
-
-        return (pagoId, novedadId);
     }
 }

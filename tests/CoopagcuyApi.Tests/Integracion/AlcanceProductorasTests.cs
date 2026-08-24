@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using CoopagcuyApi.Common;
 using CoopagcuyApi.Tests.Infra;
+using Microsoft.EntityFrameworkCore;
 using Shouldly;
 using Xunit;
 
@@ -50,8 +51,15 @@ public class AlcanceProductorasTests(ApiFactory api) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task OperadorCat_noCreaProductoraEnComunidadDeOtroCentro()
+    public async Task OperadorCat_creaProductoraDeCualquierComunidad()
     {
+        // Cambio de criterio de 2026-08: la comunidad es donde vive la
+        // productora y el CAT es donde entrega. Antes esto respondía 403 para
+        // no "ensuciar el catálogo de otro centro"; resultó que la realidad
+        // del piloto es justo esa — hay productoras que viven en una comunidad
+        // y entregan en el CAT de al lado.
+        //
+        // Lo que NO cambia: el centro lo sigue sellando el token.
         var respuesta = await api.ComoOperadorCat("PAT")
             .PostAsJsonAsync("/api/productoras", new
             {
@@ -62,7 +70,49 @@ public class AlcanceProductorasTests(ApiFactory api) : IAsyncLifetime
                 telefono = (string?)null
             });
 
-        respuesta.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.Created);
+
+        var creada = await respuesta.Content
+            .ReadFromJsonAsync<RespuestaProductora>();
+        creada.ShouldNotBeNull();
+        creada.Comunidad.ShouldBe("Las Nieves");
+        creada.CatAsignado.ShouldBe("PAT");
+    }
+
+    [Fact]
+    public async Task UnaComunidadInexistenteSeSigueRechazando()
+    {
+        // La guarda retirada también cubría este caso de rebote: devolvía 403
+        // cuando la comunidad no existía. Al quitarla hay que asegurarse de
+        // que sigue habiendo un rechazo limpio y no un 500 de la clave
+        // foránea.
+        //
+        // Quien lo rechaza ahora es CrearProductoraValidator, con una regla
+        // MustAsync que comprueba que la comunidad exista y esté activa. Por
+        // eso es 400 y no 404: es un error del cuerpo de la petición, que es
+        // justo el criterio 400/409 que sigue este proyecto.
+        var respuesta = await api.ComoOperadorCat("PAT")
+            .PostAsJsonAsync("/api/productoras", new
+            {
+                nombreCompleto = "María Quizhpi",
+                cedula = CedulaDos,
+                comunidadId = 99999,
+                catAsignado = "PAT",
+                telefono = (string?)null
+            });
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+
+        // El código por sí solo no distingue esta guardia de cualquier otro
+        // fallo de validación del cuerpo (nombre vacío, cédula inválida…),
+        // que también responden 400. El mensaje exacto —copiado literal de
+        // CrearProductoraValidator— es lo que fija que el rechazo vino de la
+        // regla MustAsync de la comunidad.
+        var cuerpo = await respuesta.Content
+            .ReadFromJsonAsync<Dictionary<string, string>>();
+        cuerpo.ShouldNotBeNull();
+        cuerpo["mensaje"].ShouldBe(
+            "La comunidad seleccionada no existe o está inactiva.");
     }
 
     [Fact]
@@ -148,9 +198,15 @@ public class AlcanceProductorasTests(ApiFactory api) : IAsyncLifetime
     [Fact]
     public async Task OperadorCat_noMueveUnaProductoraAOtroCentro()
     {
-        // Sin esta comprobación, una edición sacaría a la productora de su
-        // alcance de un solo golpe: entra siendo de PAT y sale siendo de NIE,
-        // fuera de la vista de quien la movió y dentro de la de otro centro.
+        // La propiedad sigue siendo verdad; lo que caducó es cómo se
+        // comprobaba. Antes esta prueba esperaba un 403, pero ese 403 lo daba
+        // la guarda de comunidad, no el alcance por centro: era incidental.
+        //
+        // Con el criterio de 2026-08 la edición se acepta —una productora de
+        // PAT puede vivir en una comunidad de Las Nieves— y lo que impide el
+        // traslado es el sellado del CAT con el token. Así que se afirma el
+        // resultado, no el código de estado: entra siendo de PAT y sigue
+        // siendo de PAT, por mucho que el cuerpo pida "NIE".
         var productora = await Sembrador.ProductoraAsync(
             api, CedulaUno, CentroAcopio.PAT, comunidadId: 1);
 
@@ -159,12 +215,19 @@ public class AlcanceProductorasTests(ApiFactory api) : IAsyncLifetime
             {
                 nombreCompleto = "Intento de traslado",
                 cedula = CedulaUno,
-                comunidadId = 2,          // Las Nieves, de otro centro
-                catAsignado = "NIE",
+                comunidadId = 2,          // Las Nieves, de otro cantón
+                catAsignado = "NIE",      // …y el cuerpo pide otro centro
                 telefono = (string?)null
             });
 
-        respuesta.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+
+        await using var db = api.NuevoDbContext();
+        var actualizada = await db.Productoras.AsNoTracking()
+            .FirstAsync(p => p.Id == productora.Id);
+
+        actualizada.CatAsignado.ShouldBe(CentroAcopio.PAT);   // no se movió
+        actualizada.ComunidadId.ShouldBe(2);                  // sí cambió de comunidad
     }
 
     [Fact]

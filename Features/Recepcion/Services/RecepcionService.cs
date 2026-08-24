@@ -910,6 +910,7 @@ public class RecepcionService(AppDbContext db, IBlobStorageService blobService)
             Cerrado: lote.Cerrado,
             Disponibles: CalcularDisponibles(lote),
             TieneMovilizacion: lote.Movilizacion is not null,
+            CuyesVendidosLocal: lote.Cuyes.Count(c => c.VentaLocalPagoId != null),
             Productoras: productoras,
             Novedades: lote.Novedades
                 .Select(n => new NovedadResponseDto(

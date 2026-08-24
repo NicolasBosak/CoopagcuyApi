@@ -3,6 +3,7 @@ using System;
 using CoopagcuyApi.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CoopagcuyApi.Infrastructure.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260822172104_VentaLocal")]
+    partial class VentaLocal
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1045,14 +1048,6 @@ namespace CoopagcuyApi.Infrastructure.Data.Migrations
                         .HasMaxLength(300)
                         .HasColumnType("character varying(300)");
 
-                    b.Property<string>("CondicionesClaves")
-                        .HasMaxLength(300)
-                        .HasColumnType("character varying(300)");
-
-                    b.Property<string>("CondicionesLlegadaClaves")
-                        .HasMaxLength(300)
-                        .HasColumnType("character varying(300)");
-
                     b.Property<string>("CondicionesTransporte")
                         .HasMaxLength(300)
                         .HasColumnType("character varying(300)");
@@ -1073,9 +1068,6 @@ namespace CoopagcuyApi.Infrastructure.Data.Migrations
 
                     b.Property<DateTime>("FechaRegistro")
                         .HasColumnType("timestamp without time zone");
-
-                    b.Property<bool?>("LlegaronEnBuenEstado")
-                        .HasColumnType("boolean");
 
                     b.Property<int>("LoteId")
                         .HasColumnType("integer");

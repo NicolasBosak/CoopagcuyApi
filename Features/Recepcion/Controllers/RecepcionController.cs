@@ -273,6 +273,14 @@ public class RecepcionController(
             var resultado = await movilizacionService.ConfirmarRecepcionAsync(id, dto);
             return resultado is null ? NotFound() : Ok(resultado);
         }
+        catch (CuerpoInvalidoException ex)
+        {
+            return BadRequest(new { mensaje = ex.Message });
+        }
+        catch (TransicionInvalidaException ex)
+        {
+            return Conflict(new { mensaje = ex.Message });
+        }
         catch (InvalidOperationException ex)
         {
             return Conflict(new { mensaje = ex.Message });

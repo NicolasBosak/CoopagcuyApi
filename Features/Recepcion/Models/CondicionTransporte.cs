@@ -13,6 +13,14 @@ namespace CoopagcuyApi.Features.Recepcion.Models;
 /// </summary>
 public static class CondicionTransporte
 {
+    /// <summary>
+    /// Separador con el que las claves marcadas se guardan en una sola
+    /// columna. Punto y coma y no coma: las etiquetas del catálogo llevan
+    /// comas dentro ("Jaulas aseguradas, sin apilar") y algún día alguien
+    /// intentará partir por el separador equivocado.
+    /// </summary>
+    public const char Separador = ';';
+
     public static readonly IReadOnlyDictionary<string, string> Catalogo =
         new Dictionary<string, string>
         {
@@ -42,5 +50,22 @@ public static class CondicionTransporte
             .Where(kv => marcadas.Contains(kv.Key))
             .Select(kv => kv.Value);
         return string.Join(", ", etiquetas);
+    }
+
+    /// <summary>
+    /// Etiquetas de las condiciones que NO se marcaron, en el orden del
+    /// catálogo para que dos guías sean comparables.
+    ///
+    /// Las claves desconocidas se ignoran: una movilización guardada con una
+    /// clave que después se retiró del catálogo no puede hacer que aquí
+    /// aparezca una condición inventada.
+    /// </summary>
+    public static IReadOnlyList<string> NoVerificadas(IEnumerable<string> clavesMarcadas)
+    {
+        var marcadas = clavesMarcadas.ToHashSet();
+        return Catalogo
+            .Where(kv => !marcadas.Contains(kv.Key))
+            .Select(kv => kv.Value)
+            .ToList();
     }
 }

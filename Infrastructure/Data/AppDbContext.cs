@@ -242,6 +242,18 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasOne(c => c.Productora)
              .WithMany()
              .HasForeignKey(c => c.ProductoraId);
+
+            // Restrict y no Cascade: un pago no se borra nunca en este
+            // sistema, pero con Cascade borrarlo desmarcaría los animales en
+            // silencio y el lote volvería a parecer entero.
+            e.HasOne(c => c.VentaLocalPago)
+             .WithMany()
+             .HasForeignKey(c => c.VentaLocalPagoId)
+             .OnDelete(DeleteBehavior.Restrict);
+
+            // Se consulta en cada movilización y en cada listado de lotes:
+            // "los cuyes de este lote que siguen disponibles".
+            e.HasIndex(c => c.VentaLocalPagoId);
         });
 
         // Estado individual por cuy en faenamiento
@@ -284,6 +296,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(m => m.Observaciones).HasMaxLength(500);
             e.Property(m => m.RecibidoPor).HasMaxLength(150);
             e.Property(m => m.CondicionLlegada).HasMaxLength(300);
+            // Siete claves del catálogo separadas por punto y coma caben de
+            // sobra en 300; el mismo tamaño que ya tiene la frase compuesta.
+            e.Property(m => m.CondicionesClaves).HasMaxLength(300);
+            e.Property(m => m.CondicionesLlegadaClaves).HasMaxLength(300);
             e.HasOne(m => m.Lote)
              .WithOne(l => l.Movilizacion)
              .HasForeignKey<Movilizacion>(m => m.LoteId);
@@ -299,6 +315,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(p => p.MetodoPago).HasMaxLength(50).IsRequired();
             e.Property(p => p.Responsable).HasMaxLength(150).IsRequired();
             e.Property(p => p.Observaciones).HasMaxLength(500);
+
+            // Columna nueva NO anulable sobre una tabla con datos: el valor
+            // por defecto va aquí y no solo en el inicializador de C#. EF no
+            // lee el inicializador, y la migración saldría sin default
+            // dejando indefinidas las filas que ya existen.
+            e.Property(p => p.EsVentaLocal).HasDefaultValue(false);
 
             // Token de concurrencia optimista: dos /pagar simultáneos sobre el
             // MISMO ticket (con novedades distintas) pasan los dos el chequeo

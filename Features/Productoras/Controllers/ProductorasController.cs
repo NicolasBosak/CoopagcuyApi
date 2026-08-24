@@ -63,17 +63,6 @@ public class ProductorasController(
             Enum.TryParse<CentroAcopio>(catOperador, out var catDelToken))
             dto.CatAsignado = catDelToken;
 
-        // La comunidad también entra en el alcance: sin esta comprobación, el
-        // operador de PAT registraría productoras de Las Nieves con el sello
-        // "PAT", ensuciando el catálogo de otro centro.
-        var catComunidad = await service.CatDeComunidadAsync(dto.ComunidadId);
-        if (User.ComunidadFueraDeAlcance(catComunidad))
-            return StatusCode(StatusCodes.Status403Forbidden, new
-            {
-                mensaje = "Tu usuario solo puede registrar productoras de " +
-                          "las comunidades de su centro de acopio."
-            });
-
         var validacion = await validator.ValidateAsync(dto);
         if (!validacion.IsValid)
             return BadRequest(new
@@ -107,16 +96,6 @@ public class ProductorasController(
             return StatusCode(StatusCodes.Status403Forbidden, new
             {
                 mensaje = "Tu usuario solo puede editar productoras de su centro."
-            });
-
-        // Y alcance sobre el destino: una edición no puede ser la puerta por
-        // la que una productora sale del centro de quien la edita.
-        var catComunidad = await service.CatDeComunidadAsync(dto.ComunidadId);
-        if (User.ComunidadFueraDeAlcance(catComunidad))
-            return StatusCode(StatusCodes.Status403Forbidden, new
-            {
-                mensaje = "No puedes mover una productora a una comunidad " +
-                          "de otro centro de acopio."
             });
 
         if (User.CatRestringido() is string catOperador &&

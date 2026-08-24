@@ -47,6 +47,15 @@ public interface IPagoService
     /// Devuelve cuántas borró. Se invoca desde el listado: el contenedor del
     /// API se apaga sin tráfico, así que una tarea programada no correría.
     Task<int> BarrerComprobantesCaducadosAsync();
+
+    /// Cuyes de esa productora en ese lote que todavía no se han vendido.
+    Task<IEnumerable<CuyDisponibleDto>> ListarCuyesDisponiblesAsync(
+        int loteId, int productoraId, CentroAcopio? filtroCat);
+
+    /// Registra una venta local: crea el pago ya cobrado y marca los animales.
+    /// Todo o nada — si otro se llevó alguno mientras tanto, no queda pago.
+    Task<PagoResponseDto> RegistrarVentaLocalAsync(
+        RegistrarVentaLocalDto dto, CentroAcopio? filtroCat);
 }
 
 /// <summary>
@@ -73,6 +82,15 @@ public class PagoService(
     // límite. Al fijarla aquí, la base queda de acuerdo con la regla de Azure
     // en vez de solo estar cubierta por ella.
     private const int DiasVigenciaComprobanteSinVerificar = 30;
+
+    // Catálogo cerrado, como CondicionTransporte: el servidor no acepta un
+    // método que no reconozca en vez de guardarlo. "Transferencia" también
+    // vale en una venta local — alguien de la comunidad puede transferirle a
+    // la CAT — y no se confunde con el pago de la planta porque eso lo
+    // distingue EsVentaLocal, no el método.
+    private static readonly HashSet<string> MetodosVentaLocal =
+        new(StringComparer.OrdinalIgnoreCase)
+        { "Efectivo", "Transferencia", "Cuotas" };
 
     public async Task<PagoResponseDto> RegistrarAsync(
         RegistrarPagoDto dto, CentroAcopio? filtroCat)
@@ -195,26 +213,42 @@ public class PagoService(
                     "Tu usuario solo puede consultar productoras de su centro.");
         }
 
+        // Solo los pagos de la PLANTA saldan el lote. Una venta local cobra
+        // los animales que se quedaron en la comunidad; los que viajan siguen
+        // pendientes de que alguien los pague, y sin esta distinción el lote
+        // desaparecía del selector y esos animales no se le cobraban a nadie.
         var pagados = db.Pagos
-            .Where(p => p.ProductoraId == productoraId && p.LoteId != null)
+            .Where(p => p.ProductoraId == productoraId
+                && p.LoteId != null
+                && !p.EsVentaLocal)
             .Select(p => p.LoteId!.Value);
 
         return await db.Lotes
             .Where(l =>
                 (l.ProductoraId == productoraId
                  || l.Cuyes.Any(c => c.ProductoraId == productoraId))
-                && !pagados.Contains(l.Id))
+                && !pagados.Contains(l.Id)
+                // Una jaula histórica cargada sin detalle por animal no tiene
+                // filas en Cuyes: ahí no hay nada vendido que descontar, y el
+                // lote sigue pendiente. Sin esta primera rama, Any(...) sería
+                // falso y el lote desaparecería del selector — el mismo caso
+                // que MovilizacionService respeta restando en vez de contar.
+                && (!l.Cuyes.Any(c => c.ProductoraId == productoraId)
+                    || l.Cuyes.Any(c => c.ProductoraId == productoraId
+                        && c.VentaLocalPagoId == null)))
             .OrderByDescending(l => l.FechaRecepcion)
             .Select(l => new LotePendientePagoDto(
                 l.Id,
                 l.CodigoLote,
                 l.CentroAcopio.ToString(),
                 l.FechaRecepcion,
-                // Lo que aportó ESTA productora, no el total de la jaula:
-                // es la base sobre la que se le paga
-                l.Cuyes.Count(c => c.ProductoraId == productoraId),
+                // Lo que queda por enviar de ESTA productora: es la base
+                // sobre la que la planta va a pagar.
+                l.Cuyes.Count(c => c.ProductoraId == productoraId
+                    && c.VentaLocalPagoId == null),
                 l.Cuyes
-                    .Where(c => c.ProductoraId == productoraId)
+                    .Where(c => c.ProductoraId == productoraId
+                        && c.VentaLocalPagoId == null)
                     .Sum(c => (decimal?)c.PesoGramos) ?? 0))
             .AsNoTracking()
             .ToListAsync();
@@ -225,7 +259,13 @@ public class PagoService(
 
     public async Task<IEnumerable<TicketPorPagarDto>> ListarPorPagarAsync() =>
         await db.Pagos
-            .Where(p => p.Estado == EstadoPago.Pendiente && p.LoteId != null)
+            .Where(p => p.Estado == EstadoPago.Pendiente
+                && p.LoteId != null
+                // Segunda defensa. Hoy basta con el estado —una venta local
+                // nace Recibido— pero la cola es lo que decide qué trabajo ve
+                // el operador de faenamiento, y no puede depender de un solo
+                // predicado indirecto.
+                && !p.EsVentaLocal)
             .OrderBy(p => p.FechaPago)
             .Select(p => new TicketPorPagarDto(
                 p.Id,
@@ -236,8 +276,13 @@ public class PagoService(
                 p.Lote!.CodigoLote,
                 p.Lote.CentroAcopio.ToString(),
                 p.Lote.FechaRecepcion,
-                // Aporte de ESTA productora, no el total de la jaula
-                p.Lote.Cuyes.Count(c => c.ProductoraId == p.ProductoraId),
+                // Aporte de ESTA productora, no el total de la jaula. Y de
+                // ese aporte, solo lo que le toca pagar A LA PLANTA: este
+                // ticket (ListarPorPagarAsync ya excluye EsVentaLocal) es
+                // siempre un pago de planta, así que lo vendido en la
+                // comunidad no es parte de lo que se está por pagar aquí.
+                p.Lote.Cuyes.Count(c => c.ProductoraId == p.ProductoraId
+                    && c.VentaLocalPagoId == null),
                 p.MontoUsd,
                 p.FechaPago))
             .AsNoTracking()
@@ -272,7 +317,14 @@ public class PagoService(
                 // la detecta al borrarla, NO es una prueba floja — no la
                 // busques ni la borres pensando que es código muerto.
                 && n.CuyRegistro != null
-                && n.CuyRegistro.ProductoraId == pago.ProductoraId)
+                && n.CuyRegistro.ProductoraId == pago.ProductoraId
+                // Arreglo 5 de la revisión final: un cuy vendido localmente
+                // nunca llegó a la planta, aunque haya entrado al CAT con una
+                // novedad clínica ya registrada. Sin este filtro la planta
+                // podía citar esa novedad para descontar sobre un pago que no
+                // le corresponde a ese animal — y la productora ya cobró por
+                // él en la venta local, así que el descuento sería doble.
+                && n.CuyRegistro.VentaLocalPagoId == null)
             .OrderBy(n => n.CuyRegistro!.NumeroEnLote)
             .Select(n => new CuyConNovedadDto(
                 n.CuyRegistroId!.Value,
@@ -452,6 +504,14 @@ public class PagoService(
             .FirstOrDefaultAsync(p => p.Id == pagoId)
             ?? throw new KeyNotFoundException($"Pago con Id {pagoId} no encontrado.");
 
+        // La planta no participa en una venta local: el dinero ya lo recibió
+        // la CAT. Sin esta guarda, un ticket de venta local aceptaría una
+        // captura de transferencia y pasaría a un estado que no le
+        // corresponde.
+        if (pago.EsVentaLocal)
+            throw new TransicionInvalidaException(
+                "Es una venta local: la planta no tiene nada que pagar aquí.");
+
         if (pago.Estado != EstadoPago.Pendiente)
             throw new TransicionInvalidaException(
                 $"El ticket ya está en estado {pago.Estado} y no admite un pago nuevo.");
@@ -599,11 +659,22 @@ public class PagoService(
         // Reglas 1 y 2: la novedad tiene que pertenecer a un cuy de ESA
         // productora en ESE lote. Las novedades sin cuy —las de entrega y las
         // filas históricas— quedan fuera por el CuyRegistro != null.
+        //
+        // Regla 4 (Arreglo 5 de la revisión final): y ese cuy tiene que
+        // seguir siendo de la planta. Esta es la defensa que de verdad
+        // importa —la que escribe el DescuentoPago—; ListarCuyesConNovedadAsync
+        // solo decide qué ve el operador, y un cliente que se salte esa
+        // pantalla y cite el Id de la novedad a mano tiene que chocar aquí.
+        // Sin este filtro, un cuy vendido en la comunidad —que ya le cobró a
+        // la productora en la venta local— seguía siendo citable para
+        // descontarle a la misma productora en el pago de planta: un cobro
+        // doble sobre un animal que la planta nunca recibió.
         var validas = await db.Novedades
             .Where(n => citadas.Contains(n.Id)
                 && n.LoteId == pago.LoteId
                 && n.CuyRegistro != null
-                && n.CuyRegistro.ProductoraId == pago.ProductoraId)
+                && n.CuyRegistro.ProductoraId == pago.ProductoraId
+                && n.CuyRegistro.VentaLocalPagoId == null)
             .Select(n => n.Id)
             .ToListAsync();
 
@@ -666,6 +737,11 @@ public class PagoService(
         if (filtroCat is CentroAcopio cat && pago.Productora.CatAsignado != cat)
             throw new KeyNotFoundException($"Pago con Id {pagoId} no encontrado.");
 
+        // Nada que verificar: no hubo transferencia ni captura.
+        if (pago.EsVentaLocal)
+            throw new TransicionInvalidaException(
+                "Es una venta local: no hay pago de la planta que verificar.");
+
         if (pago.Estado != EstadoPago.Pagado)
             throw new TransicionInvalidaException(
                 pago.Estado == EstadoPago.Pendiente
@@ -692,6 +768,191 @@ public class PagoService(
         return Mapear(pago, pago.Productora.NombreCompleto, pago.Lote?.CodigoLote);
     }
 
+    public async Task<IEnumerable<CuyDisponibleDto>> ListarCuyesDisponiblesAsync(
+        int loteId, int productoraId, CentroAcopio? filtroCat)
+    {
+        if (filtroCat is CentroAcopio cat)
+        {
+            var productora = await db.Productoras.FindAsync(productoraId);
+            if (productora is null || productora.CatAsignado != cat)
+                throw new UnauthorizedAccessException(
+                    "Tu usuario solo puede consultar productoras de su centro.");
+        }
+
+        return await db.CuyRegistros
+            .Where(c => c.LoteId == loteId
+                && c.ProductoraId == productoraId
+                && c.VentaLocalPagoId == null)
+            .OrderBy(c => c.NumeroEnLote)
+            .Select(c => new CuyDisponibleDto(
+                c.Id, c.NumeroEnLote, c.PesoGramos,
+                c.Estado.ToString(), c.MotivoNovedad))
+            .AsNoTracking()
+            .ToListAsync();
+    }
+
+    public async Task<PagoResponseDto> RegistrarVentaLocalAsync(
+        RegistrarVentaLocalDto dto, CentroAcopio? filtroCat)
+    {
+        var productora = await db.Productoras.FindAsync(dto.ProductoraId)
+            ?? throw new KeyNotFoundException(
+                $"Productora con Id {dto.ProductoraId} no encontrada.");
+
+        if (filtroCat is CentroAcopio cat && productora.CatAsignado != cat)
+            throw new UnauthorizedAccessException(
+                "Tu usuario solo puede registrar ventas de productoras de su centro.");
+
+        // ── Lo que se ve leyendo el cuerpo: 400 ──────────────────────
+        if (dto.CuyRegistroIds.Count == 0)
+            throw new CuerpoInvalidoException(
+                "La venta local debe indicar al menos un cuy.");
+
+        if (dto.MontoUsd <= 0)
+            throw new CuerpoInvalidoException(
+                "El monto de la venta debe ser mayor a cero.");
+
+        if (!MetodosVentaLocal.Contains(dto.MetodoPago))
+            throw new CuerpoInvalidoException(
+                $"Método de pago no reconocido: '{dto.MetodoPago}'. " +
+                $"Debe ser Efectivo, Transferencia o Cuotas.");
+
+        var esCuotas = string.Equals(dto.MetodoPago, "Cuotas",
+            StringComparison.OrdinalIgnoreCase);
+
+        if (esCuotas && (dto.NumeroDias is not > 0 || dto.ValorPorDia is not > 0))
+            throw new CuerpoInvalidoException(
+                "Una venta a cuotas debe indicar el número de días y el valor por día.");
+
+        if (string.IsNullOrWhiteSpace(dto.Responsable))
+            throw new CuerpoInvalidoException("El responsable es obligatorio.");
+
+        // Ids repetidos en la misma petición inflarían el conteo de filas
+        // afectadas y harían pasar la comprobación de concurrencia de abajo.
+        var ids = dto.CuyRegistroIds.Distinct().ToList();
+        if (ids.Count != dto.CuyRegistroIds.Count)
+            throw new CuerpoInvalidoException(
+                "La venta local repite algún cuy.");
+
+        // ── Lo que exige consultar el estado del servidor: 409 ───────
+        var lote = await db.Lotes.FindAsync(dto.LoteId)
+            ?? throw new KeyNotFoundException($"Lote con Id {dto.LoteId} no encontrado.");
+
+        // Chequeo rápido, fuera de la transacción: falla temprano con un
+        // mensaje claro en el caso común (el lote YA está movilizado desde
+        // antes). No es la defensa real contra la carrera — esa es el
+        // advisory lock de más abajo — porque una lectura de fuera de
+        // transacción puede quedar desactualizada para cuando el delegado
+        // reintentable se ejecute.
+        if (await db.Movilizaciones.AnyAsync(m => m.LoteId == lote.Id))
+            throw new TransicionInvalidaException(
+                "El lote ya se movilizó a la planta: sus animales ya no están en el centro.");
+
+        // Misma regla que gobierna los descuentos: solo animales de ESA
+        // productora en ESE lote, y que sigan disponibles.
+        var validos = await db.CuyRegistros
+            .Where(c => ids.Contains(c.Id)
+                && c.LoteId == dto.LoteId
+                && c.ProductoraId == dto.ProductoraId
+                && c.VentaLocalPagoId == null)
+            .Select(c => c.Id)
+            .ToListAsync();
+
+        var invalidos = ids.Except(validos).ToList();
+        if (invalidos.Count > 0)
+            throw new TransicionInvalidaException(
+                $"Estos cuyes no pertenecen a la productora en ese lote, o ya se " +
+                $"vendieron: {string.Join(", ", invalidos)}.");
+
+        // La transacción explícita debe correr dentro de la estrategia de
+        // reintentos de Npgsql (EnableRetryOnFailure): un BeginTransactionAsync
+        // suelto revienta con "The configured execution strategy does not
+        // support user initiated transactions". Mismo patrón que
+        // RecepcionService y FaenamientoService.
+        var estrategia = db.Database.CreateExecutionStrategy();
+
+        var pago = await estrategia.ExecuteAsync(async () =>
+        {
+            db.ChangeTracker.Clear();
+
+            // El Pago se construye AQUÍ DENTRO y no antes: el delegado puede
+            // reejecutarse entero ante un fallo transitorio de Npgsql, y un
+            // objeto creado fuera llegaría al segundo intento con Id ya
+            // asignado y todavía rastreado por el contexto del intento
+            // abortado — la no-idempotencia que este patrón existe para
+            // evitar. No lo "simplifiques" sacándolo fuera otra vez: cada
+            // intento tiene que partir de un objeto limpio, igual que hacen
+            // RecepcionService y FaenamientoService con las suyas.
+            var nuevoPago = new Pago
+            {
+                ProductoraId = dto.ProductoraId,
+                LoteId = dto.LoteId,
+                MontoUsd = dto.MontoUsd,
+                // Nace cobrada: el dinero lo recibió la propia CAT y no queda
+                // nada que nadie tenga que hacer dentro del sistema.
+                MontoPagadoUsd = dto.MontoUsd,
+                Estado = EstadoPago.Recibido,
+                EsVentaLocal = true,
+                FechaPago = DateTime.UtcNow,
+                MetodoPago = dto.MetodoPago,
+                NumeroDias = esCuotas ? dto.NumeroDias : null,
+                ValorPorDia = esCuotas ? dto.ValorPorDia : null,
+                Responsable = dto.Responsable.Trim(),
+                Observaciones = dto.Observaciones
+            };
+
+            await using var tx = await db.Database.BeginTransactionAsync();
+
+            // Arreglo 4 de la revisión final: el mismo advisory lock, con la
+            // MISMA clave, que MovilizacionService.RegistrarAsync toma sobre
+            // este lote. Sin esto, una venta local y una movilización
+            // concurrentes se intercalan — la venta lee "sin movilizar" (el
+            // AnyAsync de arriba, ya viejo para cuando se llega aquí) justo
+            // cuando la movilización cuenta "0 vendidos" y despacha el lote
+            // entero — y la guía de movilización termina contradiciéndose
+            // con el ticket de venta local sobre los mismos animales. El
+            // lock serializa ambas operaciones sobre el mismo lote; la
+            // segunda en tomarlo ve el resultado ya escrito de la primera.
+            var claveLock = ClavesLock.LoteMovilizacion(dto.LoteId);
+            await db.Database.ExecuteSqlAsync(
+                $"SELECT pg_advisory_xact_lock(hashtext({claveLock}))");
+
+            // Repetida DENTRO del lock: es la que de verdad decide. La de
+            // arriba solo evita abrir una transacción para el caso común.
+            if (await db.Movilizaciones.AnyAsync(m => m.LoteId == dto.LoteId))
+            {
+                await tx.RollbackAsync();
+                throw new TransicionInvalidaException(
+                    "El lote ya se movilizó a la planta: sus animales ya no " +
+                    "están en el centro.");
+            }
+
+            db.Pagos.Add(nuevoPago);
+            await db.SaveChangesAsync();
+
+            // El marcado es CONDICIONAL y se compara por filas afectadas. La
+            // comprobación de arriba no basta: entre ella y esta escritura
+            // otra venta puede llevarse el mismo animal, y sin esto el
+            // último en escribir lo pisa y los dos pagos cobran por él.
+            var afectadas = await db.CuyRegistros
+                .Where(c => ids.Contains(c.Id) && c.VentaLocalPagoId == null)
+                .ExecuteUpdateAsync(s => s.SetProperty(
+                    c => c.VentaLocalPagoId, nuevoPago.Id));
+
+            if (afectadas != ids.Count)
+            {
+                await tx.RollbackAsync();
+                throw new TransicionInvalidaException(
+                    "Otra venta se registró sobre alguno de estos cuyes. " +
+                    "Vuelve a abrir la lista de disponibles.");
+            }
+
+            await tx.CommitAsync();
+            return nuevoPago;
+        });
+
+        return Mapear(pago, productora.NombreCompleto, lote.CodigoLote);
+    }
+
     private static PagoResponseDto Mapear(
         Pago p, string nombreProductora, string? codigoLote) => new(
         Id: p.Id,
@@ -710,6 +971,7 @@ public class PagoService(
         FechaVerificacion: p.FechaVerificacion,
         VerificadoPor: p.VerificadoPor,
         Responsable: p.Responsable,
-        Observaciones: p.Observaciones
+        Observaciones: p.Observaciones,
+        EsVentaLocal: p.EsVentaLocal
     );
 }

@@ -101,6 +101,8 @@ public record LoteResponseDto(
     int Disponibles,
     // Ya tiene registro de movilización hacia la planta
     bool TieneMovilizacion,
+    // Animales del lote ya vendidos en la comunidad (venta local pagada)
+    int CuyesVendidosLocal,
     List<ProductoraEnLoteDto> Productoras,
     List<NovedadResponseDto> Novedades,
     List<CuyRegistroResponseDto> Cuyes
@@ -186,7 +188,16 @@ public class RegistrarMovilizacionDto
 public class ConfirmarRecepcionPlantaDto
 {
     public string RecibidoPor { get; set; } = string.Empty;
+
+    // Observación libre de siempre. El catálogo dice QUÉ pasó; esto dice qué
+    // vio el operador con sus palabras.
     public string? CondicionLlegada { get; set; }
+
+    // Obligatoria cuando el checklist de transporte salió incompleto.
+    public bool? LlegaronEnBuenEstado { get; set; }
+
+    // Solo se leen cuando LlegaronEnBuenEstado es false.
+    public List<string> CondicionesLlegada { get; set; } = [];
 }
 
 public record MovilizacionResponseDto(
@@ -206,5 +217,8 @@ public record MovilizacionResponseDto(
     DateTime? FechaRecepcionPlanta,
     string? RecibidoPor,
     string? CondicionLlegada,
-    bool? SinAntibioticos7Dias
+    bool? SinAntibioticos7Dias,
+    string? CondicionesClaves,
+    bool? LlegaronEnBuenEstado,
+    string? CondicionesLlegadaClaves
 );

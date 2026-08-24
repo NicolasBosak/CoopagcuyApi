@@ -142,4 +142,32 @@ public class TextosGuiaTests
 
         texto.ShouldContain("sin declaración");
     }
+
+    [Fact]
+    public void LineaVentaLocal_nombraAlAnimalYaSuProductora()
+    {
+        var cuy = new CuyRegistro
+        {
+            NumeroEnLote = 3,
+            Productora = new Productora
+            {
+                NombreCompleto = "María Quizhpi",
+                Comunidad = new Comunidad { Nombre = "Patococha" }
+            }
+        };
+        var fecha = new DateTime(2026, 8, 21, 20, 30, 0, DateTimeKind.Utc);
+
+        // La fecha va en hora local del piloto, como el resto del documento.
+        TextosGuia.LineaVentaLocal(cuy, fecha)
+            .ShouldBe("#3 · María Quizhpi (Patococha) · 21/08/2026");
+    }
+
+    [Fact]
+    public void LineaVentaLocal_sinProductoraNoRevienta()
+    {
+        var cuy = new CuyRegistro { NumeroEnLote = 7, Productora = null };
+        var fecha = new DateTime(2026, 8, 21, 12, 0, 0, DateTimeKind.Utc);
+
+        TextosGuia.LineaVentaLocal(cuy, fecha).ShouldBe("#7 · — · 21/08/2026");
+    }
 }

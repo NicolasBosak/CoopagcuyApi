@@ -207,4 +207,56 @@ public class PagosController(IPagoService service, ITicketPagoService tickets) :
             return NotFound();
         }
     }
+
+    /// <summary>
+    /// Cuyes de esa productora en ese lote que todavía pueden venderse.
+    /// Alimenta las casillas del formulario de venta local.
+    /// </summary>
+    [HttpGet("cuyes-disponibles/{loteId:int}/{productoraId:int}")]
+    [Authorize(Roles = "OperadorCAT,AdminCooperativa")]
+    public async Task<IActionResult> CuyesDisponibles(int loteId, int productoraId)
+    {
+        try
+        {
+            var resultado = await service.ListarCuyesDisponiblesAsync(
+                loteId, productoraId, FiltroCat());
+            return Ok(resultado);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { mensaje = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Venta de parte de una jaula en la comunidad. No genera trabajo para la
+    /// planta: nace cobrada.
+    /// </summary>
+    [HttpPost("venta-local")]
+    [Authorize(Roles = "OperadorCAT,AdminCooperativa")]
+    public async Task<IActionResult> RegistrarVentaLocal(
+        [FromBody] RegistrarVentaLocalDto dto)
+    {
+        try
+        {
+            var resultado = await service.RegistrarVentaLocalAsync(dto, FiltroCat());
+            return CreatedAtAction(nameof(Listar), null, resultado);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { mensaje = ex.Message });
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { mensaje = ex.Message });
+        }
+        catch (CuerpoInvalidoException ex)
+        {
+            return BadRequest(new { mensaje = ex.Message });
+        }
+        catch (TransicionInvalidaException ex)
+        {
+            return Conflict(new { mensaje = ex.Message });
+        }
+    }
 }

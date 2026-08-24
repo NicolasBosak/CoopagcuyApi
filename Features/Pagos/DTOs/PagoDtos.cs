@@ -45,7 +45,43 @@ public record PagoResponseDto(
     DateTime? FechaVerificacion,
     string? VerificadoPor,
     string Responsable,
-    string? Observaciones
+    string? Observaciones,
+    bool EsVentaLocal
+);
+
+/// <summary>
+/// Venta de parte de una jaula en la comunidad. Los animales viajan en la
+/// petición uno a uno: la operadora elige cuáles, no cuántos, porque después
+/// hay que decir en la guía exactamente qué se fue.
+/// </summary>
+public class RegistrarVentaLocalDto
+{
+    public int ProductoraId { get; set; }
+    public int LoteId { get; set; }
+    public List<int> CuyRegistroIds { get; set; } = [];
+    public decimal MontoUsd { get; set; }
+
+    // Efectivo | Transferencia | Cuotas
+    public string MetodoPago { get; set; } = string.Empty;
+
+    // Solo para "Cuotas": el acuerdo, sin seguimiento de qué cuota se pagó.
+    public int? NumeroDias { get; set; }
+    public decimal? ValorPorDia { get; set; }
+
+    public string Responsable { get; set; } = string.Empty;
+    public string? Observaciones { get; set; }
+}
+
+/// <summary>
+/// Cuy de esa productora en ese lote que todavía puede venderse. Alimenta las
+/// casillas del formulario de venta local.
+/// </summary>
+public record CuyDisponibleDto(
+    int CuyRegistroId,
+    int NumeroEnLote,
+    decimal PesoGramos,
+    string Estado,
+    string? MotivoNovedad
 );
 
 /// <summary>
