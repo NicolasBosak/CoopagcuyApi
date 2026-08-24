@@ -185,4 +185,20 @@ public class AutorizacionAdminTests(ApiFactory api) : IAsyncLifetime
 
         respuesta.StatusCode.ShouldBe(HttpStatusCode.OK);
     }
+
+    // ── El reporte de ganancias no es del OperadorCAT ──────────────────
+    // La cifra que ganó su propia CAT ya la ve en las pantallas de pago; el
+    // libro de ganancias además cruza clientes y márgenes de reventa de
+    // TODAS las CAT, que no es su alcance. Sin esta prueba, el [Authorize]
+    // del endpoint solo lo verifica quien lea el atributo.
+
+    [Theory]
+    [InlineData("/api/reportes/exportar/excel/ganancias")]
+    public async Task OperadorCAT_pierdeElExcelDeGanancias(string ruta)
+    {
+        var respuesta = await api.ComoOperadorCat("PAT")
+            .GetAsync($"{ruta}?desde=2026-08-01&hasta=2026-08-18");
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+    }
 }

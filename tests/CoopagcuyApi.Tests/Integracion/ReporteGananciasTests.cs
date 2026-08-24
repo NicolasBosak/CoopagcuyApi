@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using ClosedXML.Excel;
 using CoopagcuyApi.Common;
 using CoopagcuyApi.Features.Faenamiento.Models;
 using CoopagcuyApi.Features.Pagos.Models;
@@ -399,10 +400,22 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
     // ── Excel del reporte de ganancias ─────────────────────────────────
     //
     // Un libro con las cinco vistas: por CAT, por productora, por mes,
-    // margen por mes y margen por cliente. La prueba solo afirma lo que se
-    // puede afirmar de un binario xlsx sin abrirlo: 200, el tipo de
-    // contenido y un tamaño que distinga un libro con datos de uno vacío
-    // (ver la Mutación 1 en el informe de la tarea).
+    // margen por mes y margen por cliente. El tamaño por sí solo no puede
+    // distinguir un libro que perdió una hoja, o las dos advertencias de
+    // AgregarHojaMargen, de uno correcto: esas omisiones cuestan unos
+    // cientos de bytes contra un umbral con miles de margen. Por eso, además
+    // del tamaño, la prueba abre el binario con ClosedXML y afirma la
+    // estructura que sí le importa al reporte: las cinco hojas por nombre,
+    // que cada una trae datos, y que las dos hojas de margen traen sus dos
+    // advertencias con la cifra correcta debajo de la tabla.
+
+    private static readonly string[] HojasEsperadas =
+    [
+        "Ganancias por CAT", "Ganancias por productora", "Ganancias por mes",
+        "Margen por mes", "Margen por cliente"
+    ];
+
+    private static readonly string[] HojasDeMargen = ["Margen por mes", "Margen por cliente"];
 
     [Fact]
     public async Task ElExcelDeGananciasSeDescargaConLasCincoHojas()
@@ -431,8 +444,69 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
         // Mutación 1) pesa 6118 bytes; este libro con cinco hojas y datos
         // pesa 10145. El umbral queda en el punto medio, con margen de
         // sobra a ambos lados (~1900 bytes) frente a la variación normal
-        // del formato zip/xlsx.
+        // del formato zip/xlsx. Este número por sí solo NO distingue un
+        // libro que perdió una hoja o sus advertencias (unos cientos de
+        // bytes) de uno correcto: para eso están las aserciones
+        // estructurales de abajo.
         bytes.Length.ShouldBeGreaterThan(8000);
+
+        using var libro = new XLWorkbook(new MemoryStream(bytes));
+
+        libro.Worksheets.Select(h => h.Name).ShouldBe(HojasEsperadas);
+
+        // Con estos datos sembrados, cada una de las cinco hojas trae al
+        // menos una fila (la de datos está siempre en la fila 2, justo
+        // debajo del encabezado, sin importar si la hoja además lleva
+        // advertencias más abajo).
+        foreach (var nombre in HojasEsperadas)
+            libro.Worksheet(nombre).Cell(2, 1).IsEmpty().ShouldBeFalse();
+
+        // Las dos hojas de margen: un despacho con precio (8.50 x 2 = 17,
+        // sin faltante) y sin pago de planta para esa productora, así que
+        // los 2 animales quedan sin costo conocido.
+        foreach (var nombreMargen in HojasDeMargen)
+        {
+            var textos = libro.Worksheet(nombreMargen).Column(1)
+                .CellsUsed().Select(c => c.GetString()).ToList();
+
+            textos.ShouldContain("Despachos sin precio (no se vendieron gratis): 0");
+            textos.ShouldContain(
+                "Animales sin costo (su productora no ha cobrado, no costaron " +
+                "cero): 2");
+        }
+    }
+
+    [Fact]
+    public async Task ElExcelDeGananciasSinDatosMantieneLasCincoHojasConAdvertenciasEnCero()
+    {
+        // El vecino sin datos de la prueba anterior: un período vacío (sin
+        // sembrar nada). Es el caso legítimo más cercano al libro completo
+        // —cinco hojas con estilo y encabezado, cero filas de datos— y el
+        // que de verdad compite con el umbral de tamaño de la otra prueba,
+        // no el libro degenerado de una sola hoja de la Mutación 1.
+        var hoy = (DateTime.UtcNow + FechaUtc.DesfasePiloto).ToString("yyyy-MM-dd");
+        var respuesta = await api.ComoAdmin()
+            .GetAsync($"/api/reportes/exportar/excel/ganancias?desde={hoy}&hasta={hoy}");
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var bytes = await respuesta.Content.ReadAsByteArrayAsync();
+
+        using var libro = new XLWorkbook(new MemoryStream(bytes));
+        libro.Worksheets.Select(h => h.Name).ShouldBe(HojasEsperadas);
+
+        // Sin datos, las hojas de margen no llevan fila 2 — pero las
+        // advertencias se escriben igual, en cero, porque
+        // AgregarHojaMargen las agrega incondicionalmente.
+        foreach (var nombreMargen in HojasDeMargen)
+        {
+            var textos = libro.Worksheet(nombreMargen).Column(1)
+                .CellsUsed().Select(c => c.GetString()).ToList();
+
+            textos.ShouldContain("Despachos sin precio (no se vendieron gratis): 0");
+            textos.ShouldContain(
+                "Animales sin costo (su productora no ha cobrado, no costaron " +
+                "cero): 0");
+        }
     }
 
     // ── Sembradores ─────────────────────────────────────────────────────

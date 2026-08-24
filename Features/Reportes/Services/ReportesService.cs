@@ -1042,7 +1042,7 @@ public class ReportesService(AppDbContext db) : IReportesService
         EscribirEncabezadosGanancias(hoja, new[]
         {
             "Centro de Acopio", "Cobrado local", "Pactado a cuotas",
-            "Pagado planta", "Total pagos"
+            "Pagado planta", "N.º de pagos"
         });
 
         int fila = 2;
@@ -1065,7 +1065,7 @@ public class ReportesService(AppDbContext db) : IReportesService
         EscribirEncabezadosGanancias(hoja, new[]
         {
             "Productora", "Comunidad", "Centro de Acopio", "Cobrado local",
-            "Pactado a cuotas", "Pagado planta", "Total pagos"
+            "Pactado a cuotas", "Pagado planta", "N.º de pagos"
         });
 
         int fila = 2;
@@ -1090,7 +1090,7 @@ public class ReportesService(AppDbContext db) : IReportesService
         EscribirEncabezadosGanancias(hoja, new[]
         {
             "Año", "Mes", "Cobrado local", "Pactado a cuotas",
-            "Pagado planta", "Total pagos"
+            "Pagado planta", "N.º de pagos"
         });
 
         int fila = 2;
