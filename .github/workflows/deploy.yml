@@ -126,7 +126,7 @@ jobs:
 
       # Se construye SIN publicar: este job nunca hace login ni push a ghcr.io
       - name: Construir imagen
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: false
@@ -263,7 +263,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       # Se construye SIN publicar para poder escanear antes de exponerla
       - name: Construir imagen
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: false
