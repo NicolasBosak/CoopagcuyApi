@@ -25,6 +25,15 @@ public class CondicionesNoVerificadasTests
         faltan.Count.ShouldBe(CondicionTransporte.Catalogo.Count - 2);
         faltan.ShouldContain("Vehículo limpio");
         faltan.ShouldNotContain("Ventilación adecuada");
+
+        // No solo cardinalidad y pertenencia: el propio diseño promete "en
+        // el orden del catálogo para que dos guías sean comparables", y esa
+        // promesa solo la comprueba una aserción sobre la secuencia.
+        var esperado = CondicionTransporte.Catalogo
+            .Where(kv => kv.Key != "JaulasLimpias" && kv.Key != "Ventilacion")
+            .Select(kv => kv.Value)
+            .ToList();
+        faltan.ShouldBe(esperado);
     }
 
     [Fact]
