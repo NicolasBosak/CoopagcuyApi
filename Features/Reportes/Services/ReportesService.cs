@@ -1000,7 +1000,11 @@ public class ReportesService(AppDbContext db) : IReportesService
     // comentario en DatosDeMargenAsync): un despacho reúne animales de
     // varias CAT. Las tres primeras hojas sí lo respetan. Quien abra este
     // libro con ?cat= puesto puede extrañarse de que las dos últimas hojas
-    // no se hayan acotado igual — es deliberado, no un olvido.
+    // no se hayan acotado igual — por eso cada una de las cinco hojas
+    // declara su propio alcance de CAT en una línea debajo de la tabla
+    // (EscribirAlcanceCat para las tres primeras, la advertencia fija en
+    // AgregarHojaMargen para las dos últimas), y el nombre del archivo
+    // incluye la CAT cuando el pedido vino filtrado (ReportesController).
     public async Task<byte[]> ExportarExcelGananciasAsync(FiltroPeriodoDto filtro)
     {
         var porCat = await GananciasPorCatAsync(filtro);
@@ -1011,9 +1015,9 @@ public class ReportesService(AppDbContext db) : IReportesService
 
         using var libro = new XLWorkbook();
 
-        AgregarHojaGananciaCat(libro, porCat);
-        AgregarHojaGananciaProductora(libro, porProductora);
-        AgregarHojaGananciaMes(libro, porMes);
+        AgregarHojaGananciaCat(libro, porCat, filtro.CentroAcopio);
+        AgregarHojaGananciaProductora(libro, porProductora, filtro.CentroAcopio);
+        AgregarHojaGananciaMes(libro, porMes, filtro.CentroAcopio);
         AgregarHojaMargen(libro, "Margen por mes", margenPorMes);
         AgregarHojaMargen(libro, "Margen por cliente", margenPorCliente);
 
@@ -1035,8 +1039,28 @@ public class ReportesService(AppDbContext db) : IReportesService
         }
     }
 
+    // El texto que describe el alcance de CAT de una hoja: las tres hojas
+    // de ganancias sí respetan ?cat= (a diferencia de las dos de margen, ver
+    // AgregarHojaMargen). Sin esto en el libro, alguien que lleve el Excel a
+    // una reunión filtrado por PAT puede leer la hoja 2 ("PAT cobró $X")
+    // junto a la hoja 4 ("margen $Y", que es de TODA la cooperativa) como si
+    // ambas hablaran del mismo universo.
+    private static string DescripcionAlcanceCat(string? cat) =>
+        string.IsNullOrEmpty(cat) ? "Todos los centros de acopio" : cat;
+
+    // Debajo de la tabla, con una fila de por medio: mismo lugar y mismo
+    // estilo que las advertencias de AgregarHojaMargen, para que el alcance
+    // de cada hoja quede en el libro y no solo en el nombre del archivo.
+    private static void EscribirAlcanceCat(
+        IXLWorksheet hoja, int filaSiguienteVacia, string? cat)
+    {
+        var celda = hoja.Cell(filaSiguienteVacia + 1, 1);
+        celda.Value = $"Centro de acopio: {DescripcionAlcanceCat(cat)}";
+        celda.Style.Font.Bold = true;
+    }
+
     private static void AgregarHojaGananciaCat(
-        XLWorkbook libro, IEnumerable<GananciaCatDto> datos)
+        XLWorkbook libro, IEnumerable<GananciaCatDto> datos, string? cat)
     {
         var hoja = libro.Worksheets.Add("Ganancias por CAT");
         EscribirEncabezadosGanancias(hoja, new[]
@@ -1056,10 +1080,11 @@ public class ReportesService(AppDbContext db) : IReportesService
             fila++;
         }
         hoja.Columns().AdjustToContents();
+        EscribirAlcanceCat(hoja, fila, cat);
     }
 
     private static void AgregarHojaGananciaProductora(
-        XLWorkbook libro, IEnumerable<GananciaProductoraDto> datos)
+        XLWorkbook libro, IEnumerable<GananciaProductoraDto> datos, string? cat)
     {
         var hoja = libro.Worksheets.Add("Ganancias por productora");
         EscribirEncabezadosGanancias(hoja, new[]
@@ -1081,10 +1106,11 @@ public class ReportesService(AppDbContext db) : IReportesService
             fila++;
         }
         hoja.Columns().AdjustToContents();
+        EscribirAlcanceCat(hoja, fila, cat);
     }
 
     private static void AgregarHojaGananciaMes(
-        XLWorkbook libro, IEnumerable<GananciaMesDto> datos)
+        XLWorkbook libro, IEnumerable<GananciaMesDto> datos, string? cat)
     {
         var hoja = libro.Worksheets.Add("Ganancias por mes");
         EscribirEncabezadosGanancias(hoja, new[]
@@ -1105,6 +1131,7 @@ public class ReportesService(AppDbContext db) : IReportesService
             fila++;
         }
         hoja.Columns().AdjustToContents();
+        EscribirAlcanceCat(hoja, fila, cat);
     }
 
     // Las dos advertencias van DEBAJO de la tabla, en texto: un libro que
@@ -1152,6 +1179,27 @@ public class ReportesService(AppDbContext db) : IReportesService
             $"cero): {totalAnimalesSinCosto}";
         hoja.Cell(filaAdvertencia + 1, 1).Style.Font.Bold = true;
         hoja.Cell(filaAdvertencia + 1, 1).Style.Font.FontColor = XLColor.FromHtml("#B71C1C");
+
+        // A diferencia de las tres hojas de ganancias, esta hoja (y su
+        // hermana "Margen por cliente") IGNORA ?cat= a propósito: un
+        // despacho reúne animales de varias jaulas y por tanto de varias
+        // CAT (ver el comentario en DatosDeMargenAsync). Sin esta línea en
+        // el libro, quien lo abra filtrado por una CAT puede leer esta hoja
+        // como si también estuviera acotada.
+        hoja.Cell(filaAdvertencia + 2, 1).Value =
+            "Toda la cooperativa — este reporte no se filtra por centro de acopio";
+        hoja.Cell(filaAdvertencia + 2, 1).Style.Font.Bold = true;
+        hoja.Cell(filaAdvertencia + 2, 1).Style.Font.FontColor = XLColor.FromHtml("#B71C1C");
+
+        // El spec lo exige como requisito, no como sugerencia (ver su
+        // sección "Fuera de alcance"): el margen es sobre el costo de los
+        // animales, no un resultado contable de la cooperativa.
+        hoja.Cell(filaAdvertencia + 3, 1).Value =
+            "El margen es sobre el costo de los animales: no incluye " +
+            "transporte, faenamiento ni empaque, así que no es un resultado " +
+            "contable de la cooperativa.";
+        hoja.Cell(filaAdvertencia + 3, 1).Style.Font.Bold = true;
+        hoja.Cell(filaAdvertencia + 3, 1).Style.Font.FontColor = XLColor.FromHtml("#B71C1C");
     }
 
     // ── Flujo de trazabilidad: Entrada / Tránsito / Salida ────────────

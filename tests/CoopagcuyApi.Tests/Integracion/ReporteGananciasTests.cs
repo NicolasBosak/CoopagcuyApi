@@ -473,6 +473,71 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
             textos.ShouldContain(
                 "Animales sin costo (su productora no ha cobrado, no costaron " +
                 "cero): 2");
+
+            // B1: sin ?cat=, las hojas de margen dicen explícitamente que
+            // cubren toda la cooperativa, y llevan el rótulo de que el
+            // margen no es un resultado contable (transporte, faenamiento
+            // y empaque quedan fuera).
+            textos.ShouldContain(
+                "Toda la cooperativa — este reporte no se filtra por centro de acopio");
+            textos.ShouldContain(
+                "El margen es sobre el costo de los animales: no incluye " +
+                "transporte, faenamiento ni empaque, así que no es un resultado " +
+                "contable de la cooperativa.");
+        }
+
+        // B1: las tres hojas de ganancias declaran su propio alcance de CAT
+        // — sin ?cat=, "todos los centros de acopio".
+        foreach (var nombreGanancia in new[]
+            { "Ganancias por CAT", "Ganancias por productora", "Ganancias por mes" })
+        {
+            var textos = libro.Worksheet(nombreGanancia).Column(1)
+                .CellsUsed().Select(c => c.GetString()).ToList();
+
+            textos.ShouldContain("Centro de acopio: Todos los centros de acopio");
+        }
+    }
+
+    [Fact]
+    public async Task ElExcelDeGananciasConCatDeclaraElAlcanceYLoIncluyeEnElNombreDelArchivo()
+    {
+        // B1: filtrado por PAT, las tres hojas de ganancias deben decirlo,
+        // las dos de margen deben seguir diciendo que son de TODA la
+        // cooperativa (no se filtran, a propósito), y el nombre del
+        // archivo debe llevar la CAT — así una persona que solo mire el
+        // nombre del archivo descargado (sin abrir el libro) ya sabe que
+        // está viendo un recorte.
+        await SembrarPagosAsync();
+
+        var hoy = (DateTime.UtcNow + FechaUtc.DesfasePiloto).ToString("yyyy-MM-dd");
+        var respuesta = await api.ComoAdmin()
+            .GetAsync($"/api/reportes/exportar/excel/ganancias?desde={hoy}&hasta={hoy}&cat=PAT");
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var nombreArchivo = respuesta.Content.Headers.ContentDisposition?.FileName?.Trim('"');
+        nombreArchivo.ShouldNotBeNull();
+        nombreArchivo.ShouldEndWith("-PAT.xlsx");
+
+        var bytes = await respuesta.Content.ReadAsByteArrayAsync();
+        using var libro = new XLWorkbook(new MemoryStream(bytes));
+
+        foreach (var nombreGanancia in new[]
+            { "Ganancias por CAT", "Ganancias por productora", "Ganancias por mes" })
+        {
+            var textos = libro.Worksheet(nombreGanancia).Column(1)
+                .CellsUsed().Select(c => c.GetString()).ToList();
+
+            textos.ShouldContain("Centro de acopio: PAT");
+        }
+
+        foreach (var nombreMargen in HojasDeMargen)
+        {
+            var textos = libro.Worksheet(nombreMargen).Column(1)
+                .CellsUsed().Select(c => c.GetString()).ToList();
+
+            textos.ShouldContain(
+                "Toda la cooperativa — este reporte no se filtra por centro de acopio");
         }
     }
 
@@ -506,6 +571,23 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
             textos.ShouldContain(
                 "Animales sin costo (su productora no ha cobrado, no costaron " +
                 "cero): 0");
+            textos.ShouldContain(
+                "Toda la cooperativa — este reporte no se filtra por centro de acopio");
+            textos.ShouldContain(
+                "El margen es sobre el costo de los animales: no incluye " +
+                "transporte, faenamiento ni empaque, así que no es un resultado " +
+                "contable de la cooperativa.");
+        }
+
+        // Igual sin datos: las hojas de ganancias declaran su alcance de
+        // CAT incondicionalmente.
+        foreach (var nombreGanancia in new[]
+            { "Ganancias por CAT", "Ganancias por productora", "Ganancias por mes" })
+        {
+            var textos = libro.Worksheet(nombreGanancia).Column(1)
+                .CellsUsed().Select(c => c.GetString()).ToList();
+
+            textos.ShouldContain("Centro de acopio: Todos los centros de acopio");
         }
     }
 

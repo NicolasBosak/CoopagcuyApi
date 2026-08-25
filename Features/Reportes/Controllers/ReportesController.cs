@@ -396,7 +396,10 @@ public class ReportesController(IReportesService service) : ControllerBase
     /// tres primeras (por CAT, por productora, por mes) sí respetan
     /// ?cat=; las dos de margen (por mes, por cliente) no, porque un
     /// despacho reúne animales de varias CAT (ver el comentario en
-    /// <c>ReportesService.ExportarExcelGananciasAsync</c>).
+    /// <c>ReportesService.ExportarExcelGananciasAsync</c>). Cada hoja deja
+    /// su propio alcance por escrito, y el nombre del archivo lleva la CAT
+    /// cuando el pedido vino filtrado — para que esa asimetría no dependa
+    /// de que quien abra el libro haya leído la pantalla primero.
     /// </summary>
     [HttpGet("exportar/excel/ganancias")]
     [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
@@ -408,9 +411,10 @@ public class ReportesController(IReportesService service) : ControllerBase
         var bytes = await service.ExportarExcelGananciasAsync(
             new FiltroPeriodoDto(desde, hasta, cat));
 
+        var sufijoCat = string.IsNullOrWhiteSpace(cat) ? "" : $"-{cat}";
         return File(bytes,
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            $"Reporte-Ganancias-{desde:yyyyMMdd}-{hasta:yyyyMMdd}.xlsx");
+            $"Reporte-Ganancias-{desde:yyyyMMdd}-{hasta:yyyyMMdd}{sufijoCat}.xlsx");
     }
 
     /// <summary>
