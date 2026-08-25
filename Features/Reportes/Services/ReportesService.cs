@@ -716,7 +716,15 @@ public class ReportesService(AppDbContext db) : IReportesService
                     TotalPagos: g.Count()
                 );
             })
-            .OrderByDescending(r => r.CobradoLocal + r.PactadoCuotas + r.PagadoPlanta)
+            // N1: orden lexicográfico, no la suma de las tres columnas — esa
+            // suma no existe en ningún DTO ni celda de este reporte (las
+            // tres NUNCA se suman entre sí). Cobrado local pesa más porque
+            // es dinero que la productora ya tiene en la mano; pagado
+            // planta va después porque también es dinero movido; pactado a
+            // cuotas al final porque todavía no ha llegado.
+            .OrderByDescending(r => r.CobradoLocal)
+            .ThenByDescending(r => r.PagadoPlanta)
+            .ThenByDescending(r => r.PactadoCuotas)
             .ToList();
     }
 
@@ -1014,17 +1022,23 @@ public class ReportesService(AppDbContext db) : IReportesService
             await DatosDeMargenAsync(filtro);
 
         return despachos
-            .GroupBy(d =>
+            // ClienteDestino es texto libre, así que "Mercado Central" y
+            // "mercado central" serían dos filas. La CLAVE de agrupación se
+            // normaliza (recorte + mayúsculas) para que no se separen. Un
+            // catálogo de clientes lo resolvería de raíz, pero es otro
+            // proyecto.
+            .GroupBy(d => (d.ClienteDestino ?? string.Empty).Trim().ToUpperInvariant())
+            .Select(g =>
             {
-                // ClienteDestino es texto libre, así que "Mercado Central" y
-                // "mercado central" serían dos filas. Se normaliza para
-                // agrupar. Un catálogo de clientes lo resolvería de raíz,
-                // pero es otro proyecto.
-                var cliente = (d.ClienteDestino ?? string.Empty).Trim().ToUpperInvariant();
-                return cliente;
+                // N3: la ETIQUETA visible NO es la clave normalizada —
+                // conserva las mayúsculas originales del primer despacho del
+                // grupo. Normalizar para agrupar no significa que la
+                // pantalla y el Excel deban mostrar el nombre del cliente
+                // GRITADO en mayúsculas.
+                var etiqueta = (g.First().ClienteDestino ?? string.Empty).Trim();
+                return ConstruirMargen(
+                    etiqueta, g, animalesPorDespacho, pagos, unidadesDevueltas);
             })
-            .Select(g => ConstruirMargen(
-                g.Key, g, animalesPorDespacho, pagos, unidadesDevueltas))
             .OrderByDescending(m => m.Ingreso)
             .ToList();
     }

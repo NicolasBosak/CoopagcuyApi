@@ -191,14 +191,48 @@ public class AutorizacionAdminTests(ApiFactory api) : IAsyncLifetime
     // libro de ganancias además cruza clientes y márgenes de reventa de
     // TODAS las CAT, que no es su alcance. Sin esta prueba, el [Authorize]
     // del endpoint solo lo verifica quien lea el atributo.
+    //
+    // S2: antes solo el Excel estaba cubierto — los otros cinco endpoints
+    // del reporte de ganancias (los tres de "lo que ganaron las
+    // productoras" y los dos de margen) no tenían NINGUNA prueba de rol.
+    // Los seis [Authorize] de hoy son correctos, pero sin esta red alguien
+    // que "restaure" el reporte a los dos administradores originales (la
+    // petición inicial nombraba solo a esos dos) rompería la pestaña del
+    // OperadorFaenamiento con los 322 tests en verde, y alguien que
+    // agregara OperadorCAT expondría clientes y márgenes de todas las CAT,
+    // también con todo en verde.
 
     [Theory]
     [InlineData("/api/reportes/exportar/excel/ganancias")]
-    public async Task OperadorCAT_pierdeElExcelDeGanancias(string ruta)
+    [InlineData("/api/reportes/ganancias/productoras")]
+    [InlineData("/api/reportes/ganancias/cat")]
+    [InlineData("/api/reportes/ganancias/mes")]
+    [InlineData("/api/reportes/margen/mes")]
+    [InlineData("/api/reportes/margen/cliente")]
+    public async Task OperadorCAT_pierdeLosSeisEndpointsDeGanancias(string ruta)
     {
         var respuesta = await api.ComoOperadorCat("PAT")
             .GetAsync($"{ruta}?desde=2026-08-01&hasta=2026-08-18");
 
         respuesta.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+    }
+
+    // Control del rol que el spec agregó a propósito ("Es más de lo que
+    // pedía la petición original"): si alguna vez alguien recorta el
+    // [Authorize] de estos seis endpoints a solo los dos administradores,
+    // esta prueba (no solo la de arriba) lo nota.
+    [Theory]
+    [InlineData("/api/reportes/exportar/excel/ganancias")]
+    [InlineData("/api/reportes/ganancias/productoras")]
+    [InlineData("/api/reportes/ganancias/cat")]
+    [InlineData("/api/reportes/ganancias/mes")]
+    [InlineData("/api/reportes/margen/mes")]
+    [InlineData("/api/reportes/margen/cliente")]
+    public async Task OperadorFaenamiento_accedeALosSeisEndpointsDeGanancias(string ruta)
+    {
+        var respuesta = await api.ComoOperadorFaenamiento()
+            .GetAsync($"{ruta}?desde=2026-08-01&hasta=2026-08-18");
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.OK);
     }
 }

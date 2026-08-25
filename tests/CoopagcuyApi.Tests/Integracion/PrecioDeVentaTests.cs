@@ -48,6 +48,38 @@ public class PrecioDeVentaTests(ApiFactory api) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task PrecioFaltanteYMercadoInvalidoSeReportanJuntos()
+    {
+        // S4: el precio obligatorio vive en RegistrarDespachoValidator junto
+        // con el resto de las reglas leíbles del cuerpo (TipoMercado, fecha,
+        // etc.), no como un guard aparte en el servicio que se dispara
+        // DESPUÉS de que la validación ya pasó. FluentValidation junta
+        // TODOS los errores del cuerpo en una sola respuesta: un operador
+        // con precio faltante Y mercado inválido los ve los dos de una vez,
+        // en vez de corregir el mercado, reenviar, y recién ahí enterarse
+        // del precio — dos viajes de ida y vuelta en una tablet de campo.
+        var (loteFaenadoId, cuyIds) = await Sembrador.DespachableAsync(api, CedulaProductora);
+
+        var respuesta = await api.ComoOperadorFaenamiento()
+            .PostAsJsonAsync("/api/faenamiento/despachos", new
+            {
+                loteFaenadoId,
+                cuyFaenamientoIds = cuyIds,
+                clienteDestino = "Mercado Central",
+                fechaDespacho = DateTime.UtcNow,
+                responsable = "Operador de prueba",
+                tipoMercado = "Marciano",
+                precioUnitarioUsd = (decimal?)null
+            });
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+
+        var cuerpo = await respuesta.Content.ReadAsStringAsync();
+        cuerpo.ShouldContain("mercado de destino debe ser Local");
+        cuerpo.ShouldContain("precio unitario de venta es obligatorio");
+    }
+
+    [Fact]
     public async Task ConPrecioSeGuardaYElTotalSeDeriva()
     {
         var (loteFaenadoId, cuyIds) = await Sembrador.DespachableAsync(api, CedulaProductora);

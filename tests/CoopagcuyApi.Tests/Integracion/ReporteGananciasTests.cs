@@ -37,6 +37,7 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
     private const string CedulaMargenCosto = "0104576301";
     private const string CedulaMargenDenominador = "0104576319";
     private const string CedulaMargenDevolucion = "0104576327";
+    private const string CedulaMargenEtiqueta = "0104576335";
 
     // Fecha explícita —no por diferencia contra UtcNow— para ejercitar la
     // frontera del mes: las 02:00 UTC del 1 de septiembre son las 21:00 del
@@ -131,6 +132,58 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
 
         fila.GetProperty("cobradoLocal").GetDecimal().ShouldBe(0m);
         fila.GetProperty("pactadoCuotas").GetDecimal().ShouldBe(30m);
+    }
+
+    [Fact]
+    public async Task LasProductorasSeOrdenanPorCobradoLocalPrimero_NoPorLaSuma()
+    {
+        // N1: orden lexicográfico (CobradoLocal, luego PagadoPlanta, luego
+        // PactadoCuotas), NUNCA por la suma de las tres columnas —esa suma
+        // no existe en ningún DTO ni celda del reporte, porque las tres
+        // NUNCA se suman entre sí. Con estos montos, ordenar por la suma
+        // pondría a la productora B primero (500 > 400); el orden correcto
+        // pone a A primero porque tiene MÁS cobrado en mano, aunque su
+        // suma total sea menor.
+        var productoraA = await Sembrador.ProductoraAsync(
+            api, Cedula, CentroAcopio.PAT);
+        var productoraB = await Sembrador.ProductoraAsync(
+            api, CedulaNie, CentroAcopio.PAT, comunidadId: 2);
+
+        await using (var db = api.NuevoDbContext())
+        {
+            db.Pagos.AddRange(
+                new Pago
+                {
+                    ProductoraId = productoraA.Id,
+                    MontoUsd = 400m,
+                    MontoPagadoUsd = 400m,
+                    FechaPago = DateTime.UtcNow,
+                    MetodoPago = "Efectivo",
+                    Estado = EstadoPago.Recibido,
+                    EsVentaLocal = true,
+                    Responsable = "Operadora de prueba"
+                },
+                new Pago
+                {
+                    ProductoraId = productoraB.Id,
+                    MontoUsd = 500m,
+                    MontoPagadoUsd = 500m,
+                    FechaPago = DateTime.UtcNow,
+                    MetodoPago = "Cuotas",
+                    Estado = EstadoPago.Recibido,
+                    EsVentaLocal = true,
+                    Responsable = "Operadora de prueba"
+                });
+            await db.SaveChangesAsync();
+        }
+
+        var filas = await PorProductoraAsync("PAT");
+
+        filas.Length.ShouldBe(2);
+        filas[0].GetProperty("nombreProductora").GetString()
+            .ShouldBe(productoraA.NombreCompleto);
+        filas[1].GetProperty("nombreProductora").GetString()
+            .ShouldBe(productoraB.NombreCompleto);
     }
 
     [Fact]
@@ -433,6 +486,39 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
         fila.GetProperty("ingreso").GetDecimal().ShouldBe(60m);
         fila.GetProperty("costoAtribuido").GetDecimal().ShouldBe(50m);
         fila.GetProperty("margen").GetDecimal().ShouldBe(10m);
+    }
+
+    [Fact]
+    public async Task LaEtiquetaDelClienteConservaLasMayusculasOriginales()
+    {
+        // N3: la CLAVE de agrupación se normaliza (mayúsculas) para que
+        // "Mercado Ñan" y "mercado ñan" no separen filas — eso sigue
+        // igual. Lo que cambia es que la ETIQUETA visible ya no es esa
+        // clave: conserva la forma en que se escribió el primer despacho,
+        // en vez de GRITAR el nombre del cliente en mayúsculas.
+        var (_, lote) = await SembrarLoteAsync(CedulaMargenEtiqueta, cantidadAnimales: 4);
+        await SembrarDespachoAsync(lote, [1, 2], precioUnitario: 5m,
+            cliente: "Mercado Ñan");
+        await SembrarDespachoAsync(lote, [3, 4], precioUnitario: 5m,
+            cliente: "mercado ñan");
+
+        var hoy = (DateTime.UtcNow + FechaUtc.DesfasePiloto).ToString("yyyy-MM-dd");
+        var respuesta = await api.ComoAdmin()
+            .GetAsync($"/api/reportes/margen/cliente?desde={hoy}&hasta={hoy}");
+        respuesta.EnsureSuccessStatusCode();
+        var filas = (await respuesta.Content.ReadFromJsonAsync<JsonElement[]>())!;
+
+        // Las dos formas de escribirlo siguen cayendo en UNA sola fila
+        // (la normalización de la clave no se tocó).
+        var filasDelCliente = filas.Where(f => string.Equals(
+            f.GetProperty("agrupacion").GetString(), "Mercado Ñan",
+            StringComparison.OrdinalIgnoreCase)).ToList();
+        filasDelCliente.Count.ShouldBe(1);
+
+        // Pero la etiqueta NO está en mayúsculas: conserva la del primer
+        // despacho ("Mercado Ñan", no "MERCADO ÑAN").
+        filasDelCliente[0].GetProperty("agrupacion").GetString().ShouldBe("Mercado Ñan");
+        filasDelCliente[0].GetProperty("ingreso").GetDecimal().ShouldBe(20m); // 4 x 5
     }
 
     // ── Excel del reporte de ganancias ─────────────────────────────────
@@ -963,7 +1049,12 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
         respuesta.EnsureSuccessStatusCode();
 
         var filas = (await respuesta.Content.ReadFromJsonAsync<JsonElement[]>())!;
-        return filas.Single(f => f.GetProperty("agrupacion").GetString()
-            == cliente.Trim().ToUpperInvariant());
+        // N3: "agrupacion" ya NO viene en mayúsculas (esa es la clave
+        // interna de agrupación, no la etiqueta visible) — se compara sin
+        // distinguir mayúsculas en vez de contra el .ToUpperInvariant() de
+        // antes.
+        return filas.Single(f => string.Equals(
+            f.GetProperty("agrupacion").GetString(), cliente.Trim(),
+            StringComparison.OrdinalIgnoreCase));
     }
 }
