@@ -543,7 +543,24 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
         // no el Id.
         var (_, lote) = await SembrarLoteAsync(CedulaMargenOrden, cantidadAnimales: 4);
 
-        var tarde = DateTime.UtcNow;
+        // Ancla a un instante FIJO dentro del día local de hoy —el punto
+        // medio del día, a 12 horas de ambos bordes— en vez de restar 30
+        // minutos contra UtcNow. InicioDelDiaLocal (Common/FechaUtc.cs)
+        // arranca el día local a las 05:00 UTC: si la prueba corriera entre
+        // las 05:00 y las 05:30 UTC, restar 30 minutos de UtcNow empujaba
+        // "temprano" al día local ANTERIOR, RangoUtc lo dejaba fuera del
+        // reporte, y la prueba fallaba 30 minutos de cada día sin que
+        // hubiera ninguna regresión real (mismo tipo de suposición de zona
+        // horaria que ya costó un despliegue en este proyecto). El punto
+        // medio deja 12 horas de margen a cada lado, así que los 30 minutos
+        // de diferencia entre los dos despachos nunca cruzan la frontera,
+        // sea cual sea la hora real en que corra la prueba. Mismo patrón
+        // que FinDeMesUtc arriba: un instante fijo, no una resta contra el
+        // reloj de pared.
+        var diaLocalDeHoy = FechaUtc.ALocal(DateTime.UtcNow).Date;
+        var mediodiaLocalEnUtc =
+            FechaUtc.InicioDelDiaLocal(diaLocalDeHoy) + TimeSpan.FromHours(12);
+        var tarde = mediodiaLocalEnUtc;
         var temprano = tarde.AddMinutes(-30);
 
         // Se inserta primero (Id menor) el despacho MÁS TARDÍO.
@@ -553,7 +570,10 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
         await SembrarDespachoAsync(lote, [3, 4], precioUnitario: 5m,
             cliente: "Mercado Orden", fechaDespacho: temprano);
 
-        var hoy = (DateTime.UtcNow + FechaUtc.DesfasePiloto).ToString("yyyy-MM-dd");
+        // Mismo día local ya calculado arriba, no un segundo UtcNow: evita
+        // que la prueba pida un día distinto al que se sembró si el reloj
+        // cruza medianoche local entre las dos llamadas.
+        var hoy = diaLocalDeHoy.ToString("yyyy-MM-dd");
         var respuesta = await api.ComoAdmin()
             .GetAsync($"/api/reportes/margen/cliente?desde={hoy}&hasta={hoy}");
         respuesta.EnsureSuccessStatusCode();
@@ -659,7 +679,7 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
             // Should-fix 1: tercer contador, mismo estilo que los otros dos
             // — sin devoluciones sembradas en este período, se declara en
             // cero, no se omite.
-            textos.ShouldContain("Unidades devueltas (ya restadas del ingreso): 0");
+            textos.ShouldContain("Unidades devueltas (restan del ingreso solo en despachos con precio): 0");
 
             // B1: sin ?cat=, las hojas de margen dicen explícitamente que
             // cubren toda la cooperativa, y llevan el rótulo de que el
@@ -866,11 +886,61 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
         var hojaCliente = libro.Worksheet("Margen por cliente");
         var textos = hojaCliente.Column(1).CellsUsed()
             .Select(c => c.GetString()).ToList();
-        textos.ShouldContain("Unidades devueltas (ya restadas del ingreso): 2");
+        textos.ShouldContain("Unidades devueltas (restan del ingreso solo en despachos con precio): 2");
 
         var filaDatos = hojaCliente.RowsUsed()
             .Single(f => f.Cell(1).GetString() == "Mercado Devolucion Excel");
         filaDatos.Cell(7).GetValue<int>().ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task LaAdvertenciaDeDevueltasNoAfirmaUnaRestaQueNuncaOcurrio()
+    {
+        // Should-fix del gate final: ConstruirMargen suma unidadesDevueltas
+        // por TODOS los despachos del grupo, tengan precio o no (el
+        // incremento corre antes del if que separa las dos ramas). El
+        // rótulo viejo, "ya restadas del ingreso", afirmaba sin matiz que
+        // esa cifra siempre bajó un ingreso — falso para un despacho sin
+        // precio como el de UnDespachoSinPrecioNoBajaElIngreso: ahí no hay
+        // ingreso del que restar nada, así que la devolución no resta nada
+        // de ninguna celda del libro y aun así suma al contador.
+        //
+        // Reutiliza CedulaMargenSinPrecio: cada prueba arranca con la BD
+        // limpia (Respawner en InitializeAsync), así que no choca con
+        // UnDespachoSinPrecioNoBajaElIngreso.
+        var (_, lote) = await SembrarLoteAsync(
+            CedulaMargenSinPrecio, cantidadAnimales: 3);
+        var despachoId = await SembrarDespachoAsync(lote, [1, 2, 3],
+            precioUnitario: null, cliente: "Mercado Sin Precio Devuelto");
+        await SembrarDevolucionAsync(despachoId, cantidadUnidades: 1,
+            cliente: "Mercado Sin Precio Devuelto");
+
+        // JSON: el ingreso queda en 0 (nada que restar), pero sinPrecio y
+        // unidadesDevueltas suben igual — dos cifras que se mueven, un
+        // ingreso que no.
+        var fila = await PorClienteAsync("Mercado Sin Precio Devuelto");
+        fila.GetProperty("ingreso").GetDecimal().ShouldBe(0m);
+        fila.GetProperty("despachosSinPrecio").GetInt32().ShouldBe(1);
+        fila.GetProperty("unidadesDevueltas").GetInt32().ShouldBe(1);
+
+        // Excel: es el único despacho del período, así que el total del
+        // libro coincide con esta fila. El rótulo ya no promete una resta
+        // que este caso nunca hizo.
+        var hoy = (DateTime.UtcNow + FechaUtc.DesfasePiloto).ToString("yyyy-MM-dd");
+        var respuesta = await api.ComoAdmin()
+            .GetAsync($"/api/reportes/exportar/excel/ganancias?desde={hoy}&hasta={hoy}");
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var bytes = await respuesta.Content.ReadAsByteArrayAsync();
+        using var libro = new XLWorkbook(new MemoryStream(bytes));
+
+        var hojaCliente = libro.Worksheet("Margen por cliente");
+        var textos = hojaCliente.Column(1).CellsUsed()
+            .Select(c => c.GetString()).ToList();
+        textos.ShouldContain(
+            "Unidades devueltas (restan del ingreso solo en despachos con " +
+            "precio): 1");
+        textos.ShouldContain("Despachos sin precio (no se vendieron gratis): 1");
     }
 
     [Fact]
@@ -903,7 +973,7 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
             textos.ShouldContain(
                 "Animales sin costo (su productora no ha cobrado, no costaron " +
                 "cero): 0");
-            textos.ShouldContain("Unidades devueltas (ya restadas del ingreso): 0");
+            textos.ShouldContain("Unidades devueltas (restan del ingreso solo en despachos con precio): 0");
             textos.ShouldContain(
                 "Toda la cooperativa — este reporte no se filtra por centro de acopio");
             textos.ShouldContain(

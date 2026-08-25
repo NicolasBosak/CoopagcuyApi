@@ -1284,7 +1284,6 @@ public class ReportesService(AppDbContext db) : IReportesService
             totalUnidadesDevueltas += r.UnidadesDevueltas;
             fila++;
         }
-        hoja.Columns().AdjustToContents();
 
         // Debajo de la tabla, no en una columna más: son advertencias sobre
         // el libro entero, no un dato por fila.
@@ -1303,9 +1302,16 @@ public class ReportesService(AppDbContext db) : IReportesService
         // Tercer contador, mismo estilo que los dos de arriba: el Ingreso ya
         // es neto de devoluciones (S1), así que un despacho enteramente
         // devuelto aporta $0 sin dejar rastro en ninguna otra celda del
-        // libro si esta línea no existiera.
+        // libro si esta línea no existiera. El rótulo NO dice "ya restadas
+        // del ingreso" sin matiz: ConstruirMargen suma esta cifra por cada
+        // despacho del grupo, con precio o sin él, así que un despacho
+        // legado sin precio (el que cuenta la línea de arriba) que reciba
+        // una devolución también suma aquí sin que haya nada de qué
+        // restarlo — afirmarlo sin condición sería una relación que ese
+        // caso no sostiene.
         hoja.Cell(filaAdvertencia + 2, 1).Value =
-            $"Unidades devueltas (ya restadas del ingreso): {totalUnidadesDevueltas}";
+            "Unidades devueltas (restan del ingreso solo en despachos con " +
+            $"precio): {totalUnidadesDevueltas}";
         hoja.Cell(filaAdvertencia + 2, 1).Style.Font.Bold = true;
         hoja.Cell(filaAdvertencia + 2, 1).Style.Font.FontColor = XLColor.FromHtml("#B71C1C");
 
@@ -1329,6 +1335,13 @@ public class ReportesService(AppDbContext db) : IReportesService
             "contable de la cooperativa.";
         hoja.Cell(filaAdvertencia + 4, 1).Style.Font.Bold = true;
         hoja.Cell(filaAdvertencia + 4, 1).Style.Font.FontColor = XLColor.FromHtml("#B71C1C");
+
+        // Should-fix 3 (companion): AdjustToContents al final, después de
+        // escribir las advertencias — antes corría antes de escribirlas, así
+        // que la columna nunca se dimensionaba para ese texto (el más largo
+        // de la hoja). Mismo orden que ya llevan las tres hojas de
+        // ganancias arriba.
+        hoja.Columns().AdjustToContents();
     }
 
     // ── Flujo de trazabilidad: Entrada / Tránsito / Salida ────────────
