@@ -36,6 +36,7 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
     private const string CedulaMargenSinPrecio = "0104576293";
     private const string CedulaMargenCosto = "0104576301";
     private const string CedulaMargenDenominador = "0104576319";
+    private const string CedulaMargenDevolucion = "0104576327";
 
     // Fecha explícita —no por diferencia contra UtcNow— para ejercitar la
     // frontera del mes: las 02:00 UTC del 1 de septiembre son las 21:00 del
@@ -397,6 +398,43 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
         fila.GetProperty("animalesSinCosto").GetInt32().ShouldBe(4);
     }
 
+    [Fact]
+    public async Task ElIngresoDescuentaLasUnidadesDevueltas()
+    {
+        // S1 — decisión del product owner: el ingreso es NETO de
+        // devoluciones. La vista por cliente existe "para saber cuál deja
+        // más" (spec, Parte 3); contar el ingreso bruto invertiría ese
+        // ranking justo en el cliente que más devuelve.
+        //
+        // 12 cuyes, pago de planta 120 -> costo por animal = 120/12 = 10.
+        // Despacho de 5 animales a $20 = ingreso BRUTO 100. Se devuelven 2
+        // unidades de ESE despacho.
+        //   Ingreso NETO (correcto):     (5 - 2) * 20 = 60
+        //   Ingreso bruto (si no se restara la devolución): 100
+        // Números claramente distintos (60 vs 100): si el fix no restara,
+        // esta prueba lo notaría.
+        //
+        // El costo atribuido NO se ajusta por la devolución (ver el
+        // comentario de la decisión en ConstruirMargen): sigue siendo
+        // (120/12)*5 = 50, porque la cooperativa ya le pagó a la productora
+        // por esos 5 animales y Devolucion no dice cuál volvió.
+        //   Margen correcto:   60 - 50 = 10
+        //   Margen sin restar: 100 - 50 = 50 (también claramente distinto)
+        var (productora, lote) = await SembrarLoteAsync(
+            CedulaMargenDevolucion, cantidadAnimales: 12);
+        var despachoId = await SembrarDespachoAsync(lote, [1, 2, 3, 4, 5],
+            precioUnitario: 20m, cliente: "Mercado Devolucion");
+        await SembrarPagoPlantaAsync(productora.Id, lote.Id, montoPagado: 120m);
+        await SembrarDevolucionAsync(despachoId, cantidadUnidades: 2,
+            cliente: "Mercado Devolucion");
+
+        var fila = await PorClienteAsync("Mercado Devolucion");
+
+        fila.GetProperty("ingreso").GetDecimal().ShouldBe(60m);
+        fila.GetProperty("costoAtribuido").GetDecimal().ShouldBe(50m);
+        fila.GetProperty("margen").GetDecimal().ShouldBe(10m);
+    }
+
     // ── Excel del reporte de ganancias ─────────────────────────────────
     //
     // Un libro con las cinco vistas: por CAT, por productora, por mes,
@@ -722,7 +760,9 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
     /// Faena y despacha los animales indicados (por NumeroEnLote) de un
     /// lote ya sembrado: una sesión de faenamiento propia por despacho, para
     /// no chocar con el índice único de DespachoCuy.CuyFaenamientoId.
-    private async Task SembrarDespachoAsync(
+    /// Devuelve el Id del despacho creado, para poder sembrarle
+    /// devoluciones encima (S1).
+    private async Task<int> SembrarDespachoAsync(
         Lote lote, int[] numerosEnLote, decimal? precioUnitario, string cliente)
     {
         await using var db = api.NuevoDbContext();
@@ -778,6 +818,26 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
             DespachoId = despacho.Id,
             CuyFaenamientoId = cf.Id
         }));
+        await db.SaveChangesAsync();
+
+        return despacho.Id;
+    }
+
+    /// Devolución de un cliente sobre un despacho concreto (S1): el ingreso
+    /// del margen se cuenta neto de estas unidades.
+    private async Task SembrarDevolucionAsync(
+        int despachoId, int cantidadUnidades, string cliente)
+    {
+        await using var db = api.NuevoDbContext();
+        db.Devoluciones.Add(new Devolucion
+        {
+            DespachoId = despachoId,
+            ClienteDevuelve = cliente,
+            FechaDevolucion = DateTime.UtcNow,
+            CantidadUnidades = cantidadUnidades,
+            Motivo = "Producto en mal estado",
+            Responsable = "Operadora de prueba"
+        });
         await db.SaveChangesAsync();
     }
 

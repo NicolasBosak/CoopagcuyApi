@@ -821,7 +821,9 @@ public class ReportesService(AppDbContext db) : IReportesService
     private async Task<(
         List<Despacho> Despachos,
         Dictionary<int, List<AnimalDespachado>> AnimalesPorDespacho,
-        List<PagoDeLote> Pagos)> DatosDeMargenAsync(FiltroPeriodoDto filtro)
+        List<PagoDeLote> Pagos,
+        Dictionary<int, int> UnidadesDevueltasPorDespacho)> DatosDeMargenAsync(
+            FiltroPeriodoDto filtro)
     {
         var (desdeUtc, hastaUtc) = RangoUtc(filtro);
 
@@ -905,7 +907,17 @@ public class ReportesService(AppDbContext db) : IReportesService
                     && c.VentaLocalPagoId == null)))
             .ToList();
 
-        return (despachos, animalesPorDespacho, pagos);
+        // Unidades devueltas por despacho, con la misma agrupación que usa
+        // FaenamientoService.ListarDespachosAsync (Devolucion.UnidadesPorDespachoAsync):
+        // el ingreso del margen se cuenta neto de lo devuelto (decisión del
+        // producto owner, S1). El costo NO se ajusta por esto — ver el
+        // comentario en ConstruirMargen.
+        var despachoIds = despachos.Select(d => d.Id).ToList();
+        var unidadesDevueltasPorDespacho = await Devolucion.UnidadesPorDespachoAsync(
+            db.Devoluciones.Where(v => v.DespachoId != null
+                && despachoIds.Contains(v.DespachoId.Value)));
+
+        return (despachos, animalesPorDespacho, pagos, unidadesDevueltasPorDespacho);
     }
 
     // El salto de NumeroEnLote a CuyRegistro para encontrar quién entregó un
@@ -917,11 +929,32 @@ public class ReportesService(AppDbContext db) : IReportesService
     // El ingreso solo suma los despachos CON precio; los que no lo tienen se
     // cuentan en DespachosSinPrecio y no como cero — un despacho sin precio
     // no se vendió gratis.
+    //
+    // S1 — el ingreso es NETO de devoluciones: decisión del product owner.
+    // Un cliente que se lleva 10 y devuelve 6 no "dejó" el ingreso de los
+    // 10; contarlo así habría invertido el ranking por cliente que esta
+    // vista existe para dar ("para saber cuál deja más" — spec, Parte 3).
+    //
+    // El COSTO NO se ajusta por la devolución, a propósito:
+    //   1. La cooperativa ya le pagó (o le debe) a la productora por ese
+    //      animal específico. Ese pago no se reversa porque un cliente haya
+    //      devuelto el producto después — es un problema de la venta, no de
+    //      la compra.
+    //   2. Devolucion no identifica QUÉ animal puntual volvió (solo cuenta
+    //      unidades por despacho), así que no hay forma de sacar del pool
+    //      de costo a un animal concreto sin inventar cuál fue — la misma
+    //      honestidad que ya rige el resto de este reporte: lo que no se
+    //      sabe no se fuerza a cero, y aquí tampoco se fuerza un supuesto
+    //      que el dato no sostiene.
+    // El resultado: una devolución baja el margen (el ingreso cae, el costo
+    // no), que es la lectura correcta — la cooperativa sigue habiendo
+    // pagado por un animal que no generó ingreso.
     private static MargenDto ConstruirMargen(
         string agrupacion,
         IEnumerable<Despacho> despachosDelGrupo,
         Dictionary<int, List<AnimalDespachado>> animalesPorDespacho,
-        List<PagoDeLote> pagos)
+        List<PagoDeLote> pagos,
+        Dictionary<int, int> unidadesDevueltasPorDespacho)
     {
         decimal ingreso = 0m;
         var sinPrecio = 0;
@@ -929,8 +962,14 @@ public class ReportesService(AppDbContext db) : IReportesService
 
         foreach (var d in despachosDelGrupo)
         {
+            var devueltas = unidadesDevueltasPorDespacho.GetValueOrDefault(d.Id);
+            // RegistrarDevolucionAsync no deja devolver más de lo enviado,
+            // pero el Max(0, ...) es la misma defensa en profundidad que el
+            // resto del reporte aplica a datos que otro servicio garantiza.
+            var unidadesNetas = Math.Max(0, d.CantidadUnidades - devueltas);
+
             if (d.PrecioUnitarioUsd is decimal precio)
-                ingreso += precio * d.CantidadUnidades;
+                ingreso += precio * unidadesNetas;
             else
                 sinPrecio++;
 
@@ -950,7 +989,8 @@ public class ReportesService(AppDbContext db) : IReportesService
 
     public async Task<IEnumerable<MargenDto>> MargenPorMesAsync(FiltroPeriodoDto filtro)
     {
-        var (despachos, animalesPorDespacho, pagos) = await DatosDeMargenAsync(filtro);
+        var (despachos, animalesPorDespacho, pagos, unidadesDevueltas) =
+            await DatosDeMargenAsync(filtro);
 
         // El mes se agrupa por el día LOCAL del piloto, misma técnica que
         // GananciasPorMesAsync: FechaUtc.ALocal no se traduce a SQL, así que
@@ -963,14 +1003,15 @@ public class ReportesService(AppDbContext db) : IReportesService
             .GroupBy(x => new { x.Local.Year, x.Local.Month })
             .Select(g => ConstruirMargen(
                 $"{g.Key.Year:D4}-{g.Key.Month:D2}",
-                g.Select(x => x.Despacho), animalesPorDespacho, pagos))
+                g.Select(x => x.Despacho), animalesPorDespacho, pagos, unidadesDevueltas))
             .OrderBy(m => m.Agrupacion)
             .ToList();
     }
 
     public async Task<IEnumerable<MargenDto>> MargenPorClienteAsync(FiltroPeriodoDto filtro)
     {
-        var (despachos, animalesPorDespacho, pagos) = await DatosDeMargenAsync(filtro);
+        var (despachos, animalesPorDespacho, pagos, unidadesDevueltas) =
+            await DatosDeMargenAsync(filtro);
 
         return despachos
             .GroupBy(d =>
@@ -982,7 +1023,8 @@ public class ReportesService(AppDbContext db) : IReportesService
                 var cliente = (d.ClienteDestino ?? string.Empty).Trim().ToUpperInvariant();
                 return cliente;
             })
-            .Select(g => ConstruirMargen(g.Key, g, animalesPorDespacho, pagos))
+            .Select(g => ConstruirMargen(
+                g.Key, g, animalesPorDespacho, pagos, unidadesDevueltas))
             .OrderByDescending(m => m.Ingreso)
             .ToList();
     }

@@ -604,11 +604,7 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
 
         // Unidades ya devueltas por despacho: el formulario de devolución
         // solo ofrece despachos con restante y topa la cantidad
-        var devueltas = await db.Devoluciones
-            .Where(v => v.DespachoId != null)
-            .GroupBy(v => v.DespachoId!.Value)
-            .Select(g => new { DespachoId = g.Key, Total = g.Sum(v => v.CantidadUnidades) })
-            .ToDictionaryAsync(x => x.DespachoId, x => x.Total);
+        var devueltas = await Devolucion.UnidadesPorDespachoAsync(db.Devoluciones);
 
         return lista.Select(d => new DespachoResponseDto(
             d.Id,

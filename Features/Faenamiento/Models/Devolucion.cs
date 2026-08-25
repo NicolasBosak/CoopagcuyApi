@@ -1,4 +1,5 @@
 using CoopagcuyApi.Features.Productoras.Models;
+using Microsoft.EntityFrameworkCore;
 
 namespace CoopagcuyApi.Features.Faenamiento.Models;
 
@@ -31,4 +32,17 @@ public class Devolucion
     public string Responsable { get; set; } = string.Empty;
     public string? Observaciones { get; set; }
     public DateTime FechaRegistro { get; set; } = DateTime.UtcNow;
+
+    // Unidades devueltas por despacho: único lugar que agrupa Devolucion por
+    // DespachoId, para que FaenamientoService (saldo disponible para una
+    // nueva devolución) y ReportesService (el margen cuenta el ingreso neto
+    // de lo devuelto) no lleven cada uno su propia copia del criterio y se
+    // desincronicen si cambia.
+    public static Task<Dictionary<int, int>> UnidadesPorDespachoAsync(
+        IQueryable<Devolucion> devoluciones) =>
+        devoluciones
+            .Where(d => d.DespachoId != null)
+            .GroupBy(d => d.DespachoId!.Value)
+            .Select(g => new { DespachoId = g.Key, Total = g.Sum(d => d.CantidadUnidades) })
+            .ToDictionaryAsync(x => x.DespachoId, x => x.Total);
 }
