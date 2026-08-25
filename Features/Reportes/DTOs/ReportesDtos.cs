@@ -211,6 +211,11 @@ public record GananciaMesDto(
 // de contarse como cero: un despacho sin precio no se vendió gratis, y un
 // animal cuya productora no ha cobrado no costó cero. Un margen que los
 // ignorase sería optimista justo cuando más falta pagar.
+//
+// UnidadesDevueltas también se muestra junto a la cifra, por el mismo
+// motivo: Ingreso ya es neto de devoluciones (S1), así que un despacho
+// enteramente devuelto aporta $0 de ingreso sin dejar ningún rastro si esta
+// columna no existiera.
 
 public record MargenDto(
     string Agrupacion,
@@ -218,7 +223,8 @@ public record MargenDto(
     decimal CostoAtribuido,
     decimal Margen,
     int DespachosSinPrecio,
-    int AnimalesSinCosto
+    int AnimalesSinCosto,
+    int UnidadesDevueltas
 );
 
 // ── Filtros compartidos ───────────────────────────────────────────────

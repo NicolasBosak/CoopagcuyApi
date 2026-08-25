@@ -350,6 +350,9 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
         var fila = await PorClienteAsync("Mercado Ingreso");
 
         fila.GetProperty("ingreso").GetDecimal().ShouldBe(17m);
+        // Should-fix 1: sin devoluciones el contador se queda en 0, no
+        // ausente — negativo de la aserción de arriba.
+        fila.GetProperty("unidadesDevueltas").GetInt32().ShouldBe(0);
     }
 
     [Fact]
@@ -486,6 +489,9 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
         fila.GetProperty("ingreso").GetDecimal().ShouldBe(60m);
         fila.GetProperty("costoAtribuido").GetDecimal().ShouldBe(50m);
         fila.GetProperty("margen").GetDecimal().ShouldBe(10m);
+        // Should-fix 1: unidadesDevueltas declara las 2 unidades que ya
+        // bajaron el ingreso, en vez de dejar el descuento sin rastro.
+        fila.GetProperty("unidadesDevueltas").GetInt32().ShouldBe(2);
     }
 
     [Fact]
@@ -590,6 +596,13 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
         // los 2 animales quedan sin costo conocido.
         foreach (var nombreMargen in HojasDeMargen)
         {
+            // Should-fix 1: "Ingreso" ya no basta solo — desde que es neto
+            // de devoluciones, el encabezado debe decirlo, para no chocar
+            // con el ingreso BRUTO que publica el listado de despachos bajo
+            // el mismo nombre de columna.
+            libro.Worksheet(nombreMargen).Cell(1, 2).GetString()
+                .ShouldBe("Ingreso (neto de devoluciones)");
+
             var textos = libro.Worksheet(nombreMargen).Column(1)
                 .CellsUsed().Select(c => c.GetString()).ToList();
 
@@ -597,6 +610,10 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
             textos.ShouldContain(
                 "Animales sin costo (su productora no ha cobrado, no costaron " +
                 "cero): 2");
+            // Should-fix 1: tercer contador, mismo estilo que los otros dos
+            // — sin devoluciones sembradas en este período, se declara en
+            // cero, no se omite.
+            textos.ShouldContain("Unidades devueltas (ya restadas del ingreso): 0");
 
             // B1: sin ?cat=, las hojas de margen dicen explícitamente que
             // cubren toda la cooperativa, y llevan el rótulo de que el
@@ -666,6 +683,44 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task ElExcelDeMargenDeclaraElTotalDeUnidadesDevueltas()
+    {
+        // Should-fix 1: un despacho parcialmente devuelto debe dejar rastro
+        // del total devuelto en el libro, no solo bajar el ingreso en
+        // silencio. Mismo sembrado que ElIngresoDescuentaLasUnidadesDevueltas
+        // (5 unidades despachadas, 2 devueltas) pero verificado en el Excel
+        // en vez de en el JSON.
+        var (productora, lote) = await SembrarLoteAsync(
+            CedulaMargenDevolucion, cantidadAnimales: 12);
+        var despachoId = await SembrarDespachoAsync(lote, [1, 2, 3, 4, 5],
+            precioUnitario: 20m, cliente: "Mercado Devolucion Excel");
+        await SembrarPagoPlantaAsync(productora.Id, lote.Id, montoPagado: 120m);
+        await SembrarDevolucionAsync(despachoId, cantidadUnidades: 2,
+            cliente: "Mercado Devolucion Excel");
+
+        var hoy = (DateTime.UtcNow + FechaUtc.DesfasePiloto).ToString("yyyy-MM-dd");
+        var respuesta = await api.ComoAdmin()
+            .GetAsync($"/api/reportes/exportar/excel/ganancias?desde={hoy}&hasta={hoy}");
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var bytes = await respuesta.Content.ReadAsByteArrayAsync();
+        using var libro = new XLWorkbook(new MemoryStream(bytes));
+
+        // "Margen por cliente" agrupa un solo despacho bajo "Mercado
+        // Devolucion Excel": el total del contador y la celda de la fila de
+        // datos deben coincidir en 2, el mismo número que ya se verificó
+        // por JSON — dos superficies, un solo dato.
+        var hojaCliente = libro.Worksheet("Margen por cliente");
+        var textos = hojaCliente.Column(1).CellsUsed()
+            .Select(c => c.GetString()).ToList();
+        textos.ShouldContain("Unidades devueltas (ya restadas del ingreso): 2");
+
+        var filaDatos = hojaCliente.RowsUsed()
+            .Single(f => f.Cell(1).GetString() == "Mercado Devolucion Excel");
+        filaDatos.Cell(7).GetValue<int>().ShouldBe(2);
+    }
+
+    [Fact]
     public async Task ElExcelDeGananciasSinDatosMantieneLasCincoHojasConAdvertenciasEnCero()
     {
         // El vecino sin datos de la prueba anterior: un período vacío (sin
@@ -695,6 +750,7 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
             textos.ShouldContain(
                 "Animales sin costo (su productora no ha cobrado, no costaron " +
                 "cero): 0");
+            textos.ShouldContain("Unidades devueltas (ya restadas del ingreso): 0");
             textos.ShouldContain(
                 "Toda la cooperativa — este reporte no se filtra por centro de acopio");
             textos.ShouldContain(

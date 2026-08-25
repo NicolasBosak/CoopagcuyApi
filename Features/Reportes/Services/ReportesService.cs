@@ -966,11 +966,13 @@ public class ReportesService(AppDbContext db) : IReportesService
     {
         decimal ingreso = 0m;
         var sinPrecio = 0;
+        var unidadesDevueltas = 0;
         var animales = new List<AnimalDespachado>();
 
         foreach (var d in despachosDelGrupo)
         {
             var devueltas = unidadesDevueltasPorDespacho.GetValueOrDefault(d.Id);
+            unidadesDevueltas += devueltas;
             // RegistrarDevolucionAsync no deja devolver más de lo enviado,
             // pero el Max(0, ...) es la misma defensa en profundidad que el
             // resto del reporte aplica a datos que otro servicio garantiza.
@@ -992,7 +994,8 @@ public class ReportesService(AppDbContext db) : IReportesService
             CostoAtribuido: costo.Total,
             Margen: ingreso - costo.Total,
             DespachosSinPrecio: sinPrecio,
-            AnimalesSinCosto: costo.AnimalesSinCosto);
+            AnimalesSinCosto: costo.AnimalesSinCosto,
+            UnidadesDevueltas: unidadesDevueltas);
     }
 
     public async Task<IEnumerable<MargenDto>> MargenPorMesAsync(FiltroPeriodoDto filtro)
@@ -1201,13 +1204,14 @@ public class ReportesService(AppDbContext db) : IReportesService
         var hoja = libro.Worksheets.Add(nombreHoja);
         EscribirEncabezadosGanancias(hoja, new[]
         {
-            "Agrupación", "Ingreso", "Costo atribuido", "Margen",
-            "Despachos sin precio", "Animales sin costo"
+            "Agrupación", "Ingreso (neto de devoluciones)", "Costo atribuido", "Margen",
+            "Despachos sin precio", "Animales sin costo", "Unidades devueltas"
         });
 
         int fila = 2;
         var totalDespachosSinPrecio = 0;
         var totalAnimalesSinCosto = 0;
+        var totalUnidadesDevueltas = 0;
         foreach (var r in datos)
         {
             hoja.Cell(fila, 1).Value = r.Agrupacion;
@@ -1216,8 +1220,10 @@ public class ReportesService(AppDbContext db) : IReportesService
             hoja.Cell(fila, 4).Value = r.Margen;
             hoja.Cell(fila, 5).Value = r.DespachosSinPrecio;
             hoja.Cell(fila, 6).Value = r.AnimalesSinCosto;
+            hoja.Cell(fila, 7).Value = r.UnidadesDevueltas;
             totalDespachosSinPrecio += r.DespachosSinPrecio;
             totalAnimalesSinCosto += r.AnimalesSinCosto;
+            totalUnidadesDevueltas += r.UnidadesDevueltas;
             fila++;
         }
         hoja.Columns().AdjustToContents();
@@ -1236,26 +1242,35 @@ public class ReportesService(AppDbContext db) : IReportesService
         hoja.Cell(filaAdvertencia + 1, 1).Style.Font.Bold = true;
         hoja.Cell(filaAdvertencia + 1, 1).Style.Font.FontColor = XLColor.FromHtml("#B71C1C");
 
+        // Tercer contador, mismo estilo que los dos de arriba: el Ingreso ya
+        // es neto de devoluciones (S1), así que un despacho enteramente
+        // devuelto aporta $0 sin dejar rastro en ninguna otra celda del
+        // libro si esta línea no existiera.
+        hoja.Cell(filaAdvertencia + 2, 1).Value =
+            $"Unidades devueltas (ya restadas del ingreso): {totalUnidadesDevueltas}";
+        hoja.Cell(filaAdvertencia + 2, 1).Style.Font.Bold = true;
+        hoja.Cell(filaAdvertencia + 2, 1).Style.Font.FontColor = XLColor.FromHtml("#B71C1C");
+
         // A diferencia de las tres hojas de ganancias, esta hoja (y su
         // hermana "Margen por cliente") IGNORA ?cat= a propósito: un
         // despacho reúne animales de varias jaulas y por tanto de varias
         // CAT (ver el comentario en DatosDeMargenAsync). Sin esta línea en
         // el libro, quien lo abra filtrado por una CAT puede leer esta hoja
         // como si también estuviera acotada.
-        hoja.Cell(filaAdvertencia + 2, 1).Value =
+        hoja.Cell(filaAdvertencia + 3, 1).Value =
             "Toda la cooperativa — este reporte no se filtra por centro de acopio";
-        hoja.Cell(filaAdvertencia + 2, 1).Style.Font.Bold = true;
-        hoja.Cell(filaAdvertencia + 2, 1).Style.Font.FontColor = XLColor.FromHtml("#B71C1C");
+        hoja.Cell(filaAdvertencia + 3, 1).Style.Font.Bold = true;
+        hoja.Cell(filaAdvertencia + 3, 1).Style.Font.FontColor = XLColor.FromHtml("#B71C1C");
 
         // El spec lo exige como requisito, no como sugerencia (ver su
         // sección "Fuera de alcance"): el margen es sobre el costo de los
         // animales, no un resultado contable de la cooperativa.
-        hoja.Cell(filaAdvertencia + 3, 1).Value =
+        hoja.Cell(filaAdvertencia + 4, 1).Value =
             "El margen es sobre el costo de los animales: no incluye " +
             "transporte, faenamiento ni empaque, así que no es un resultado " +
             "contable de la cooperativa.";
-        hoja.Cell(filaAdvertencia + 3, 1).Style.Font.Bold = true;
-        hoja.Cell(filaAdvertencia + 3, 1).Style.Font.FontColor = XLColor.FromHtml("#B71C1C");
+        hoja.Cell(filaAdvertencia + 4, 1).Style.Font.Bold = true;
+        hoja.Cell(filaAdvertencia + 4, 1).Style.Font.FontColor = XLColor.FromHtml("#B71C1C");
     }
 
     // ── Flujo de trazabilidad: Entrada / Tránsito / Salida ────────────
