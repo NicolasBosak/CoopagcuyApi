@@ -842,6 +842,15 @@ public class ReportesService(AppDbContext db) : IReportesService
         // —cientos de animales por período— traerlo y resolverlo aquí es más
         // barato en mantenimiento que en milisegundos, y la parte con reglas
         // vive en una función pura que sí se puede fijar.
+        // Should-fix 4: orden explícito, no el que el proveedor entregue. Sin
+        // esto, MargenPorClienteAsync toma la etiqueta visible de
+        // g.First().ClienteDestino (ver el comentario ahí) y "el primer
+        // despacho del grupo" quedaba a merced del orden físico de la
+        // consulta —que con AsSplitQuery y cuatro niveles de Include no está
+        // garantizado— así que la forma mostrada de un mismo cliente podía
+        // cambiar entre una corrida y la siguiente del mismo reporte. Con
+        // este orden, gana el despacho más antiguo del grupo (FechaDespacho
+        // ascendente) y, en empate, el de menor Id.
         var despachos = await db.Despachos
             .Include(d => d.Cuyes)
                 .ThenInclude(dc => dc.CuyFaenamiento)
@@ -849,6 +858,7 @@ public class ReportesService(AppDbContext db) : IReportesService
                         .ThenInclude(r => r.Lote)
                             .ThenInclude(l => l.Cuyes)
             .Where(d => d.FechaDespacho >= desdeUtc && d.FechaDespacho < hastaUtc)
+            .OrderBy(d => d.FechaDespacho).ThenBy(d => d.Id)
             .AsNoTracking()
             .AsSplitQuery()
             .ToListAsync();
@@ -919,7 +929,11 @@ public class ReportesService(AppDbContext db) : IReportesService
         // FaenamientoService.ListarDespachosAsync (Devolucion.UnidadesPorDespachoAsync):
         // el ingreso del margen se cuenta neto de lo devuelto (decisión del
         // producto owner, S1). El costo NO se ajusta por esto — ver el
-        // comentario en ConstruirMargen.
+        // comentario en ConstruirMargen. La consulta de abajo acota solo por
+        // DespachoId, no por FechaDevolucion — a propósito: es lo que hace
+        // que una devolución de marzo baje el ingreso de enero al reejecutar
+        // ese reporte, en vez de acotar por fecha y estrandar esa devolución
+        // en un mes cuyo margen no le pertenece.
         var despachoIds = despachos.Select(d => d.Id).ToList();
         var unidadesDevueltasPorDespacho = await Devolucion.UnidadesPorDespachoAsync(
             db.Devoluciones.Where(v => v.DespachoId != null
@@ -1038,6 +1052,12 @@ public class ReportesService(AppDbContext db) : IReportesService
                 // grupo. Normalizar para agrupar no significa que la
                 // pantalla y el Excel deban mostrar el nombre del cliente
                 // GRITADO en mayúsculas.
+                //
+                // Should-fix 4: "el primero" es determinista porque
+                // DatosDeMargenAsync ordena los despachos por FechaDespacho
+                // ascendente (empate: Id ascendente) antes de llegar aquí —
+                // gana la forma en que se escribió el despacho MÁS ANTIGUO
+                // del grupo, no la que el proveedor de datos devuelva.
                 var etiqueta = (g.First().ClienteDestino ?? string.Empty).Trim();
                 return ConstruirMargen(
                     etiqueta, g, animalesPorDespacho, pagos, unidadesDevueltas);
@@ -1085,12 +1105,26 @@ public class ReportesService(AppDbContext db) : IReportesService
         return stream.ToArray();
     }
 
+    // Should-fix 2: único criterio de "¿este ?cat= es válido?" para todo el
+    // feature. Antes había tres nociones distintas del mismo concepto: el
+    // TryParse case-sensitive que usan los filtros reales (aquí y en cada
+    // consulta de arriba), !IsNullOrEmpty en DescripcionAlcanceCat, e
+    // IsNullOrWhiteSpace en el sufijo del nombre de archivo del controlador.
+    // Solo la primera refleja lo que de verdad pasa: Enum.TryParse<CentroAcopio>
+    // es case-sensitive, así que "?cat=pat" no filtra nada — con las otras
+    // dos nociones ese mismo ?cat=pat pasaba como "válido" y el libro
+    // terminaba declarando (y el archivo nombrando) un alcance más angosto
+    // que sus datos reales: el fallo que esta etiqueta existe para evitar,
+    // invertido.
+    public static bool EsCatValido(string? cat) =>
+        !string.IsNullOrEmpty(cat) && Enum.TryParse<CentroAcopio>(cat, out _);
+
     private static void EscribirEncabezadosGanancias(
-        IXLWorksheet hoja, string[] encabezados)
+        IXLWorksheet hoja, string[] encabezados, int fila = 1)
     {
         for (int i = 0; i < encabezados.Length; i++)
         {
-            var celda = hoja.Cell(1, i + 1);
+            var celda = hoja.Cell(fila, i + 1);
             celda.Value = encabezados[i];
             celda.Style.Font.Bold = true;
             celda.Style.Fill.BackgroundColor = XLColor.FromHtml("#2E7D32");
@@ -1104,31 +1138,49 @@ public class ReportesService(AppDbContext db) : IReportesService
     // una reunión filtrado por PAT puede leer la hoja 2 ("PAT cobró $X")
     // junto a la hoja 4 ("margen $Y", que es de TODA la cooperativa) como si
     // ambas hablaran del mismo universo.
+    //
+    // Should-fix 2: usa EsCatValido, no un simple !IsNullOrEmpty — un
+    // ?cat=pat (minúsculas) no filtró nada arriba, así que esta línea no
+    // puede decir "Centro de acopio: pat" como si sí lo hubiera hecho.
     private static string DescripcionAlcanceCat(string? cat) =>
-        string.IsNullOrEmpty(cat) ? "Todos los centros de acopio" : cat;
+        EsCatValido(cat) ? cat! : "Todos los centros de acopio";
 
-    // Debajo de la tabla, con una fila de por medio: mismo lugar y mismo
-    // estilo que las advertencias de AgregarHojaMargen, para que el alcance
-    // de cada hoja quede en el libro y no solo en el nombre del archivo.
-    private static void EscribirAlcanceCat(
-        IXLWorksheet hoja, int filaSiguienteVacia, string? cat)
+    // Una sola función que escribe la celda; las dos de abajo solo deciden
+    // en qué fila.
+    private static void EscribirLineaAlcanceCat(IXLWorksheet hoja, int fila, string? cat)
     {
-        var celda = hoja.Cell(filaSiguienteVacia + 1, 1);
+        var celda = hoja.Cell(fila, 1);
         celda.Value = $"Centro de acopio: {DescripcionAlcanceCat(cat)}";
         celda.Style.Font.Bold = true;
     }
+
+    // Should-fix 3: fila 1, ANTES del encabezado. Con muchas filas de datos
+    // (p. ej. "Ganancias por productora" con cincuenta productoras) una nota
+    // solo al final del todo obliga a desplazarse por toda la tabla para
+    // enterarse de que la hoja está filtrada — justo lo que esta etiqueta
+    // existe para evitar. Se repite también al final (EscribirAlcanceCatAlFinal)
+    // para quien entra navegando desde abajo.
+    private static void EscribirAlcanceCatAlInicio(IXLWorksheet hoja, string? cat) =>
+        EscribirLineaAlcanceCat(hoja, 1, cat);
+
+    // Debajo de la tabla, con una fila de por medio: mismo lugar y mismo
+    // estilo que las advertencias de AgregarHojaMargen.
+    private static void EscribirAlcanceCatAlFinal(
+        IXLWorksheet hoja, int filaSiguienteVacia, string? cat) =>
+        EscribirLineaAlcanceCat(hoja, filaSiguienteVacia + 1, cat);
 
     private static void AgregarHojaGananciaCat(
         XLWorkbook libro, IEnumerable<GananciaCatDto> datos, string? cat)
     {
         var hoja = libro.Worksheets.Add("Ganancias por CAT");
+        EscribirAlcanceCatAlInicio(hoja, cat);
         EscribirEncabezadosGanancias(hoja, new[]
         {
             "Centro de Acopio", "Cobrado local", "Pactado a cuotas",
             "Pagado planta", "N.º de pagos"
-        });
+        }, fila: 2);
 
-        int fila = 2;
+        int fila = 3;
         foreach (var r in datos)
         {
             hoja.Cell(fila, 1).Value = r.CentroAcopio;
@@ -1138,21 +1190,26 @@ public class ReportesService(AppDbContext db) : IReportesService
             hoja.Cell(fila, 5).Value = r.TotalPagos;
             fila++;
         }
+        EscribirAlcanceCatAlFinal(hoja, fila, cat);
+        // Should-fix 3 (companion): AdjustToContents al final, después de
+        // escribir las dos líneas de alcance — antes corría antes de
+        // escribirlas, así que la columna nunca se dimensionaba para ese
+        // texto (el más largo de la hoja).
         hoja.Columns().AdjustToContents();
-        EscribirAlcanceCat(hoja, fila, cat);
     }
 
     private static void AgregarHojaGananciaProductora(
         XLWorkbook libro, IEnumerable<GananciaProductoraDto> datos, string? cat)
     {
         var hoja = libro.Worksheets.Add("Ganancias por productora");
+        EscribirAlcanceCatAlInicio(hoja, cat);
         EscribirEncabezadosGanancias(hoja, new[]
         {
             "Productora", "Comunidad", "Centro de Acopio", "Cobrado local",
             "Pactado a cuotas", "Pagado planta", "N.º de pagos"
-        });
+        }, fila: 2);
 
-        int fila = 2;
+        int fila = 3;
         foreach (var r in datos)
         {
             hoja.Cell(fila, 1).Value = r.NombreProductora;
@@ -1164,21 +1221,22 @@ public class ReportesService(AppDbContext db) : IReportesService
             hoja.Cell(fila, 7).Value = r.TotalPagos;
             fila++;
         }
+        EscribirAlcanceCatAlFinal(hoja, fila, cat);
         hoja.Columns().AdjustToContents();
-        EscribirAlcanceCat(hoja, fila, cat);
     }
 
     private static void AgregarHojaGananciaMes(
         XLWorkbook libro, IEnumerable<GananciaMesDto> datos, string? cat)
     {
         var hoja = libro.Worksheets.Add("Ganancias por mes");
+        EscribirAlcanceCatAlInicio(hoja, cat);
         EscribirEncabezadosGanancias(hoja, new[]
         {
             "Año", "Mes", "Cobrado local", "Pactado a cuotas",
             "Pagado planta", "N.º de pagos"
-        });
+        }, fila: 2);
 
-        int fila = 2;
+        int fila = 3;
         foreach (var r in datos)
         {
             hoja.Cell(fila, 1).Value = r.Anio;
@@ -1189,8 +1247,8 @@ public class ReportesService(AppDbContext db) : IReportesService
             hoja.Cell(fila, 6).Value = r.TotalPagos;
             fila++;
         }
+        EscribirAlcanceCatAlFinal(hoja, fila, cat);
         hoja.Columns().AdjustToContents();
-        EscribirAlcanceCat(hoja, fila, cat);
     }
 
     // Las dos advertencias van DEBAJO de la tabla, en texto: un libro que

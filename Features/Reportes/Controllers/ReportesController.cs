@@ -411,7 +411,14 @@ public class ReportesController(IReportesService service) : ControllerBase
         var bytes = await service.ExportarExcelGananciasAsync(
             new FiltroPeriodoDto(desde, hasta, cat));
 
-        var sufijoCat = string.IsNullOrWhiteSpace(cat) ? "" : $"-{cat}";
+        // Should-fix 2: mismo criterio que el resto del feature
+        // (ReportesService.EsCatValido), no IsNullOrWhiteSpace — antes esta
+        // era la TERCERA noción distinta de "¿tiene CAT?" en el mismo
+        // feature. Con IsNullOrWhiteSpace, un ?cat=pat (minúsculas) pasaba
+        // como válido y el archivo se nombraba "-pat.xlsx" aunque el filtro
+        // nunca se aplicó — el nombre habría prometido un recorte que el
+        // contenido no tiene.
+        var sufijoCat = ReportesService.EsCatValido(cat) ? $"-{cat}" : "";
         return File(bytes,
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             $"Reporte-Ganancias-{desde:yyyyMMdd}-{hasta:yyyyMMdd}{sufijoCat}.xlsx");

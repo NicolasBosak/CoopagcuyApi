@@ -38,6 +38,7 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
     private const string CedulaMargenDenominador = "0104576319";
     private const string CedulaMargenDevolucion = "0104576327";
     private const string CedulaMargenEtiqueta = "0104576335";
+    private const string CedulaMargenOrden = "0104576343";
 
     // Fecha explícita —no por diferencia contra UtcNow— para ejercitar la
     // frontera del mes: las 02:00 UTC del 1 de septiembre son las 21:00 del
@@ -527,6 +528,46 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
         filasDelCliente[0].GetProperty("ingreso").GetDecimal().ShouldBe(20m); // 4 x 5
     }
 
+    [Fact]
+    public async Task LaEtiquetaDelClienteEligeElDespachoMasTempranoAunqueSeInserteDespues()
+    {
+        // Should-fix 4: DatosDeMargenAsync ahora ordena por FechaDespacho
+        // (empate: Id) antes de agrupar. Para probar que la fecha manda y no
+        // el orden en que el proveedor devuelva las filas —que en la
+        // práctica suele coincidir con el Id de inserción—, se inserta
+        // PRIMERO (Id menor) el despacho con la fecha MÁS TARDÍA y la
+        // ortografía "gritada", y SEGUNDO (Id mayor) el despacho con la
+        // fecha MÁS TEMPRANA y la ortografía esperada. Sin el OrderBy
+        // explícito por fecha, un proveedor que devuelva las filas en orden
+        // de Id daría la etiqueta en mayúsculas — con el fix, gana la fecha,
+        // no el Id.
+        var (_, lote) = await SembrarLoteAsync(CedulaMargenOrden, cantidadAnimales: 4);
+
+        var tarde = DateTime.UtcNow;
+        var temprano = tarde.AddMinutes(-30);
+
+        // Se inserta primero (Id menor) el despacho MÁS TARDÍO.
+        await SembrarDespachoAsync(lote, [1, 2], precioUnitario: 5m,
+            cliente: "MERCADO ORDEN", fechaDespacho: tarde);
+        // Se inserta segundo (Id mayor) el despacho MÁS TEMPRANO.
+        await SembrarDespachoAsync(lote, [3, 4], precioUnitario: 5m,
+            cliente: "Mercado Orden", fechaDespacho: temprano);
+
+        var hoy = (DateTime.UtcNow + FechaUtc.DesfasePiloto).ToString("yyyy-MM-dd");
+        var respuesta = await api.ComoAdmin()
+            .GetAsync($"/api/reportes/margen/cliente?desde={hoy}&hasta={hoy}");
+        respuesta.EnsureSuccessStatusCode();
+        var filas = (await respuesta.Content.ReadFromJsonAsync<JsonElement[]>())!;
+
+        var filaDelCliente = filas.Single(f => string.Equals(
+            f.GetProperty("agrupacion").GetString(), "Mercado Orden",
+            StringComparison.OrdinalIgnoreCase));
+
+        // Gana la ortografía del despacho más TEMPRANO ("Mercado Orden"),
+        // aunque tenga el Id mayor (se insertó segundo).
+        filaDelCliente.GetProperty("agrupacion").GetString().ShouldBe("Mercado Orden");
+    }
+
     // ── Excel del reporte de ganancias ─────────────────────────────────
     //
     // Un libro con las cinco vistas: por CAT, por productora, por mes,
@@ -585,11 +626,16 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
         libro.Worksheets.Select(h => h.Name).ShouldBe(HojasEsperadas);
 
         // Con estos datos sembrados, cada una de las cinco hojas trae al
-        // menos una fila (la de datos está siempre en la fila 2, justo
-        // debajo del encabezado, sin importar si la hoja además lleva
-        // advertencias más abajo).
-        foreach (var nombre in HojasEsperadas)
-            libro.Worksheet(nombre).Cell(2, 1).IsEmpty().ShouldBeFalse();
+        // menos una fila de datos. Should-fix 3: las tres hojas de
+        // ganancias ahora llevan el alcance de CAT en la fila 1 y el
+        // encabezado en la fila 2, así que su primera fila de datos es la
+        // 3; las dos hojas de margen no llevan esa fila superior, así que
+        // la suya sigue en la 2, justo debajo del encabezado.
+        foreach (var nombre in new[]
+            { "Ganancias por CAT", "Ganancias por productora", "Ganancias por mes" })
+            libro.Worksheet(nombre).Cell(3, 1).IsEmpty().ShouldBeFalse();
+        foreach (var nombreMargen in HojasDeMargen)
+            libro.Worksheet(nombreMargen).Cell(2, 1).IsEmpty().ShouldBeFalse();
 
         // Las dos hojas de margen: un despacho con precio (8.50 x 2 = 17,
         // sin faltante) y sin pago de planta para esa productora, así que
@@ -679,6 +725,113 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
 
             textos.ShouldContain(
                 "Toda la cooperativa — este reporte no se filtra por centro de acopio");
+        }
+    }
+
+    [Fact]
+    public async Task UnCatNoParseableNoFiltraYDeclaraTodosLosCentros()
+    {
+        // Should-fix 2: Enum.TryParse<CentroAcopio> es case-sensitive (el
+        // mismo que usan los filtros reales, arriba, en cada consulta), así
+        // que ?cat=pat (minúsculas) no coincide con ningún valor del enum:
+        // el filtro NO se aplica y deben salir las DOS CAT. Antes del fix,
+        // DescripcionAlcanceCat solo miraba IsNullOrEmpty(cat) y el
+        // controlador miraba IsNullOrWhiteSpace(cat) — dos criterios más
+        // laxos que el TryParse real —, así que el libro igual imprimía
+        // "Centro de acopio: pat" y el archivo se llamaba "...-pat.xlsx",
+        // afirmando un recorte que el contenido no tiene: el fallo
+        // invertido que esta etiqueta existe para evitar.
+        var enPat = await Sembrador.ProductoraAsync(
+            api, Cedula, CentroAcopio.PAT);
+        var enNie = await Sembrador.ProductoraAsync(
+            api, CedulaNie, CentroAcopio.NIE, comunidadId: 2);
+
+        await using (var db = api.NuevoDbContext())
+        {
+            db.Pagos.AddRange(
+                new Pago
+                {
+                    ProductoraId = enPat.Id,
+                    MontoUsd = 40m,
+                    MontoPagadoUsd = 40m,
+                    FechaPago = DateTime.UtcNow,
+                    MetodoPago = "Efectivo",
+                    Estado = EstadoPago.Recibido,
+                    EsVentaLocal = true,
+                    Responsable = "Operadora de prueba"
+                },
+                new Pago
+                {
+                    ProductoraId = enNie.Id,
+                    MontoUsd = 25m,
+                    MontoPagadoUsd = 25m,
+                    FechaPago = DateTime.UtcNow,
+                    MetodoPago = "Efectivo",
+                    Estado = EstadoPago.Recibido,
+                    EsVentaLocal = true,
+                    Responsable = "Operadora de prueba"
+                });
+            await db.SaveChangesAsync();
+        }
+
+        var hoy = (DateTime.UtcNow + FechaUtc.DesfasePiloto).ToString("yyyy-MM-dd");
+        var respuesta = await api.ComoAdmin()
+            .GetAsync($"/api/reportes/exportar/excel/ganancias?desde={hoy}&hasta={hoy}&cat=pat");
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        // El nombre del archivo NO lleva sufijo de CAT: "pat" no parsea.
+        var nombreArchivo = respuesta.Content.Headers.ContentDisposition?.FileName?.Trim('"');
+        nombreArchivo.ShouldNotBeNull();
+        nombreArchivo.ToLowerInvariant().ShouldNotContain("-pat");
+
+        var bytes = await respuesta.Content.ReadAsByteArrayAsync();
+        using var libro = new XLWorkbook(new MemoryStream(bytes));
+
+        foreach (var nombreGanancia in new[]
+            { "Ganancias por CAT", "Ganancias por productora", "Ganancias por mes" })
+        {
+            var textos = libro.Worksheet(nombreGanancia).Column(1)
+                .CellsUsed().Select(c => c.GetString()).ToList();
+
+            textos.ShouldContain("Centro de acopio: Todos los centros de acopio");
+            textos.ShouldNotContain("Centro de acopio: pat");
+        }
+
+        // Sin filtro real aplicado, "Ganancias por CAT" trae las DOS filas.
+        var centrosEnHoja = libro.Worksheet("Ganancias por CAT").Column(1)
+            .CellsUsed().Select(c => c.GetString())
+            .Where(s => s is "PAT" or "NIE").ToList();
+        centrosEnHoja.Count.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task ElAlcanceDeCatVaEnLaFilaUnoAntesDelEncabezado()
+    {
+        // Should-fix 3: antes, la línea de alcance solo se escribía DEBAJO
+        // de la tabla — con muchas filas de datos (p. ej. cincuenta
+        // productoras) el lector tenía que desplazarse hasta el final para
+        // enterarse de que la hoja está filtrada. Ahora también va en la
+        // fila 1, ANTES del encabezado, en las tres hojas de ganancias — el
+        // encabezado (con el relleno verde de EscribirEncabezadosGanancias)
+        // se corre a la fila 2.
+        await SembrarPagosAsync();
+
+        var hoy = (DateTime.UtcNow + FechaUtc.DesfasePiloto).ToString("yyyy-MM-dd");
+        var respuesta = await api.ComoAdmin()
+            .GetAsync($"/api/reportes/exportar/excel/ganancias?desde={hoy}&hasta={hoy}&cat=PAT");
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var bytes = await respuesta.Content.ReadAsByteArrayAsync();
+        using var libro = new XLWorkbook(new MemoryStream(bytes));
+
+        foreach (var nombreGanancia in new[]
+            { "Ganancias por CAT", "Ganancias por productora", "Ganancias por mes" })
+        {
+            var hoja = libro.Worksheet(nombreGanancia);
+            hoja.Cell(1, 1).GetString().ShouldBe("Centro de acopio: PAT");
+            hoja.Cell(2, 1).Style.Fill.BackgroundColor
+                .ShouldBe(XLColor.FromHtml("#2E7D32"));
         }
     }
 
@@ -904,8 +1057,15 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
     /// no chocar con el índice único de DespachoCuy.CuyFaenamientoId.
     /// Devuelve el Id del despacho creado, para poder sembrarle
     /// devoluciones encima (S1).
+    ///
+    /// fechaDespacho es opcional (por defecto DateTime.UtcNow): Should-fix 4
+    /// necesita fijarla a mano para forzar un desacuerdo entre el orden de
+    /// inserción (Id) y el orden cronológico, y así probar que
+    /// DatosDeMargenAsync ordena por FechaDespacho y no por lo que el
+    /// proveedor devuelva.
     private async Task<int> SembrarDespachoAsync(
-        Lote lote, int[] numerosEnLote, decimal? precioUnitario, string cliente)
+        Lote lote, int[] numerosEnLote, decimal? precioUnitario, string cliente,
+        DateTime? fechaDespacho = null)
     {
         await using var db = api.NuevoDbContext();
 
@@ -947,7 +1107,7 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
         {
             LoteFaenadoId = loteFaenado.Id,
             ClienteDestino = cliente,
-            FechaDespacho = DateTime.UtcNow,
+            FechaDespacho = fechaDespacho ?? DateTime.UtcNow,
             CantidadUnidades = numerosEnLote.Length,
             PrecioUnitarioUsd = precioUnitario,
             Responsable = "Responsable de prueba"
