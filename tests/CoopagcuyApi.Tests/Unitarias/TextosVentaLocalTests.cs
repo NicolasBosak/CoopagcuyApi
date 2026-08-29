@@ -53,10 +53,15 @@ public class TextosVentaLocalTests
     }
 
     [Fact]
-    public void UnaVentaEnEfectivoDiceQueYaSeCobro()
+    public void UnaVentaEnEfectivoDiceQueLaProductoraAunNoCobro()
     {
+        // Quien recibe el dinero del comprador es la CAT, no la productora:
+        // ver "Nace cobrada: el dinero lo recibió la propia CAT" en
+        // PagoService.RegistrarVentaLocalAsync. El papel que ella se lleva no
+        // puede afirmar que ya cobró cuando el pie del mismo ticket dice que
+        // acredita "un pago pendiente de la cooperativa".
         TextosVentaLocal.TextoEstado(Local("Efectivo"))
-            .ShouldBe("VENDIDO EN LA COMUNIDAD — COBRADO");
+            .ShouldBe("VENDIDO EN LA COMUNIDAD — POR COBRAR");
     }
 
     [Fact]
