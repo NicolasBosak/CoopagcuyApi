@@ -719,7 +719,7 @@ public class ReportesService(AppDbContext db) : IReportesService
             // N1: orden lexicográfico, no la suma de las tres columnas — esa
             // suma no existe en ningún DTO ni celda de este reporte (las
             // tres NUNCA se suman entre sí). Cobrado local pesa más porque
-            // es dinero que la productora ya tiene en la mano; pagado
+            // es dinero que la CAT ya tiene en la mano; pagado
             // planta va después porque también es dinero movido; pactado a
             // cuotas al final porque todavía no ha llegado.
             .OrderByDescending(r => r.CobradoLocal)
