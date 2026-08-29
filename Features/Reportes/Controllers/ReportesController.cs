@@ -89,6 +89,95 @@ public class ReportesController(IReportesService service) : ControllerBase
     }
 
     /// <summary>
+    /// Ganancias de productoras — lo que cobraron, por productora.
+    /// Cobrado en venta local, pactado a cuotas y pagado por la planta van
+    /// en columnas separadas porque no son dinero disponible del mismo modo.
+    /// </summary>
+    [HttpGet("ganancias/productoras")]
+    // Ampliado a propósito respecto de la petición original, que solo
+    // nombraba a los dos administradores: el operador de faenamiento
+    // atiende consultas sobre este reporte igual que sobre los demás
+    // reportes de gestión. El OperadorCAT no entra.
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
+    public async Task<IActionResult> GananciasPorProductora(
+        [FromQuery] DateTime desde,
+        [FromQuery] DateTime hasta,
+        [FromQuery] string? cat)
+    {
+        var resultado = await service.GananciasPorProductoraAsync(
+            new FiltroPeriodoDto(desde, hasta, cat));
+        return Ok(resultado);
+    }
+
+    /// <summary>
+    /// Ganancias de productoras — lo que cobraron, agrupado por CAT.
+    /// </summary>
+    [HttpGet("ganancias/cat")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
+    public async Task<IActionResult> GananciasPorCat(
+        [FromQuery] DateTime desde,
+        [FromQuery] DateTime hasta,
+        [FromQuery] string? cat)
+    {
+        var resultado = await service.GananciasPorCatAsync(
+            new FiltroPeriodoDto(desde, hasta, cat));
+        return Ok(resultado);
+    }
+
+    /// <summary>
+    /// Ganancias de productoras — lo que cobraron, agrupado por mes local
+    /// del piloto.
+    /// </summary>
+    [HttpGet("ganancias/mes")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
+    public async Task<IActionResult> GananciasPorMes(
+        [FromQuery] DateTime desde,
+        [FromQuery] DateTime hasta,
+        [FromQuery] string? cat)
+    {
+        var resultado = await service.GananciasPorMesAsync(
+            new FiltroPeriodoDto(desde, hasta, cat));
+        return Ok(resultado);
+    }
+
+    /// <summary>
+    /// Margen de la reventa por mes local del piloto. NUNCA se suma con las
+    /// ganancias de productoras: un pago a una productora es ingreso para
+    /// ella y costo para la cooperativa, la misma fila leída desde dos
+    /// lados.
+    ///
+    /// Sin filtro por CAT — a propósito, no un olvido: un despacho reúne
+    /// animales de varias jaulas y por tanto de varios CAT (ver el
+    /// comentario en <c>ReportesService.DatosDeMargenAsync</c>).
+    /// </summary>
+    [HttpGet("margen/mes")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
+    public async Task<IActionResult> MargenPorMes(
+        [FromQuery] DateTime desde,
+        [FromQuery] DateTime hasta)
+    {
+        var resultado = await service.MargenPorMesAsync(
+            new FiltroPeriodoDto(desde, hasta));
+        return Ok(resultado);
+    }
+
+    /// <summary>
+    /// Margen de la reventa por cliente de destino, normalizado.
+    ///
+    /// Sin filtro por CAT, mismo motivo que <see cref="MargenPorMes"/>.
+    /// </summary>
+    [HttpGet("margen/cliente")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
+    public async Task<IActionResult> MargenPorCliente(
+        [FromQuery] DateTime desde,
+        [FromQuery] DateTime hasta)
+    {
+        var resultado = await service.MargenPorClienteAsync(
+            new FiltroPeriodoDto(desde, hasta));
+        return Ok(resultado);
+    }
+
+    /// <summary>
     /// Reporte individual por cuy: estado de cada animal registrado.
     /// </summary>
     [HttpGet("cuyes")]
@@ -300,6 +389,39 @@ public class ReportesController(IReportesService service) : ControllerBase
         return File(bytes,
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             $"Reporte-Devoluciones-{desde:yyyyMMdd}-{hasta:yyyyMMdd}.xlsx");
+    }
+
+    /// <summary>
+    /// Exporta el reporte de ganancias a Excel — RF-505. Cinco hojas: las
+    /// tres primeras (por CAT, por productora, por mes) sí respetan
+    /// ?cat=; las dos de margen (por mes, por cliente) no, porque un
+    /// despacho reúne animales de varias CAT (ver el comentario en
+    /// <c>ReportesService.ExportarExcelGananciasAsync</c>). Cada hoja deja
+    /// su propio alcance por escrito, y el nombre del archivo lleva la CAT
+    /// cuando el pedido vino filtrado — para que esa asimetría no dependa
+    /// de que quien abra el libro haya leído la pantalla primero.
+    /// </summary>
+    [HttpGet("exportar/excel/ganancias")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
+    public async Task<IActionResult> ExcelGanancias(
+        [FromQuery] DateTime desde,
+        [FromQuery] DateTime hasta,
+        [FromQuery] string? cat)
+    {
+        var bytes = await service.ExportarExcelGananciasAsync(
+            new FiltroPeriodoDto(desde, hasta, cat));
+
+        // Should-fix 2: mismo criterio que el resto del feature
+        // (ReportesService.EsCatValido), no IsNullOrWhiteSpace — antes esta
+        // era la TERCERA noción distinta de "¿tiene CAT?" en el mismo
+        // feature. Con IsNullOrWhiteSpace, un ?cat=pat (minúsculas) pasaba
+        // como válido y el archivo se nombraba "-pat.xlsx" aunque el filtro
+        // nunca se aplicó — el nombre habría prometido un recorte que el
+        // contenido no tiene.
+        var sufijoCat = ReportesService.EsCatValido(cat) ? $"-{cat}" : "";
+        return File(bytes,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            $"Reporte-Ganancias-{desde:yyyyMMdd}-{hasta:yyyyMMdd}{sufijoCat}.xlsx");
     }
 
     /// <summary>

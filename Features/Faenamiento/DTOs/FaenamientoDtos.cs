@@ -112,6 +112,9 @@ public class RegistrarDespachoDto
     public string? Ciudad { get; set; }
     public string? Pais { get; set; }
     public string? Observaciones { get; set; }
+    // Precio por animal al que se vendió: obligatorio para todo despacho
+    // nuevo (ver FaenamientoService.RegistrarDespachoAsync).
+    public decimal? PrecioUnitarioUsd { get; set; }
 }
 
 // Lote faenado con saldo despachable y sus animales disponibles
@@ -172,6 +175,12 @@ public record DespachoResponseDto(
     string ClienteDestino,
     DateTime FechaDespacho,
     int CantidadUnidades,
+    // Precio por animal al que se vendió; nulo en despachos legados
+    // anteriores a este campo.
+    decimal? PrecioUnitarioUsd,
+    // Derivado, nunca almacenado: precio x cantidad. Nulo cuando no hay
+    // precio (despachos legados).
+    decimal? TotalVentaUsd,
     // Unidades ya devueltas por el cliente: el restante es lo único
     // que puede devolverse
     int UnidadesDevueltas,

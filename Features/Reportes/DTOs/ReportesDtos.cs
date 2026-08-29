@@ -160,6 +160,73 @@ public record ReporteSalidaDto(
     string Responsable
 );
 
+// ── Reporte de ganancias de productoras ───────────────────────────────
+//
+// El reporte entero publica dos cifras que NUNCA se suman: lo que ganaron
+// las productoras (estos tres DTOs) y el margen de la reventa. Un pago a
+// una productora es ingreso para ella y costo para la cooperativa — la
+// misma fila leída desde dos lados.
+//
+// Dentro de esta mitad hay una segunda separación que tampoco se suma:
+// cobrado es dinero que la CAT ya tiene en la mano, pactado es un
+// compromiso a cuotas que todavía no ha llegado, y lo pagado por la planta
+// es la otra vía de cobro. Sumarlas mostraría ganancias que la productora
+// no tiene en caja.
+
+public record GananciaProductoraDto(
+    int ProductoraId,
+    string NombreProductora,
+    string Comunidad,
+    string CentroAcopio,
+    decimal CobradoLocal,
+    decimal PactadoCuotas,
+    decimal PagadoPlanta,
+    int TotalPagos
+);
+
+public record GananciaCatDto(
+    string CentroAcopio,
+    decimal CobradoLocal,
+    decimal PactadoCuotas,
+    decimal PagadoPlanta,
+    int TotalPagos
+);
+
+public record GananciaMesDto(
+    int Anio,
+    int Mes,
+    decimal CobradoLocal,
+    decimal PactadoCuotas,
+    decimal PagadoPlanta,
+    int TotalPagos
+);
+
+// ── Margen de la reventa ───────────────────────────────────────────────
+//
+// La otra mitad del reporte, y la que NUNCA se suma con las ganancias de
+// productoras de arriba: un pago a una productora es ingreso para ella y
+// costo para la cooperativa, la misma fila leída desde dos lados.
+//
+// DespachosSinPrecio y AnimalesSinCosto se muestran junto a la cifra en vez
+// de contarse como cero: un despacho sin precio no se vendió gratis, y un
+// animal cuya productora no ha cobrado no costó cero. Un margen que los
+// ignorase sería optimista justo cuando más falta pagar.
+//
+// UnidadesDevueltas también se muestra junto a la cifra, por el mismo
+// motivo: Ingreso ya es neto de devoluciones (S1), así que un despacho
+// enteramente devuelto aporta $0 de ingreso sin dejar ningún rastro si esta
+// columna no existiera.
+
+public record MargenDto(
+    string Agrupacion,
+    decimal Ingreso,
+    decimal CostoAtribuido,
+    decimal Margen,
+    int DespachosSinPrecio,
+    int AnimalesSinCosto,
+    int UnidadesDevueltas
+);
+
 // ── Filtros compartidos ───────────────────────────────────────────────
 
 public record FiltroPeriodoDto(

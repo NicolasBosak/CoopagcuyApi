@@ -1,7 +1,10 @@
 ﻿using ClosedXML.Excel;
 using CoopagcuyApi.Common;
 using CoopagcuyApi.Common.Branding;
+using CoopagcuyApi.Features.Faenamiento.Models;
+using CoopagcuyApi.Features.Pagos.Models;
 using CoopagcuyApi.Features.Productoras.Models;
+using CoopagcuyApi.Features.Recepcion.Models;
 using CoopagcuyApi.Features.Reportes.DTOs;
 using CoopagcuyApi.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
@@ -38,6 +41,19 @@ public interface IReportesService
     Task<IEnumerable<ReporteCuyDto>> ReporteCuyesAsync(FiltroPeriodoDto filtro);
     Task<byte[]> ExportarExcelCuyesAsync(FiltroPeriodoDto filtro);
     Task<ReporteDevolucionesDto> ReporteDevolucionesAsync(FiltroPeriodoDto filtro);
+    // Lo que ganaron las productoras: NUNCA se suma con el margen de la
+    // reventa (tareas aparte). Tres vistas de la misma consulta base.
+    Task<IEnumerable<GananciaProductoraDto>> GananciasPorProductoraAsync(FiltroPeriodoDto filtro);
+    Task<IEnumerable<GananciaCatDto>> GananciasPorCatAsync(FiltroPeriodoDto filtro);
+    Task<IEnumerable<GananciaMesDto>> GananciasPorMesAsync(FiltroPeriodoDto filtro);
+    // El margen de la reventa: la otra mitad del reporte, y la que NUNCA se
+    // suma con las ganancias de productoras de arriba.
+    Task<IEnumerable<MargenDto>> MargenPorMesAsync(FiltroPeriodoDto filtro);
+    Task<IEnumerable<MargenDto>> MargenPorClienteAsync(FiltroPeriodoDto filtro);
+    // Las cinco vistas de arriba, en un solo libro, cada una en su propia
+    // hoja: nunca en la misma celda, porque las dos mitades del reporte
+    // (ganancias de productoras y margen de la reventa) no se suman.
+    Task<byte[]> ExportarExcelGananciasAsync(FiltroPeriodoDto filtro);
 }
 
 public class ReportesService(AppDbContext db) : IReportesService
@@ -626,6 +642,706 @@ public class ReportesService(AppDbContext db) : IReportesService
             DevolucionesClientes: devoluciones,
             RetornosProductora: retornos
         );
+    }
+
+    // ── Ganancias de productoras ───────────────────────────────────────
+    //
+    // El reporte publica dos cifras que NUNCA se suman: lo que ganaron las
+    // productoras (esta sección) y el margen de la reventa. Un pago a una
+    // productora es ingreso para ella y costo para la cooperativa — la
+    // misma fila leída desde dos lados.
+
+    // Pagos que cuentan como dinero movido: los pendientes son tickets que la
+    // planta todavía no ha transferido, y no son dinero movido.
+    //
+    // Se suma MontoPagadoUsd y no MontoUsd: la diferencia son los descuentos
+    // por novedades, y contarlos como pagados inflaría la cifra justo donde
+    // el sistema ya sabe que no lo fueron. En las ventas locales los dos
+    // valores coinciden —el servicio los iguala al registrar— así que la
+    // regla es uniforme.
+    private IQueryable<Pago> PagosDelPeriodo(FiltroPeriodoDto filtro)
+    {
+        var (desde, hasta) = RangoUtc(filtro);
+        return db.Pagos
+            .Where(p => p.FechaPago >= desde && p.FechaPago < hasta
+                && p.Estado != EstadoPago.Pendiente);
+    }
+
+    // Clasifica los pagos de un grupo (una productora, un CAT o un mes) en
+    // las tres columnas que no se suman entre sí. Único lugar que sabe cómo
+    // distinguir un pago cobrado, pactado o de planta: si mañana ese
+    // criterio cambia (como acaba de pasar con "Cuotas") y una de las tres
+    // vistas quedara con su propia copia, podrían desincronizarse en
+    // silencio entre sí sobre los mismos datos.
+    private static (decimal Cobrado, decimal Pactado, decimal Planta) SumarPorCanal(
+        IEnumerable<Pago> pagos)
+    {
+        decimal cobrado = 0, pactado = 0, planta = 0;
+        foreach (var p in pagos)
+        {
+            var monto = p.MontoPagadoUsd ?? 0;
+            if (!p.EsVentaLocal) planta += monto;
+            else if (p.EsCuotas()) pactado += monto;
+            else cobrado += monto;
+        }
+        return (cobrado, pactado, planta);
+    }
+
+    public async Task<IEnumerable<GananciaProductoraDto>> GananciasPorProductoraAsync(
+        FiltroPeriodoDto filtro)
+    {
+        IQueryable<Pago> query = PagosDelPeriodo(filtro)
+            .Include(p => p.Productora).ThenInclude(pr => pr.Comunidad);
+
+        if (!string.IsNullOrEmpty(filtro.CentroAcopio) &&
+            Enum.TryParse<CentroAcopio>(filtro.CentroAcopio, out var cat))
+            query = query.Where(p => p.Productora!.CatAsignado == cat);
+
+        var pagos = await query.AsNoTracking().ToListAsync();
+
+        return pagos
+            .GroupBy(p => p.ProductoraId)
+            .Select(g =>
+            {
+                var p = g.First().Productora!;
+                var (cobrado, pactado, planta) = SumarPorCanal(g);
+                return new GananciaProductoraDto(
+                    ProductoraId: p.Id,
+                    NombreProductora: p.NombreCompleto,
+                    Comunidad: p.Comunidad.Nombre,
+                    CentroAcopio: p.CatAsignado.ToString(),
+                    CobradoLocal: cobrado,
+                    PactadoCuotas: pactado,
+                    PagadoPlanta: planta,
+                    TotalPagos: g.Count()
+                );
+            })
+            // N1: orden lexicográfico, no la suma de las tres columnas — esa
+            // suma no existe en ningún DTO ni celda de este reporte (las
+            // tres NUNCA se suman entre sí). Cobrado local pesa más porque
+            // es dinero que la CAT ya tiene en la mano; pagado
+            // planta va después porque también es dinero movido; pactado a
+            // cuotas al final porque todavía no ha llegado.
+            .OrderByDescending(r => r.CobradoLocal)
+            .ThenByDescending(r => r.PagadoPlanta)
+            .ThenByDescending(r => r.PactadoCuotas)
+            .ToList();
+    }
+
+    public async Task<IEnumerable<GananciaCatDto>> GananciasPorCatAsync(
+        FiltroPeriodoDto filtro)
+    {
+        // A diferencia de ReportePorCATAsync (que sí deja el parámetro sin
+        // efecto porque agrupa por el mismo campo), aquí SÍ se filtra: las
+        // otras dos vistas de ganancias (productoras y mes) honran ?cat=, y
+        // un consumidor que pase el mismo parámetro a las tres esperaría el
+        // mismo comportamiento. Sin este filtro, ?cat=PAT devolvía TODAS las
+        // filas (una por CAT) en vez de acotar a una — mismo parámetro, tres
+        // endpoints, forma de respuesta distinta sin ninguna señal.
+        IQueryable<Pago> query = PagosDelPeriodo(filtro)
+            .Include(p => p.Productora);
+
+        if (!string.IsNullOrEmpty(filtro.CentroAcopio) &&
+            Enum.TryParse<CentroAcopio>(filtro.CentroAcopio, out var catFiltro))
+            query = query.Where(p => p.Productora!.CatAsignado == catFiltro);
+
+        var pagos = await query.AsNoTracking().ToListAsync();
+
+        return pagos
+            .GroupBy(p => p.Productora!.CatAsignado)
+            .Select(g =>
+            {
+                var (cobrado, pactado, planta) = SumarPorCanal(g);
+                return new GananciaCatDto(
+                    CentroAcopio: g.Key.ToString(),
+                    CobradoLocal: cobrado,
+                    PactadoCuotas: pactado,
+                    PagadoPlanta: planta,
+                    TotalPagos: g.Count()
+                );
+            })
+            .OrderBy(r => r.CentroAcopio)
+            .ToList();
+    }
+
+    public async Task<IEnumerable<GananciaMesDto>> GananciasPorMesAsync(
+        FiltroPeriodoDto filtro)
+    {
+        var query = PagosDelPeriodo(filtro);
+
+        if (!string.IsNullOrEmpty(filtro.CentroAcopio) &&
+            Enum.TryParse<CentroAcopio>(filtro.CentroAcopio, out var cat))
+            query = query.Where(p => p.Productora!.CatAsignado == cat);
+
+        var pagos = await query.AsNoTracking().ToListAsync();
+
+        // El mes se agrupa por el día LOCAL del piloto, no por el UTC: un
+        // pago de las 20:00 del 31 de agosto pertenece a agosto, y agrupar
+        // por UTC lo mandaría a septiembre.
+        //
+        // FechaUtc.ALocal no se traduce a SQL, así que esta vista materializa
+        // (arriba, con ToListAsync) antes de agrupar. El volumen del piloto
+        // lo permite de sobra: no cambiar esto por un GroupBy en base de
+        // datos, que rompería la frontera del mes en silencio.
+        return pagos
+            .Select(p => (Pago: p, Local: FechaUtc.ALocal(p.FechaPago)))
+            .GroupBy(x => new { x.Local.Year, x.Local.Month })
+            .Select(g =>
+            {
+                var (cobrado, pactado, planta) = SumarPorCanal(g.Select(x => x.Pago));
+                return new GananciaMesDto(
+                    Anio: g.Key.Year,
+                    Mes: g.Key.Month,
+                    CobradoLocal: cobrado,
+                    PactadoCuotas: pactado,
+                    PagadoPlanta: planta,
+                    TotalPagos: g.Count()
+                );
+            })
+            .OrderBy(r => r.Anio).ThenBy(r => r.Mes)
+            .ToList();
+    }
+
+    // ── Margen de la reventa ────────────────────────────────────────────
+    //
+    // La otra mitad del reporte, y la que NUNCA se suma con las ganancias de
+    // productoras de arriba: un pago a una productora es ingreso para ella y
+    // costo para la cooperativa, la misma fila leída desde dos lados.
+
+    /// <summary>
+    /// Trae los despachos del período con la cadena completa hasta la
+    /// productora de origen de cada animal, y los pagos de planta que
+    /// atribuyen su costo. Alimenta la función pura
+    /// <see cref="CostoDeLoDespachado.Calcular"/>, que no se reescribe aquí.
+    ///
+    /// Deliberadamente NO filtra por CAT (ni aquí ni en el <c>cat</c> de
+    /// <see cref="FiltroPeriodoDto"/>, que este método ignora): un despacho
+    /// reúne animales de varias jaulas y por tanto de varios CAT. Filtrar
+    /// por CAT obligaría a elegir entre sumar el ingreso completo de un
+    /// despacho mixto bajo un único CAT (contando de más si se repitiera el
+    /// filtro para cada CAT) o excluir del pool de costo a un animal cuya
+    /// productora sí cobró —solo porque esa productora pertenece a otro
+    /// CAT—, etiquetando un costo conocido como desconocido. El margen es
+    /// de la cooperativa, no de un CAT: mismo criterio que
+    /// <see cref="ReporteSalidaAsync"/>, el otro reporte que también gira
+    /// sobre <c>Despacho</c> y tampoco filtra por CAT.
+    /// </summary>
+    private async Task<(
+        List<Despacho> Despachos,
+        Dictionary<int, List<AnimalDespachado>> AnimalesPorDespacho,
+        List<PagoDeLote> Pagos,
+        Dictionary<int, int> UnidadesDevueltasPorDespacho)> DatosDeMargenAsync(
+            FiltroPeriodoDto filtro)
+    {
+        var (desdeUtc, hastaUtc) = RangoUtc(filtro);
+
+        // Se materializa y se resuelve en memoria a propósito. La cadena
+        // DespachoCuy -> CuyFaenamiento -> RegistroFaenamiento -> Lote, más el
+        // salto de NumeroEnLote a CuyRegistro, produce en SQL una consulta que
+        // nadie va a poder leer dentro de seis meses. Con el volumen del piloto
+        // —cientos de animales por período— traerlo y resolverlo aquí es más
+        // barato en mantenimiento que en milisegundos, y la parte con reglas
+        // vive en una función pura que sí se puede fijar.
+        // Should-fix 4: orden explícito, no el que el proveedor entregue. Sin
+        // esto, MargenPorClienteAsync toma la etiqueta visible de
+        // g.First().ClienteDestino (ver el comentario ahí) y "el primer
+        // despacho del grupo" quedaba a merced del orden físico de la
+        // consulta —que con AsSplitQuery y cuatro niveles de Include no está
+        // garantizado— así que la forma mostrada de un mismo cliente podía
+        // cambiar entre una corrida y la siguiente del mismo reporte. Con
+        // este orden, gana el despacho más antiguo del grupo (FechaDespacho
+        // ascendente) y, en empate, el de menor Id.
+        var despachos = await db.Despachos
+            .Include(d => d.Cuyes)
+                .ThenInclude(dc => dc.CuyFaenamiento)
+                    .ThenInclude(cf => cf.Registro)
+                        .ThenInclude(r => r.Lote)
+                            .ThenInclude(l => l.Cuyes)
+            .Where(d => d.FechaDespacho >= desdeUtc && d.FechaDespacho < hastaUtc)
+            .OrderBy(d => d.FechaDespacho).ThenBy(d => d.Id)
+            .AsNoTracking()
+            .AsSplitQuery()
+            .ToListAsync();
+
+        // Animales de cada despacho, resueltos a su lote y su productora de
+        // origen: el mismo salto de NumeroEnLote que usa el resto del reporte
+        // para encontrar quién entregó cada animal. Un despacho legado (sin
+        // filas DespachoCuy, apuntando directo a Lote) no tiene ese detalle:
+        // sus CantidadUnidades animales entran igual al pool de costo, pero
+        // sin productora — CostoDeLoDespachado.Calcular los declara
+        // AnimalesSinCosto en vez de tratarlos como si costaran cero.
+        var animalesPorDespacho = despachos.ToDictionary(
+            d => d.Id,
+            d => d.Cuyes.Count > 0
+                ? d.Cuyes.Select(dc =>
+                {
+                    var registro = dc.CuyFaenamiento.Registro;
+                    var origen = OrigenDelAnimal(
+                        registro.Lote, dc.CuyFaenamiento.NumeroEnLote);
+                    return new AnimalDespachado(
+                        registro.LoteId, dc.CuyFaenamiento.NumeroEnLote,
+                        origen?.ProductoraId);
+                }).ToList()
+                : Enumerable.Repeat(
+                    new AnimalDespachado(d.LoteId ?? 0, 0, null),
+                    d.CantidadUnidades).ToList());
+
+        var loteIds = despachos
+            .SelectMany(d => d.Cuyes.Select(dc => dc.CuyFaenamiento.Registro.LoteId))
+            .Distinct()
+            .ToList();
+
+        // Solo cuentan los pagos de planta: una venta local no es dinero que
+        // la cooperativa haya puesto para comprar el animal, lo puso la CAT,
+        // y ya se contó en las ganancias de productoras.
+        var pagosCrudos = await db.Pagos
+            .Where(p => p.LoteId != null && loteIds.Contains(p.LoteId.Value)
+                && !p.EsVentaLocal && p.Estado != EstadoPago.Pendiente)
+            .AsNoTracking()
+            .ToListAsync();
+
+        var cuyes = despachos
+            .SelectMany(d => d.Cuyes)
+            .Select(dc => dc.CuyFaenamiento.Registro.Lote)
+            .DistinctBy(l => l.Id)
+            .SelectMany(l => l.Cuyes)
+            .ToList();
+
+        // Se agrupa por (LoteId, ProductoraId) antes de construir cada
+        // PagoDeLote: Calcular() asume una sola fila por esa clave y lanza
+        // si le llegan dos, así que aquí es donde se garantiza.
+        var pagos = pagosCrudos
+            .Where(p => p.LoteId.HasValue)
+            .GroupBy(p => (LoteId: p.LoteId!.Value, p.ProductoraId))
+            .Select(g => new PagoDeLote(
+                g.Key.LoteId, g.Key.ProductoraId,
+                MontoPagado: g.Sum(p => p.MontoPagadoUsd ?? 0m),
+                // Los animales que ese pago cubrió: los de esa productora en
+                // ese lote que NO se vendieron en la comunidad. Esos nunca
+                // llegaron a la planta y su pago fue otro; además es el
+                // mismo conteo que la operadora vio al crear el pago.
+                AnimalesCubiertos: cuyes.Count(c => c.LoteId == g.Key.LoteId
+                    && c.ProductoraId == g.Key.ProductoraId
+                    && c.VentaLocalPagoId == null)))
+            .ToList();
+
+        // Unidades devueltas por despacho, con la misma agrupación que usa
+        // FaenamientoService.ListarDespachosAsync (Devolucion.UnidadesPorDespachoAsync):
+        // el ingreso del margen se cuenta neto de lo devuelto (decisión del
+        // producto owner, S1). El costo NO se ajusta por esto — ver el
+        // comentario en ConstruirMargen. La consulta de abajo acota solo por
+        // DespachoId, no por FechaDevolucion — a propósito: es lo que hace
+        // que una devolución de marzo baje el ingreso de enero al reejecutar
+        // ese reporte, en vez de acotar por fecha y estrandar esa devolución
+        // en un mes cuyo margen no le pertenece.
+        var despachoIds = despachos.Select(d => d.Id).ToList();
+        var unidadesDevueltasPorDespacho = await Devolucion.UnidadesPorDespachoAsync(
+            db.Devoluciones.Where(v => v.DespachoId != null
+                && despachoIds.Contains(v.DespachoId.Value)));
+
+        return (despachos, animalesPorDespacho, pagos, unidadesDevueltasPorDespacho);
+    }
+
+    // El salto de NumeroEnLote a CuyRegistro para encontrar quién entregó un
+    // animal: un único punto para no dejar que dos copias de este lambda se
+    // aparten con el tiempo.
+    private static CuyRegistro? OrigenDelAnimal(Lote lote, int numeroEnLote) =>
+        lote.Cuyes.FirstOrDefault(c => c.NumeroEnLote == numeroEnLote);
+
+    // El ingreso solo suma los despachos CON precio; los que no lo tienen se
+    // cuentan en DespachosSinPrecio y no como cero — un despacho sin precio
+    // no se vendió gratis.
+    //
+    // S1 — el ingreso es NETO de devoluciones: decisión del product owner.
+    // Un cliente que se lleva 10 y devuelve 6 no "dejó" el ingreso de los
+    // 10; contarlo así habría invertido el ranking por cliente que esta
+    // vista existe para dar ("para saber cuál deja más" — spec, Parte 3).
+    //
+    // El COSTO NO se ajusta por la devolución, a propósito:
+    //   1. La cooperativa ya le pagó (o le debe) a la productora por ese
+    //      animal específico. Ese pago no se reversa porque un cliente haya
+    //      devuelto el producto después — es un problema de la venta, no de
+    //      la compra.
+    //   2. Devolucion no identifica QUÉ animal puntual volvió (solo cuenta
+    //      unidades por despacho), así que no hay forma de sacar del pool
+    //      de costo a un animal concreto sin inventar cuál fue — la misma
+    //      honestidad que ya rige el resto de este reporte: lo que no se
+    //      sabe no se fuerza a cero, y aquí tampoco se fuerza un supuesto
+    //      que el dato no sostiene.
+    // El resultado: una devolución baja el margen (el ingreso cae, el costo
+    // no), que es la lectura correcta — la cooperativa sigue habiendo
+    // pagado por un animal que no generó ingreso.
+    private static MargenDto ConstruirMargen(
+        string agrupacion,
+        IEnumerable<Despacho> despachosDelGrupo,
+        Dictionary<int, List<AnimalDespachado>> animalesPorDespacho,
+        List<PagoDeLote> pagos,
+        Dictionary<int, int> unidadesDevueltasPorDespacho)
+    {
+        decimal ingreso = 0m;
+        var sinPrecio = 0;
+        var unidadesDevueltas = 0;
+        var animales = new List<AnimalDespachado>();
+
+        foreach (var d in despachosDelGrupo)
+        {
+            var devueltas = unidadesDevueltasPorDespacho.GetValueOrDefault(d.Id);
+            unidadesDevueltas += devueltas;
+            // RegistrarDevolucionAsync no deja devolver más de lo enviado,
+            // pero el Max(0, ...) es la misma defensa en profundidad que el
+            // resto del reporte aplica a datos que otro servicio garantiza.
+            var unidadesNetas = Math.Max(0, d.CantidadUnidades - devueltas);
+
+            if (d.PrecioUnitarioUsd is decimal precio)
+                ingreso += precio * unidadesNetas;
+            else
+                sinPrecio++;
+
+            animales.AddRange(animalesPorDespacho[d.Id]);
+        }
+
+        var costo = CostoDeLoDespachado.Calcular(animales, pagos);
+
+        return new MargenDto(
+            Agrupacion: agrupacion,
+            Ingreso: ingreso,
+            CostoAtribuido: costo.Total,
+            Margen: ingreso - costo.Total,
+            DespachosSinPrecio: sinPrecio,
+            AnimalesSinCosto: costo.AnimalesSinCosto,
+            UnidadesDevueltas: unidadesDevueltas);
+    }
+
+    public async Task<IEnumerable<MargenDto>> MargenPorMesAsync(FiltroPeriodoDto filtro)
+    {
+        var (despachos, animalesPorDespacho, pagos, unidadesDevueltas) =
+            await DatosDeMargenAsync(filtro);
+
+        // El mes se agrupa por el día LOCAL del piloto, misma técnica que
+        // GananciasPorMesAsync: FechaUtc.ALocal no se traduce a SQL, así que
+        // esta vista materializa (arriba, en DatosDeMargenAsync) antes de
+        // agrupar. El volumen del piloto lo permite de sobra: no cambiar
+        // esto por un GroupBy en base de datos, que rompería la frontera del
+        // mes en silencio.
+        return despachos
+            .Select(d => (Despacho: d, Local: FechaUtc.ALocal(d.FechaDespacho)))
+            .GroupBy(x => new { x.Local.Year, x.Local.Month })
+            .Select(g => ConstruirMargen(
+                $"{g.Key.Year:D4}-{g.Key.Month:D2}",
+                g.Select(x => x.Despacho), animalesPorDespacho, pagos, unidadesDevueltas))
+            .OrderBy(m => m.Agrupacion)
+            .ToList();
+    }
+
+    public async Task<IEnumerable<MargenDto>> MargenPorClienteAsync(FiltroPeriodoDto filtro)
+    {
+        var (despachos, animalesPorDespacho, pagos, unidadesDevueltas) =
+            await DatosDeMargenAsync(filtro);
+
+        return despachos
+            // ClienteDestino es texto libre, así que "Mercado Central" y
+            // "mercado central" serían dos filas. La CLAVE de agrupación se
+            // normaliza (recorte + mayúsculas) para que no se separen. Un
+            // catálogo de clientes lo resolvería de raíz, pero es otro
+            // proyecto.
+            .GroupBy(d => (d.ClienteDestino ?? string.Empty).Trim().ToUpperInvariant())
+            .Select(g =>
+            {
+                // N3: la ETIQUETA visible NO es la clave normalizada —
+                // conserva las mayúsculas originales del primer despacho del
+                // grupo. Normalizar para agrupar no significa que la
+                // pantalla y el Excel deban mostrar el nombre del cliente
+                // GRITADO en mayúsculas.
+                //
+                // Should-fix 4: "el primero" es determinista porque
+                // DatosDeMargenAsync ordena los despachos por FechaDespacho
+                // ascendente (empate: Id ascendente) antes de llegar aquí —
+                // gana la forma en que se escribió el despacho MÁS ANTIGUO
+                // del grupo, no la que el proveedor de datos devuelva.
+                var etiqueta = (g.First().ClienteDestino ?? string.Empty).Trim();
+                return ConstruirMargen(
+                    etiqueta, g, animalesPorDespacho, pagos, unidadesDevueltas);
+            })
+            .OrderByDescending(m => m.Ingreso)
+            .ToList();
+    }
+
+    // ── Exportar Excel del reporte de ganancias — RF-505 ───────────────
+    //
+    // Cinco hojas, sin ninguna celda que sume las dos cifras que NUNCA se
+    // suman: lo que ganaron las productoras (las tres primeras hojas) y el
+    // margen de la reventa (las dos últimas). Un pago a una productora es
+    // ingreso para ella y costo para la cooperativa — la misma fila leída
+    // desde dos lados, y cada lado se queda en su propia hoja.
+    //
+    // Las dos hojas de margen ignoran filtro.CentroAcopio a propósito, con
+    // el mismo motivo que MargenPorMesAsync y MargenPorClienteAsync (ver el
+    // comentario en DatosDeMargenAsync): un despacho reúne animales de
+    // varias CAT. Las tres primeras hojas sí lo respetan. Quien abra este
+    // libro con ?cat= puesto puede extrañarse de que las dos últimas hojas
+    // no se hayan acotado igual — por eso cada una de las cinco hojas
+    // declara su propio alcance de CAT en una línea debajo de la tabla
+    // (EscribirAlcanceCat para las tres primeras, la advertencia fija en
+    // AgregarHojaMargen para las dos últimas), y el nombre del archivo
+    // incluye la CAT cuando el pedido vino filtrado (ReportesController).
+    public async Task<byte[]> ExportarExcelGananciasAsync(FiltroPeriodoDto filtro)
+    {
+        var porCat = await GananciasPorCatAsync(filtro);
+        var porProductora = await GananciasPorProductoraAsync(filtro);
+        var porMes = await GananciasPorMesAsync(filtro);
+        var margenPorMes = await MargenPorMesAsync(filtro);
+        var margenPorCliente = await MargenPorClienteAsync(filtro);
+
+        using var libro = new XLWorkbook();
+
+        AgregarHojaGananciaCat(libro, porCat, filtro.CentroAcopio);
+        AgregarHojaGananciaProductora(libro, porProductora, filtro.CentroAcopio);
+        AgregarHojaGananciaMes(libro, porMes, filtro.CentroAcopio);
+        AgregarHojaMargen(libro, "Margen por mes", margenPorMes);
+        AgregarHojaMargen(libro, "Margen por cliente", margenPorCliente);
+
+        using var stream = new MemoryStream();
+        libro.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    // Should-fix 2: único criterio de "¿este ?cat= es válido?" para todo el
+    // feature. Antes había tres nociones distintas del mismo concepto: el
+    // TryParse case-sensitive que usan los filtros reales (aquí y en cada
+    // consulta de arriba), !IsNullOrEmpty en DescripcionAlcanceCat, e
+    // IsNullOrWhiteSpace en el sufijo del nombre de archivo del controlador.
+    // Solo la primera refleja lo que de verdad pasa: Enum.TryParse<CentroAcopio>
+    // es case-sensitive, así que "?cat=pat" no filtra nada — con las otras
+    // dos nociones ese mismo ?cat=pat pasaba como "válido" y el libro
+    // terminaba declarando (y el archivo nombrando) un alcance más angosto
+    // que sus datos reales: el fallo que esta etiqueta existe para evitar,
+    // invertido.
+    public static bool EsCatValido(string? cat) =>
+        !string.IsNullOrEmpty(cat) && Enum.TryParse<CentroAcopio>(cat, out _);
+
+    private static void EscribirEncabezadosGanancias(
+        IXLWorksheet hoja, string[] encabezados, int fila = 1)
+    {
+        for (int i = 0; i < encabezados.Length; i++)
+        {
+            var celda = hoja.Cell(fila, i + 1);
+            celda.Value = encabezados[i];
+            celda.Style.Font.Bold = true;
+            celda.Style.Fill.BackgroundColor = XLColor.FromHtml("#2E7D32");
+            celda.Style.Font.FontColor = XLColor.White;
+        }
+    }
+
+    // El texto que describe el alcance de CAT de una hoja: las tres hojas
+    // de ganancias sí respetan ?cat= (a diferencia de las dos de margen, ver
+    // AgregarHojaMargen). Sin esto en el libro, alguien que lleve el Excel a
+    // una reunión filtrado por PAT puede leer la hoja 2 ("PAT cobró $X")
+    // junto a la hoja 4 ("margen $Y", que es de TODA la cooperativa) como si
+    // ambas hablaran del mismo universo.
+    //
+    // Should-fix 2: usa EsCatValido, no un simple !IsNullOrEmpty — un
+    // ?cat=pat (minúsculas) no filtró nada arriba, así que esta línea no
+    // puede decir "Centro de acopio: pat" como si sí lo hubiera hecho.
+    private static string DescripcionAlcanceCat(string? cat) =>
+        EsCatValido(cat) ? cat! : "Todos los centros de acopio";
+
+    // Una sola función que escribe la celda; las dos de abajo solo deciden
+    // en qué fila.
+    private static void EscribirLineaAlcanceCat(IXLWorksheet hoja, int fila, string? cat)
+    {
+        var celda = hoja.Cell(fila, 1);
+        celda.Value = $"Centro de acopio: {DescripcionAlcanceCat(cat)}";
+        celda.Style.Font.Bold = true;
+    }
+
+    // Should-fix 3: fila 1, ANTES del encabezado. Con muchas filas de datos
+    // (p. ej. "Ganancias por productora" con cincuenta productoras) una nota
+    // solo al final del todo obliga a desplazarse por toda la tabla para
+    // enterarse de que la hoja está filtrada — justo lo que esta etiqueta
+    // existe para evitar. Se repite también al final (EscribirAlcanceCatAlFinal)
+    // para quien entra navegando desde abajo.
+    private static void EscribirAlcanceCatAlInicio(IXLWorksheet hoja, string? cat) =>
+        EscribirLineaAlcanceCat(hoja, 1, cat);
+
+    // Debajo de la tabla, con una fila de por medio: mismo lugar y mismo
+    // estilo que las advertencias de AgregarHojaMargen.
+    private static void EscribirAlcanceCatAlFinal(
+        IXLWorksheet hoja, int filaSiguienteVacia, string? cat) =>
+        EscribirLineaAlcanceCat(hoja, filaSiguienteVacia + 1, cat);
+
+    private static void AgregarHojaGananciaCat(
+        XLWorkbook libro, IEnumerable<GananciaCatDto> datos, string? cat)
+    {
+        var hoja = libro.Worksheets.Add("Ganancias por CAT");
+        EscribirAlcanceCatAlInicio(hoja, cat);
+        EscribirEncabezadosGanancias(hoja, new[]
+        {
+            "Centro de Acopio", "Cobrado local", "Pactado a cuotas",
+            "Pagado planta", "N.º de pagos"
+        }, fila: 2);
+
+        int fila = 3;
+        foreach (var r in datos)
+        {
+            hoja.Cell(fila, 1).Value = r.CentroAcopio;
+            hoja.Cell(fila, 2).Value = r.CobradoLocal;
+            hoja.Cell(fila, 3).Value = r.PactadoCuotas;
+            hoja.Cell(fila, 4).Value = r.PagadoPlanta;
+            hoja.Cell(fila, 5).Value = r.TotalPagos;
+            fila++;
+        }
+        EscribirAlcanceCatAlFinal(hoja, fila, cat);
+        // Should-fix 3 (companion): AdjustToContents al final, después de
+        // escribir las dos líneas de alcance — antes corría antes de
+        // escribirlas, así que la columna nunca se dimensionaba para ese
+        // texto (el más largo de la hoja).
+        hoja.Columns().AdjustToContents();
+    }
+
+    private static void AgregarHojaGananciaProductora(
+        XLWorkbook libro, IEnumerable<GananciaProductoraDto> datos, string? cat)
+    {
+        var hoja = libro.Worksheets.Add("Ganancias por productora");
+        EscribirAlcanceCatAlInicio(hoja, cat);
+        EscribirEncabezadosGanancias(hoja, new[]
+        {
+            "Productora", "Comunidad", "Centro de Acopio", "Cobrado local",
+            "Pactado a cuotas", "Pagado planta", "N.º de pagos"
+        }, fila: 2);
+
+        int fila = 3;
+        foreach (var r in datos)
+        {
+            hoja.Cell(fila, 1).Value = r.NombreProductora;
+            hoja.Cell(fila, 2).Value = r.Comunidad;
+            hoja.Cell(fila, 3).Value = r.CentroAcopio;
+            hoja.Cell(fila, 4).Value = r.CobradoLocal;
+            hoja.Cell(fila, 5).Value = r.PactadoCuotas;
+            hoja.Cell(fila, 6).Value = r.PagadoPlanta;
+            hoja.Cell(fila, 7).Value = r.TotalPagos;
+            fila++;
+        }
+        EscribirAlcanceCatAlFinal(hoja, fila, cat);
+        hoja.Columns().AdjustToContents();
+    }
+
+    private static void AgregarHojaGananciaMes(
+        XLWorkbook libro, IEnumerable<GananciaMesDto> datos, string? cat)
+    {
+        var hoja = libro.Worksheets.Add("Ganancias por mes");
+        EscribirAlcanceCatAlInicio(hoja, cat);
+        EscribirEncabezadosGanancias(hoja, new[]
+        {
+            "Año", "Mes", "Cobrado local", "Pactado a cuotas",
+            "Pagado planta", "N.º de pagos"
+        }, fila: 2);
+
+        int fila = 3;
+        foreach (var r in datos)
+        {
+            hoja.Cell(fila, 1).Value = r.Anio;
+            hoja.Cell(fila, 2).Value = r.Mes;
+            hoja.Cell(fila, 3).Value = r.CobradoLocal;
+            hoja.Cell(fila, 4).Value = r.PactadoCuotas;
+            hoja.Cell(fila, 5).Value = r.PagadoPlanta;
+            hoja.Cell(fila, 6).Value = r.TotalPagos;
+            fila++;
+        }
+        EscribirAlcanceCatAlFinal(hoja, fila, cat);
+        hoja.Columns().AdjustToContents();
+    }
+
+    // Las dos advertencias van DEBAJO de la tabla, en texto: un libro que
+    // alguien lleva a una reunión no puede dejarlas solo en la pantalla de
+    // origen. Un despacho sin precio no se vendió gratis; un animal cuya
+    // productora no ha cobrado no costó cero — un margen que las omitiera
+    // sería optimista justo cuando más falta pagar.
+    private static void AgregarHojaMargen(
+        XLWorkbook libro, string nombreHoja, IEnumerable<MargenDto> datos)
+    {
+        var hoja = libro.Worksheets.Add(nombreHoja);
+        EscribirEncabezadosGanancias(hoja, new[]
+        {
+            "Agrupación", "Ingreso (neto de devoluciones)", "Costo atribuido", "Margen",
+            "Despachos sin precio", "Animales sin costo", "Unidades devueltas"
+        });
+
+        int fila = 2;
+        var totalDespachosSinPrecio = 0;
+        var totalAnimalesSinCosto = 0;
+        var totalUnidadesDevueltas = 0;
+        foreach (var r in datos)
+        {
+            hoja.Cell(fila, 1).Value = r.Agrupacion;
+            hoja.Cell(fila, 2).Value = r.Ingreso;
+            hoja.Cell(fila, 3).Value = r.CostoAtribuido;
+            hoja.Cell(fila, 4).Value = r.Margen;
+            hoja.Cell(fila, 5).Value = r.DespachosSinPrecio;
+            hoja.Cell(fila, 6).Value = r.AnimalesSinCosto;
+            hoja.Cell(fila, 7).Value = r.UnidadesDevueltas;
+            totalDespachosSinPrecio += r.DespachosSinPrecio;
+            totalAnimalesSinCosto += r.AnimalesSinCosto;
+            totalUnidadesDevueltas += r.UnidadesDevueltas;
+            fila++;
+        }
+
+        // Debajo de la tabla, no en una columna más: son advertencias sobre
+        // el libro entero, no un dato por fila.
+        var filaAdvertencia = fila + 1;
+        hoja.Cell(filaAdvertencia, 1).Value =
+            $"Despachos sin precio (no se vendieron gratis): {totalDespachosSinPrecio}";
+        hoja.Cell(filaAdvertencia, 1).Style.Font.Bold = true;
+        hoja.Cell(filaAdvertencia, 1).Style.Font.FontColor = XLColor.FromHtml("#B71C1C");
+
+        hoja.Cell(filaAdvertencia + 1, 1).Value =
+            "Animales sin costo (su productora no ha cobrado, no costaron " +
+            $"cero): {totalAnimalesSinCosto}";
+        hoja.Cell(filaAdvertencia + 1, 1).Style.Font.Bold = true;
+        hoja.Cell(filaAdvertencia + 1, 1).Style.Font.FontColor = XLColor.FromHtml("#B71C1C");
+
+        // Tercer contador, mismo estilo que los dos de arriba: el Ingreso ya
+        // es neto de devoluciones (S1), así que un despacho enteramente
+        // devuelto aporta $0 sin dejar rastro en ninguna otra celda del
+        // libro si esta línea no existiera. El rótulo NO dice "ya restadas
+        // del ingreso" sin matiz: ConstruirMargen suma esta cifra por cada
+        // despacho del grupo, con precio o sin él, así que un despacho
+        // legado sin precio (el que cuenta la línea de arriba) que reciba
+        // una devolución también suma aquí sin que haya nada de qué
+        // restarlo — afirmarlo sin condición sería una relación que ese
+        // caso no sostiene.
+        hoja.Cell(filaAdvertencia + 2, 1).Value =
+            "Unidades devueltas (restan del ingreso solo en despachos con " +
+            $"precio): {totalUnidadesDevueltas}";
+        hoja.Cell(filaAdvertencia + 2, 1).Style.Font.Bold = true;
+        hoja.Cell(filaAdvertencia + 2, 1).Style.Font.FontColor = XLColor.FromHtml("#B71C1C");
+
+        // A diferencia de las tres hojas de ganancias, esta hoja (y su
+        // hermana "Margen por cliente") IGNORA ?cat= a propósito: un
+        // despacho reúne animales de varias jaulas y por tanto de varias
+        // CAT (ver el comentario en DatosDeMargenAsync). Sin esta línea en
+        // el libro, quien lo abra filtrado por una CAT puede leer esta hoja
+        // como si también estuviera acotada.
+        hoja.Cell(filaAdvertencia + 3, 1).Value =
+            "Toda la cooperativa — este reporte no se filtra por centro de acopio";
+        hoja.Cell(filaAdvertencia + 3, 1).Style.Font.Bold = true;
+        hoja.Cell(filaAdvertencia + 3, 1).Style.Font.FontColor = XLColor.FromHtml("#B71C1C");
+
+        // El spec lo exige como requisito, no como sugerencia (ver su
+        // sección "Fuera de alcance"): el margen es sobre el costo de los
+        // animales, no un resultado contable de la cooperativa.
+        hoja.Cell(filaAdvertencia + 4, 1).Value =
+            "El margen es sobre el costo de los animales: no incluye " +
+            "transporte, faenamiento ni empaque, así que no es un resultado " +
+            "contable de la cooperativa.";
+        hoja.Cell(filaAdvertencia + 4, 1).Style.Font.Bold = true;
+        hoja.Cell(filaAdvertencia + 4, 1).Style.Font.FontColor = XLColor.FromHtml("#B71C1C");
+
+        // Should-fix 3 (companion): AdjustToContents al final, después de
+        // escribir las advertencias — antes corría antes de escribirlas, así
+        // que la columna nunca se dimensionaba para ese texto (el más largo
+        // de la hoja). Mismo orden que ya llevan las tres hojas de
+        // ganancias arriba.
+        hoja.Columns().AdjustToContents();
     }
 
     // ── Flujo de trazabilidad: Entrada / Tránsito / Salida ────────────

@@ -24,6 +24,17 @@ public class Despacho
     public string ClienteDestino { get; set; } = string.Empty;
     public DateTime FechaDespacho { get; set; }
     public int CantidadUnidades { get; set; }
+
+    // Precio por animal al que se vendió este despacho.
+    //
+    // Anulable en el esquema por los despachos anteriores a este cambio, pero
+    // OBLIGATORIO en el servicio para los nuevos: mismo criterio que se
+    // aplicó a Pago.LoteId cuando el ticket pasó a exigir lote.
+    //
+    // El TOTAL no se guarda: se deriva de precio x cantidad. Guardarlo
+    // abriría la puerta a que las dos cifras se contradigan, que es el
+    // defecto que este sistema ya sufrió con MontoPagadoUsd.
+    public decimal? PrecioUnitarioUsd { get; set; }
     public string Responsable { get; set; } = string.Empty;
     // Datos del transporte de salida (para el reporte de Salida)
     public string? Chofer { get; set; }
