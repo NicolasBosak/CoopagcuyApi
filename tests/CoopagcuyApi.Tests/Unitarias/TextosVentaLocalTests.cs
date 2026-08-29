@@ -9,7 +9,9 @@ namespace CoopagcuyApi.Tests.Unitarias;
 /// <summary>
 /// El ticket de una venta local tiene que decir que lo es. La productora se
 /// lleva ese papel y es el único canal por el que sabe bajo qué condiciones se
-/// le pagó — sobre todo si fue a cuotas, donde el dinero todavía no llegó.
+/// le pagó — ninguna de las dos ramas puede afirmar que ya cobró, porque quien
+/// recibió el dinero del comprador fue la CAT, no ella; la rama a cuotas
+/// además informa el mecanismo del acuerdo.
 ///
 /// Funciones puras porque del PDF no se puede afirmar nada: QuestPDF comprime
 /// los flujos de texto del documento.
