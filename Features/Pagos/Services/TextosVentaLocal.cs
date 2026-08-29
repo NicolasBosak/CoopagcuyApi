@@ -30,10 +30,16 @@ public static class TextosVentaLocal
     /// <summary>
     /// Rótulo de estado.
     ///
-    /// Una venta a cuotas es Recibido por dentro —no queda nada que nadie
-    /// tenga que hacer en el sistema— pero el dinero todavía no llegó. El
-    /// papel que se lleva la productora no puede decir "cobrado" cuando no lo
-    /// está: por eso las cuotas tienen su propio rótulo.
+    /// Quien recibe el dinero del comprador en una venta local es la CAT, no
+    /// la productora. El pago "nace cobrado" para el sistema —Estado Recibido,
+    /// nada que nadie tenga que hacer— pero la plata todavía no llegó a manos
+    /// de quien se lleva este papel, y el pie del ticket ya lo dice: acredita
+    /// "un pago pendiente de la cooperativa". El rótulo no puede afirmar lo
+    /// contrario del pie del mismo documento.
+    ///
+    /// Por eso ninguna de las dos ramas dice que se cobró. La de cuotas sigue
+    /// existiendo porque además informa el mecanismo, que la línea de método
+    /// detalla justo debajo.
     /// </summary>
     public static string TextoEstado(Pago pago)
     {
@@ -41,7 +47,7 @@ public static class TextosVentaLocal
 
         return pago.EsCuotas()
             ? "VENDIDO EN LA COMUNIDAD — A CUOTAS"
-            : "VENDIDO EN LA COMUNIDAD — COBRADO";
+            : "VENDIDO EN LA COMUNIDAD — POR COBRAR";
     }
 
     /// <summary>

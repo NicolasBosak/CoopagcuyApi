@@ -9,7 +9,9 @@ namespace CoopagcuyApi.Tests.Unitarias;
 /// <summary>
 /// El ticket de una venta local tiene que decir que lo es. La productora se
 /// lleva ese papel y es el único canal por el que sabe bajo qué condiciones se
-/// le pagó — sobre todo si fue a cuotas, donde el dinero todavía no llegó.
+/// le pagó — ninguna de las dos ramas puede afirmar que ya cobró, porque quien
+/// recibió el dinero del comprador fue la CAT, no ella; la rama a cuotas
+/// además informa el mecanismo del acuerdo.
 ///
 /// Funciones puras porque del PDF no se puede afirmar nada: QuestPDF comprime
 /// los flujos de texto del documento.
@@ -53,10 +55,15 @@ public class TextosVentaLocalTests
     }
 
     [Fact]
-    public void UnaVentaEnEfectivoDiceQueYaSeCobro()
+    public void UnaVentaEnEfectivoDiceQueLaProductoraAunNoCobro()
     {
+        // Quien recibe el dinero del comprador es la CAT, no la productora:
+        // ver "Nace cobrada: el dinero lo recibió la propia CAT" en
+        // PagoService.RegistrarVentaLocalAsync. El papel que ella se lleva no
+        // puede afirmar que ya cobró cuando el pie del mismo ticket dice que
+        // acredita "un pago pendiente de la cooperativa".
         TextosVentaLocal.TextoEstado(Local("Efectivo"))
-            .ShouldBe("VENDIDO EN LA COMUNIDAD — COBRADO");
+            .ShouldBe("VENDIDO EN LA COMUNIDAD — POR COBRAR");
     }
 
     [Fact]
