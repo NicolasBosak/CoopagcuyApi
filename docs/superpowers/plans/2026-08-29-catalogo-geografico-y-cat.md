@@ -459,7 +459,7 @@ Añadir a `CatalogoGeograficoTests.cs`:
         comunidades.Select(c => c.Canton.Nombre).ShouldBe(
         [
             "Pucará",        // 1 Patococha
-            "Nabón",         // 2 Las Nieves
+            "Pucará",        // 2 Las Nieves — NO Nabón, ver nota de la semilla
             "Santa Isabel",  // 3 Huertas
             "Nabón",         // 4 Nabón / El Progreso
             "Pucará",        // 5 Pelincay
@@ -608,16 +608,21 @@ modelBuilder.Entity<Comunidad>(e =>
     // los de GeografiaEcuador: 4 Nabón, 6 Pucará, 8 Santa Isabel (Azuay).
     // Las coordenadas venían del front (coordenadas.ts) y suben aquí.
     e.HasData(
-        new Comunidad { Id = 1, Nombre = "Patococha", CantonId = 6, CatReferencia = CentroAcopio.PAT, Latitud = -3.284722m, Longitud = -79.400833m, AltitudMinM = 3100, AltitudMaxM = 3300 },
-        new Comunidad { Id = 2, Nombre = "Las Nieves", CantonId = 4, CatReferencia = CentroAcopio.NIE, Latitud = -3.417500m, Longitud = -79.166944m, AltitudMinM = 3200, AltitudMaxM = 3400 },
-        new Comunidad { Id = 3, Nombre = "Huertas", CantonId = 8, CatReferencia = CentroAcopio.HUE, Latitud = -3.276111m, Longitud = -79.243889m, AltitudMinM = 2600, AltitudMaxM = 2900 },
-        new Comunidad { Id = 4, Nombre = "Nabón / El Progreso", CantonId = 4, CatReferencia = CentroAcopio.NAB, Latitud = -3.339722m, Longitud = -79.060556m, AltitudMinM = 2700, AltitudMaxM = 2900 },
-        new Comunidad { Id = 5, Nombre = "Pelincay", CantonId = 6, CatReferencia = CentroAcopio.PEL, Latitud = -3.243611m, Longitud = -79.386944m, AltitudMinM = 2900, AltitudMaxM = 3100 }
+        new Comunidad { Id = 1, Nombre = "Patococha",           CantonId = 6, CatReferencia = CentroAcopio.PAT, Latitud = -3.225944m, Longitud = -79.504472m, AltitudMinM = 3190, AltitudMaxM = 3190 },
+        new Comunidad { Id = 2, Nombre = "Las Nieves",          CantonId = 6, CatReferencia = CentroAcopio.NIE, Latitud = -3.083667m, Longitud = -79.451222m, AltitudMinM = 3200, AltitudMaxM = 3370 },
+        new Comunidad { Id = 3, Nombre = "Huertas",             CantonId = 8, CatReferencia = CentroAcopio.HUE, Latitud = -3.135528m, Longitud = -79.395972m, AltitudMinM = 2600, AltitudMaxM = 2900 },
+        new Comunidad { Id = 4, Nombre = "Nabón / El Progreso", CantonId = 4, CatReferencia = CentroAcopio.NAB, Latitud = -3.340833m, Longitud = -79.204806m, AltitudMinM = 2600, AltitudMaxM = 2800 },
+        // Pelincay va SIN coordenadas a propósito: nadie ha ido a tomarlas.
+        // Inventar una aproximada en la única pantalla que ve el consumidor
+        // cuesta más que declarar el hueco — el mapa la nombra sin pin.
+        new Comunidad { Id = 5, Nombre = "Pelincay",            CantonId = 6, CatReferencia = CentroAcopio.PEL }
     );
 });
 ```
 
-> **Los valores de latitud, longitud y altitud se copian de `src/domain/comunidades/coordenadas.ts`** del repo del front, que es hoy la única fuente. Los de arriba son un punto de partida: **abrir ese archivo y transcribir los reales antes de correr nada**, porque son el dato que dibuja el mapa público y una cifra inventada movería un pin sin que ninguna prueba lo note.
+> **Las coordenadas de arriba son las reales**, transcritas del array `UBICACIONES` de `src/domain/comunidades/coordenadas.ts` en el repo del front, que es hoy su única fuente. Se pueden usar tal cual.
+>
+> **Las Nieves cambia de cantón: pasa de Nabón a Pucará.** La semilla actual de `AppDbContext` dice Nabón; el front dice Pucará y su comentario declara que la semilla del API está mal y pendiente de corregir, citando el documento de la cooperativa. Decisión del usuario: manda el documento. Este es el momento de saldarlo, porque al pasar el cantón a catálogo el valor queda fijado.
 
 - [ ] **Step 5: Generar la migración**
 
@@ -646,11 +651,14 @@ migrationBuilder.Sql("""
     UPDATE "Comunidades" c
     SET "CantonId" = ct."Id"
     FROM "Cantones" ct
-    WHERE translate(lower(trim(c."Canton")),
+    WHERE c."CantonId" = 0
+      AND translate(lower(trim(c."Canton")),
                     'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunAEIOUUN')
         = translate(lower(trim(ct."Nombre")),
                     'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunAEIOUUN');
     """);
+
+> **El `WHERE "CantonId" = 0` no es decorativo.** EF emite un `UpdateData` por cada fila del `HasData`, y no está garantizado que caiga después de este SQL. Sin esa condición, el backfill le devolvería a «Las Nieves» el cantón Nabón que sale de su texto viejo —justo el dato que esta tarea corrige a Pucará—. Con ella, el backfill solo toca lo que el `HasData` no cubre, y el orden deja de importar.
 
 // Si alguna comunidad no cruzó, la migración SE DETIENE. No inventa un
 // cantón ni borra la fila: alguien tiene que mirar ese dato. El mensaje
@@ -3513,8 +3521,12 @@ Sustituir el bloque que hoy dice `const TODOS = [...COMUNIDADES_CONOCIDAS, PLANT
 
 ```typescript
 /**
- * Las seis coordenadas que definen el encuadre horneado: las cinco
- * comunidades del piloto más la planta.
+ * Las cinco coordenadas que definen el encuadre horneado: las cuatro
+ * comunidades del piloto con posición tomada, más la planta.
+ *
+ * Pelincay no está: nunca se le tomó coordenada, así que tampoco entraba en
+ * el cálculo del encuadre de hoy. Meterla ahora con una cifra aproximada
+ * movería el marco y desalinearía el relieve.
  *
  * Se quedan aquí como literales, y NO se leen del catálogo, aunque el
  * catálogo ya las tenga. Son la geometría del PNG de relieve, no el dato de
@@ -3525,11 +3537,10 @@ Sustituir el bloque que hoy dice `const TODOS = [...COMUNIDADES_CONOCIDAS, PLANT
  * Solo se tocan a la vez que se regenera el relieve con scripts/relieve.
  */
 const ENCUADRE_PILOTO: Coordenada[] = [
-    { lat: -3.284722, lon: -79.400833 },  // Patococha
-    { lat: -3.417500, lon: -79.166944 },  // Las Nieves
-    { lat: -3.276111, lon: -79.243889 },  // Huertas
-    { lat: -3.339722, lon: -79.060556 },  // Nabón / El Progreso
-    { lat: -3.243611, lon: -79.386944 },  // Pelincay
+    { lat: -3.225944, lon: -79.504472 },  // Patococha
+    { lat: -3.083667, lon: -79.451222 },  // Las Nieves
+    { lat: -3.135528, lon: -79.395972 },  // Huertas
+    { lat: -3.340833, lon: -79.204806 },  // Nabón / El Progreso
     { lat: PLANTA.lat, lon: PLANTA.lon },
 ];
 
@@ -3537,7 +3548,36 @@ const RANGO_LAT = rango(ENCUADRE_PILOTO.map((u) => u.lat));
 const RANGO_LON = rango(ENCUADRE_PILOTO.map((u) => u.lon));
 ```
 
-> Las cinco coordenadas se copian **del array `UBICACIONES` de este mismo archivo justo antes de borrarlo**, no de este plan: las de arriba son las mismas que la Task 2 llevó al `HasData`, y ese es exactamente el punto — si no coinciden con las que había, algo se transcribió mal en la Task 2 y hay que arreglarlo allí, no aquí.
+> Las cuatro coordenadas de comunidad son las del array `UBICACIONES` de este mismo archivo, y las mismas que la Task 2 llevó al `HasData`. Si al borrar `UBICACIONES` no coinciden, algo se transcribió mal en la Task 2: arréglalo allí, no aquí.
+
+**El array `UBICACIONES` guarda además los ajustes manuales de etiqueta** (`etiqueta: { dy: -4 }` en Las Nieves, `{ dy: 14 }` en El Progreso) y **el nombre corto** con que la cooperativa llama a «Nabón / El Progreso», que es «El Progreso». Nada de eso es dato de catálogo —son decisiones de cómo se dibuja y se rotula el mapa— así que **no suben al API y no se pierden**: se quedan en `coordenadas.ts` en un mapa aparte, indexado por la misma función `clave(nombre)` que ya existe:
+
+```typescript
+/**
+ * Retoques de rótulo sobre el mapa, por comunidad.
+ *
+ * NO subieron al catálogo con las coordenadas, y a propósito: son
+ * decisiones de cartografía sobre un encuadre fijo —qué etiqueta se monta
+ * sobre cuál—, no hechos sobre dónde está una comunidad. El día que se
+ * regenere el relieve habrá que revisarlos; el día que se corrija una
+ * latitud en Administración, no.
+ *
+ * `nombre` está porque la cooperativa llama «El Progreso» a la comunidad
+ * que el catálogo guarda como «Nabón / El Progreso»: en la ficha pública va
+ * el nombre corto, que es como se nombra a sí misma y cabe en la etiqueta.
+ *
+ * Una comunidad que no esté aquí cae en la regla automática, que es lo
+ * correcto para las que se den de alta desde Administración.
+ */
+const ROTULOS = new Map<string, { nombre?: string; lado?: "izq" | "der"; dy?: number }>([
+    [clave("Las Nieves"), { dy: -4 }],
+    [clave("Nabón / El Progreso"), { nombre: "El Progreso", dy: 14 }],
+]);
+
+export function rotuloDe(nombreComunidad: string) {
+    return ROTULOS.get(clave(nombreComunidad)) ?? {};
+}
+```
 
 Añadir el predicado que decide si un punto entra en el marco:
 
@@ -3579,8 +3619,9 @@ const ubicados = aportes
             ...a,
             ubicacion: {
                 ...coordenada,
-                nombre: a.comunidad,
+                nombre: rotuloDe(a.comunidad).nombre ?? a.comunidad,
                 canton: "",
+                etiqueta: rotuloDe(a.comunidad),
                 msnm: {
                     min: a.altitudMinM ?? 0,
                     max: a.altitudMaxM ?? 0,
