@@ -20,9 +20,15 @@ namespace CoopagcuyApi.Tests.Integracion;
 ///
 /// Renombrada en la revisión de la Task 6 (antes `ValidacionFormatoCatTests`):
 /// con la tabla CentrosAcopio en pie, `ValidadorCat.ValidarCatActivoAsync` ya
-/// no comprueba la FORMA del código —no queda ningún regex de forma en las
-/// rutas de escritura, se quitó junto con las otras tres copias— sino que lo
-/// busca en el catálogo real y exige que esté activo. Un código mal formado
+/// no comprueba la FORMA del código —en los tres caminos que cubre esta clase
+/// (usuario, productora y entrega) el regex se quitó junto con las otras
+/// copias— sino que lo busca en el catálogo real y exige que esté activo.
+///
+/// Sigue habiendo una comprobación de forma en `CatalogosService`, al CREAR un
+/// centro de acopio, y ahí es la correcta: cuando lo que se está dando de alta
+/// es la propia fila del catálogo, no hay nada contra lo que buscarla.
+///
+/// Un código mal formado
 /// ("PATO", "PA") y uno bien formado pero inexistente o desactivado ("ZZZ",
 /// un CAT dado de baja) fallan hoy por la MISMA razón: ninguno tiene una fila
 /// `Activo = true` en `CentrosAcopio`. Esta clase fija esa regla única —"todo
