@@ -50,7 +50,13 @@ public class BaseDatosFixture
                 // desde la primera limpieza, y cualquier alta de productora
                 // fallaba con 400 ("la comunidad no existe o está inactiva")
                 // por un motivo que no tenía nada que ver con la prueba.
-                new Table("public", "Comunidades")
+                new Table("public", "Comunidades"),
+                // Misma razón que Comunidades: Provincias y Cantones son
+                // catálogo sembrado por migración. Truncarlos dejaría a
+                // Comunidad sin el cantón al que apunta y toda la batería
+                // caería por clave foránea, no por lo que cada prueba mira.
+                new Table("public", "Provincias"),
+                new Table("public", "Cantones")
             ]
         });
     }

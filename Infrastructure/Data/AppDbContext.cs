@@ -7,6 +7,7 @@ using CoopagcuyApi.Features.Pagos.Models;
 using CoopagcuyApi.Features.Productoras.Models;
 using CoopagcuyApi.Features.QR.Models;
 using CoopagcuyApi.Features.Recepcion.Models;
+using CoopagcuyApi.Infrastructure.Data.Seed;
 using Microsoft.EntityFrameworkCore;
 
 namespace CoopagcuyApi.Infrastructure.Data;
@@ -37,6 +38,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         Set<EntregaPendienteVinculacion>();
     public DbSet<SolicitudRestablecerPassword> SolicitudesRestablecerPassword =>
         Set<SolicitudRestablecerPassword>();
+    public DbSet<Provincia> Provincias => Set<Provincia>();
+    public DbSet<Canton> Cantones => Set<Canton>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -452,6 +455,33 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .IsUnique()
                 .HasFilter("\"Estado\" = 'Pendiente'")
                 .HasDatabaseName("IX_SolicitudesRestablecerPassword_Pendiente");
+        });
+
+        // Provincia — catálogo geográfico de primer nivel
+        modelBuilder.Entity<Provincia>(e =>
+        {
+            e.HasKey(p => p.Id);
+            e.HasIndex(p => p.Nombre).IsUnique();
+            e.Property(p => p.Nombre).HasMaxLength(80).IsRequired();
+
+            e.HasData(GeografiaEcuador.Provincias);
+        });
+
+        // Cantón — cuelga de una provincia. El nombre solo es único DENTRO de su
+        // provincia: hay cantones homónimos en el Ecuador ("Bolívar" está en Carchi
+        // y en Manabí, "Olmedo" en Loja y en Manabí).
+        modelBuilder.Entity<Canton>(e =>
+        {
+            e.HasKey(c => c.Id);
+            e.HasIndex(c => new { c.ProvinciaId, c.Nombre }).IsUnique();
+            e.Property(c => c.Nombre).HasMaxLength(80).IsRequired();
+
+            e.HasOne(c => c.Provincia)
+                .WithMany(p => p.Cantones)
+                .HasForeignKey(c => c.ProvinciaId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            e.HasData(GeografiaEcuador.Cantones);
         });
 
         // Comunidad — catálogo gestionable RF-102 / RF-506
