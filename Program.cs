@@ -81,6 +81,7 @@ builder.Services.AddScoped<IQRService, QRService>();
 builder.Services.AddScoped<IBlobStorageService, BlobStorageService>();
 builder.Services.AddScoped<IReportesService, ReportesService>();
 builder.Services.AddScoped<ICatalogosService, CatalogosService>();
+builder.Services.AddScoped<IGeografiaService, GeografiaService>();
 
 // ── Servicios de autenticación ───────────────────────────────────────
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
