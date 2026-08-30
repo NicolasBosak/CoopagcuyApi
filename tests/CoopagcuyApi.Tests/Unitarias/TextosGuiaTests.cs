@@ -42,7 +42,6 @@ public class TextosGuiaTests
         {
             Id = 1,
             Nombre = comunidad,
-            Canton = "Pucará",
             CatReferencia = CentroAcopio.PAT
         }
     };

@@ -488,18 +488,31 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         modelBuilder.Entity<Comunidad>(e =>
         {
             e.HasKey(c => c.Id);
-            e.HasIndex(c => c.Nombre).IsUnique();
+            // Único POR CANTÓN, no global: "San José" existe en varias provincias
+            // del Ecuador y un índice global bloquearía el alta de la segunda.
+            e.HasIndex(c => new { c.CantonId, c.Nombre }).IsUnique();
             e.Property(c => c.Nombre).HasMaxLength(100).IsRequired();
-            e.Property(c => c.Canton).HasMaxLength(100).IsRequired();
             e.Property(c => c.CatReferencia).HasConversion<string>();
+            e.Property(c => c.Latitud).HasPrecision(9, 6);
+            e.Property(c => c.Longitud).HasPrecision(9, 6);
 
-            // Comunidades relevadas en el diagnóstico PRODUCTO1
+            e.HasOne(c => c.Canton)
+                .WithMany()
+                .HasForeignKey(c => c.CantonId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Comunidades relevadas en el diagnóstico PRODUCTO1. Los CantonId son
+            // los de GeografiaEcuador: 4 Nabón, 6 Pucará, 8 Santa Isabel (Azuay).
+            // Las coordenadas venían del front (coordenadas.ts) y suben aquí.
             e.HasData(
-                new Comunidad { Id = 1, Nombre = "Patococha", Canton = "Pucará", CatReferencia = CentroAcopio.PAT },
-                new Comunidad { Id = 2, Nombre = "Las Nieves", Canton = "Nabón", CatReferencia = CentroAcopio.NIE },
-                new Comunidad { Id = 3, Nombre = "Huertas", Canton = "Santa Isabel", CatReferencia = CentroAcopio.HUE },
-                new Comunidad { Id = 4, Nombre = "Nabón / El Progreso", Canton = "Nabón", CatReferencia = CentroAcopio.NAB },
-                new Comunidad { Id = 5, Nombre = "Pelincay", Canton = "Pucará", CatReferencia = CentroAcopio.PEL }
+                new Comunidad { Id = 1, Nombre = "Patococha",           CantonId = 6, CatReferencia = CentroAcopio.PAT, Latitud = -3.225944m, Longitud = -79.504472m, AltitudMinM = 3190, AltitudMaxM = 3190 },
+                new Comunidad { Id = 2, Nombre = "Las Nieves",          CantonId = 6, CatReferencia = CentroAcopio.NIE, Latitud = -3.083667m, Longitud = -79.451222m, AltitudMinM = 3200, AltitudMaxM = 3370 },
+                new Comunidad { Id = 3, Nombre = "Huertas",             CantonId = 8, CatReferencia = CentroAcopio.HUE, Latitud = -3.135528m, Longitud = -79.395972m, AltitudMinM = 2600, AltitudMaxM = 2900 },
+                new Comunidad { Id = 4, Nombre = "Nabón / El Progreso", CantonId = 4, CatReferencia = CentroAcopio.NAB, Latitud = -3.340833m, Longitud = -79.204806m, AltitudMinM = 2600, AltitudMaxM = 2800 },
+                // Pelincay va SIN coordenadas a propósito: nadie ha ido a tomarlas.
+                // Inventar una aproximada en la única pantalla que ve el consumidor
+                // cuesta más que declarar el hueco — el mapa la nombra sin pin.
+                new Comunidad { Id = 5, Nombre = "Pelincay",            CantonId = 6, CatReferencia = CentroAcopio.PEL }
             );
         });
     }

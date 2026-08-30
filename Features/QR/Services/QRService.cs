@@ -123,6 +123,8 @@ public class QRService(
                 .Include(lf => lf.Sesiones).ThenInclude(f => f.Cuyes)
                 .Include(lf => lf.Sesiones).ThenInclude(f => f.Lote)
                     .ThenInclude(l => l.Productora)
+                    .ThenInclude(p => p!.Comunidad)
+                    .ThenInclude(c => c.Canton)
                 .Include(lf => lf.Sesiones).ThenInclude(f => f.Lote)
                     .ThenInclude(l => l.Cuyes).ThenInclude(c => c.Productora)
                 .AsNoTracking()
@@ -142,7 +144,8 @@ public class QRService(
         {
             // QR histórico generado sobre la jaula de recepción
             var lote = await db.Lotes
-                .Include(l => l.Productora)
+                .Include(l => l.Productora).ThenInclude(p => p!.Comunidad)
+                    .ThenInclude(c => c.Canton)
                 .Include(l => l.Cuyes).ThenInclude(c => c.Productora)
                 .Include(l => l.Faenamientos).ThenInclude(f => f.Cuyes)
                 .Include(l => l.CodigoQR)
@@ -224,7 +227,7 @@ public class QRService(
             .FirstOrDefault();
 
         var cantones = sesiones
-            .Select(s => s.Lote.Productora?.Comunidad.Canton)
+            .Select(s => s.Lote.Productora?.Comunidad.Canton.Nombre)
             .Where(c => !string.IsNullOrEmpty(c))
             .Select(c => c!)
             .Distinct()

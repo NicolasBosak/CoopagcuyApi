@@ -1,3 +1,5 @@
+using CoopagcuyApi.Common;
+using CoopagcuyApi.Features.Catalogos.Models;
 using CoopagcuyApi.Tests.Infra;
 using Microsoft.EntityFrameworkCore;
 using Shouldly;
@@ -59,5 +61,82 @@ public class CatalogoGeograficoTests(ApiFactory api) : IAsyncLifetime
 
         (await db.Provincias.AnyAsync()).ShouldBeTrue();
         (await db.Cantones.AnyAsync()).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task LasComunidadesSembradas_apuntanASuCanton()
+    {
+        await using var db = api.NuevoDbContext();
+
+        var comunidades = await db.Comunidades
+            .Include(c => c.Canton)
+            .ThenInclude(c => c.Provincia)
+            .OrderBy(c => c.Id)
+            .ToListAsync();
+
+        comunidades.Select(c => c.Canton.Nombre).ShouldBe(
+        [
+            "Pucará",        // 1 Patococha
+            "Pucará",        // 2 Las Nieves — NO Nabón, ver nota de la semilla
+            "Santa Isabel",  // 3 Huertas
+            "Nabón",         // 4 Nabón / El Progreso
+            "Pucará",        // 5 Pelincay
+        ]);
+
+        comunidades.ShouldAllBe(c => c.Canton.Provincia.Nombre == "Azuay");
+    }
+
+    // El cruce del backfill ignora tildes y mayúsculas. No es un detalle: en
+    // la base real hay una comunidad cuyo cantón se escribió "Nabon" desde
+    // Administración, y con comparación cruda se habría quedado sin cantón.
+    //
+    // La columna "Canton" ya no existe después de migrar, así que la prueba
+    // ejecuta el MISMO SQL del backfill sobre un valor de entrada suelto. Es
+    // la única forma de ejercitar esa lógica una vez aplicada la migración;
+    // si el SQL de aquí y el de la migración divergen, esta prueba deja de
+    // proteger nada — mantenerlos idénticos.
+    [Theory]
+    [InlineData("Nabon", "Nabón")]     // el caso real de la base
+    [InlineData("NABÓN", "Nabón")]     // mayúsculas
+    [InlineData("  Pucara  ", "Pucará")] // espacios y tilde
+    public async Task ElCruceDeCantones_ignoraTildesYMayusculas(
+        string escritoAMano, string esperado)
+    {
+        await using var db = api.NuevoDbContext();
+
+        var id = await db.Database
+            .SqlQuery<int>($"""
+                SELECT ct."Id" AS "Value"
+                FROM "Cantones" ct
+                WHERE translate(lower(trim({escritoAMano})),
+                                'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunAEIOUUN')
+                    = translate(lower(trim(ct."Nombre")),
+                                'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunAEIOUUN')
+                  AND ct."ProvinciaId" = 1
+                """)
+            .SingleAsync();
+
+        var canton = await db.Cantones.FindAsync(id);
+
+        canton!.Nombre.ShouldBe(esperado);
+    }
+
+    // Dos provincias distintas pueden tener una comunidad con el mismo
+    // nombre. Antes el índice único era global y eso habría bloqueado el alta.
+    [Fact]
+    public async Task DosComunidadesHomonimas_puedenCoexistirEnCantonesDistintos()
+    {
+        await using var db = api.NuevoDbContext();
+
+        db.Comunidades.Add(new Comunidad
+        {
+            Nombre = "San José", CantonId = 1, CatReferencia = CentroAcopio.PAT,
+        });
+        db.Comunidades.Add(new Comunidad
+        {
+            Nombre = "San José", CantonId = 2, CatReferencia = CentroAcopio.PAT,
+        });
+
+        await Should.NotThrowAsync(() => db.SaveChangesAsync());
     }
 }

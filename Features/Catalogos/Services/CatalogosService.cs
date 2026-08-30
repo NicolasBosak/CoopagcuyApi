@@ -36,7 +36,7 @@ public class CatalogosService(AppDbContext db) : ICatalogosService
         return await query
             .OrderBy(c => c.Nombre)
             .Select(c => new ComunidadResponseDto(
-                c.Id, c.Nombre, c.Canton, c.CatReferencia.ToString(), c.Activa))
+                c.Id, c.Nombre, c.Canton.Nombre, c.CatReferencia.ToString(), c.Activa))
             .ToListAsync();
     }
 
@@ -50,10 +50,13 @@ public class CatalogosService(AppDbContext db) : ICatalogosService
             throw new InvalidOperationException(
                 $"Ya existe una comunidad con el nombre '{nombre}'.");
 
+        // dto.Canton sigue siendo texto libre aquí: el alta/edición contra el
+        // catálogo de cantones (CantonId) es la Task 3. Por ahora este alta
+        // queda deliberadamente incompleta — no hay pantalla ni prueba que
+        // dependa de ella todavía.
         var comunidad = new Comunidad
         {
             Nombre = nombre,
-            Canton = dto.Canton.Trim(),
             CatReferencia = dto.CatReferencia
         };
 
@@ -61,7 +64,7 @@ public class CatalogosService(AppDbContext db) : ICatalogosService
         await db.SaveChangesAsync();
 
         return new ComunidadResponseDto(
-            comunidad.Id, comunidad.Nombre, comunidad.Canton,
+            comunidad.Id, comunidad.Nombre, comunidad.Canton.Nombre,
             comunidad.CatReferencia.ToString(), comunidad.Activa);
     }
 
@@ -71,7 +74,7 @@ public class CatalogosService(AppDbContext db) : ICatalogosService
         if (comunidad is null) return false;
 
         comunidad.Nombre = dto.Nombre.Trim();
-        comunidad.Canton = dto.Canton.Trim();
+        // dto.Canton no se asigna aquí: ver comentario en CrearComunidadAsync.
         comunidad.CatReferencia = dto.CatReferencia;
 
         await db.SaveChangesAsync();

@@ -38,7 +38,11 @@ public class ProductoraService(AppDbContext db) : IProductoraService
             throw new InvalidOperationException(
                 $"Ya existe una productora registrada con la cédula {cedula}.");
 
-        var comunidad = await db.Comunidades.FindAsync(dto.ComunidadId)
+        // Con Include, no FindAsync: MapToDto necesita el cantón cargado y
+        // FindAsync no admite Include.
+        var comunidad = await db.Comunidades
+            .Include(c => c.Canton)
+            .FirstOrDefaultAsync(c => c.Id == dto.ComunidadId)
             ?? throw new InvalidOperationException(
                 $"La comunidad con Id {dto.ComunidadId} no existe.");
 
@@ -77,7 +81,7 @@ public class ProductoraService(AppDbContext db) : IProductoraService
         return await query
             .Select(p => new ProductoraResponseDto(
                 p.Id, p.NombreCompleto, p.Cedula, p.ComunidadId,
-                p.Comunidad.Nombre, p.Comunidad.Canton,
+                p.Comunidad.Nombre, p.Comunidad.Canton.Nombre,
                 p.CatAsignado.ToString(), p.Telefono,
                 p.Activa, p.FechaRegistro,
                 db.RetornosProductora.Count(r => r.ProductoraId == p.Id)))
@@ -88,6 +92,7 @@ public class ProductoraService(AppDbContext db) : IProductoraService
     {
         var p = await db.Productoras
             .Include(p => p.Comunidad)
+            .ThenInclude(c => c.Canton)
             .FirstOrDefaultAsync(p => p.Id == id);
         return p is null ? null : MapToDto(p);
     }
@@ -159,10 +164,11 @@ public class ProductoraService(AppDbContext db) : IProductoraService
         });
     }
 
-    // Requiere Comunidad cargada (Include o asignada al crear)
+    // Requiere Comunidad y Comunidad.Canton cargados (Include/ThenInclude o
+    // asignados al crear)
     private static ProductoraResponseDto MapToDto(Productora p) => new(
         p.Id, p.NombreCompleto, p.Cedula, p.ComunidadId,
-        p.Comunidad.Nombre, p.Comunidad.Canton,
+        p.Comunidad.Nombre, p.Comunidad.Canton.Nombre,
         p.CatAsignado.ToString(), p.Telefono,
         p.Activa, p.FechaRegistro
     );

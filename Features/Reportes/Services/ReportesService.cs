@@ -1912,7 +1912,12 @@ public class ReportesService(AppDbContext db) : IReportesService
             return await ExportarPDFLoteFaenadoAsync(codigoLote);
 
         var lote = await db.Lotes
-            .Include(l => l.Productora)
+            // AsNoTracking sin resolución de identidad: a diferencia de una
+            // consulta con tracking, este Include no comparte instancia con
+            // el de l.Cuyes.ThenInclude(c => c.Productora), así que el
+            // cantón hay que pedirlo aquí también o llega null.
+            .Include(l => l.Productora).ThenInclude(p => p!.Comunidad)
+                .ThenInclude(c => c.Canton)
             .Include(l => l.Novedades)
             .Include(l => l.Cuyes).ThenInclude(c => c.Productora)
             .Include(l => l.Faenamientos).ThenInclude(f => f.Cuyes)
@@ -2010,7 +2015,7 @@ public class ReportesService(AppDbContext db) : IReportesService
                         c.Item().Row(r =>
                         {
                             r.RelativeItem().Text(
-                                $"Cantón: {lote.Productora?.Comunidad.Canton ?? "-"}");
+                                $"Cantón: {lote.Productora?.Comunidad.Canton.Nombre ?? "-"}");
                             r.RelativeItem().Text(
                                 $"CAT: {lote.CentroAcopio}");
                         });
