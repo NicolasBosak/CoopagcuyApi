@@ -196,6 +196,18 @@ Va **solo en su commit**, sin mezclarse con cambios de modelo.
 Son unos 300 sitios, pero mecánicos. La red de seguridad son las pruebas de
 integración contra Postgres real que ya existen.
 
+### Respawn tiene que ignorar las tablas nuevas
+
+`BaseDatosFixture` trunca todas las tablas entre pruebas salvo las que están en
+`TablesToIgnore`, donde ya figura `Comunidades` con el comentario que explica por
+qué: es un catálogo sembrado por migración, no datos de prueba, y truncarlo
+dejaba fallando cualquier alta de productora por un motivo ajeno a lo que la
+prueba verificaba.
+
+`Provincias`, `Cantones` y `CentrosAcopio` caen en la misma categoría y **tienen
+que sumarse a esa lista**. Si no, la primera limpieza vacía el catálogo y toda la
+batería revienta en cascada por claves foráneas.
+
 ## El front
 
 - se borran `CENTROS_ACOPIO` y el union `type CentroAcopio` de
@@ -208,7 +220,24 @@ integración contra Postgres real que ya existen.
 - el selector de CAT, en `FormComunidad` y `FormProductora`, lista **todos** los
   CATs activos etiquetados `Nombre (Cantón, Provincia)`. Sin ese sufijo, en
   cuanto haya dos provincias el operador no sabe cuál está eligiendo
-- `coordenadas.ts` se elimina y `MapaOrigen.tsx` lee lat/lon/altitud de la API
+- `coordenadas.ts` deja de ser la fuente de lat/lon/altitud —eso pasa a la
+  API— pero **sobrevive** con la proyección, la distancia y la coordenada de la
+  planta, que no son datos de catálogo
+
+### El mapa público no se reencuadra
+
+`MapaOrigen.tsx` dibuja sobre un relieve SRTM **horneado** (`relieve.generado`,
+producido por `scripts/relieve`) para un encuadre calculado a partir de las
+cinco comunidades del piloto más la planta. Si las coordenadas llegan de la API
+y una comunidad nueva cae lejos, el encuadre se movería y el relieve horneado
+no: el terreno y los pines quedarían desincronizados, que es peor que no dibujar
+nada.
+
+**El encuadre se congela en el del piloto.** Una comunidad cuyas coordenadas
+caigan fuera no recibe pin; la ficha sigue mostrando su nombre, su cantón, su
+provincia y el enlace a Google Maps, que se arma desde la coordenada y no
+depende del encuadre. Regenerar el relieve para una provincia nueva es una
+operación de `scripts/relieve`, fuera del alcance de esta entrega.
 
 ## El QR y los PDFs
 
