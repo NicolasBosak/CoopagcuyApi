@@ -54,6 +54,39 @@ namespace CoopagcuyApi.Infrastructure.Data.Migrations
                 scale: 6,
                 nullable: true);
 
+            // Un nombre de cantón puede existir en más de una provincia ("Bolívar" en
+            // Carchi y Manabí, "Olmedo" en Loja y Manabí). Con texto libre no hay forma
+            // de saber cuál era, y un UPDATE ... FROM con dos filas coincidentes elige
+            // una en silencio. Antes que adivinar, se para.
+            migrationBuilder.Sql("""
+                DO $$
+                DECLARE ambiguas text;
+                BEGIN
+                    SELECT string_agg(x.detalle, ', ')
+                    INTO ambiguas
+                    FROM (
+                        SELECT format('%s (cantón "%s", en %s provincias)',
+                                      c."Nombre", c."Canton", count(*)) AS detalle
+                        FROM "Comunidades" c
+                        JOIN "Cantones" ct
+                          ON translate(lower(trim(c."Canton")),
+                                       'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunAEIOUUN')
+                           = translate(lower(trim(ct."Nombre")),
+                                       'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunAEIOUUN')
+                        WHERE c."CantonId" = 0
+                        GROUP BY c."Id", c."Nombre", c."Canton"
+                        HAVING count(*) > 1
+                    ) x;
+
+                    IF ambiguas IS NOT NULL THEN
+                        RAISE EXCEPTION
+                            'Hay comunidades cuyo cantón existe en más de una provincia: %. '
+                            'Asígnalas a mano antes de migrar (ver scripts/verificar-cantones.sql).',
+                            ambiguas;
+                    END IF;
+                END $$;
+                """);
+
             // Backfill: cruza el cantón que estaba escrito a mano contra el catálogo,
             // ignorando tildes y mayúsculas. Existe al menos una comunidad con "Nabon"
             // sin tilde dada de alta desde Administración; con comparación cruda se
@@ -199,6 +232,12 @@ namespace CoopagcuyApi.Infrastructure.Data.Migrations
                 name: "Longitud",
                 table: "Comunidades");
 
+            // Si para cuando se revierte ya existen dos comunidades homónimas en
+            // cantones distintos (el índice único por (CantonId, Nombre) las permite
+            // desde esta migración), este CreateIndex falla: vuelve al índice único
+            // global por "Nombre" y esas dos filas lo violan. Es inherente a haber
+            // relajado la restricción, no un bug de este Down(); hay que resolver el
+            // duplicado a mano antes de revertir.
             migrationBuilder.CreateIndex(
                 name: "IX_Comunidades_Nombre",
                 table: "Comunidades",

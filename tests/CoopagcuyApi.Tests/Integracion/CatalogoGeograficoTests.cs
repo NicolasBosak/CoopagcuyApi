@@ -68,9 +68,15 @@ public class CatalogoGeograficoTests(ApiFactory api) : IAsyncLifetime
     {
         await using var db = api.NuevoDbContext();
 
+        // Acotado a las 5 sembradas por HasData: "Comunidades" está en
+        // TablesToIgnore de Respawn (no se trunca entre pruebas, ver
+        // BaseDatosFixture) y otra prueba de esta misma clase inserta filas
+        // adicionales. Sin este filtro, esta aserción quedaría dependiente
+        // del orden de ejecución.
         var comunidades = await db.Comunidades
             .Include(c => c.Canton)
             .ThenInclude(c => c.Provincia)
+            .Where(c => c.Id <= 5)
             .OrderBy(c => c.Id)
             .ToListAsync();
 
@@ -86,39 +92,127 @@ public class CatalogoGeograficoTests(ApiFactory api) : IAsyncLifetime
         comunidades.ShouldAllBe(c => c.Canton.Provincia.Nombre == "Azuay");
     }
 
-    // El cruce del backfill ignora tildes y mayúsculas. No es un detalle: en
-    // la base real hay una comunidad cuyo cantón se escribió "Nabon" desde
-    // Administración, y con comparación cruda se habría quedado sin cantón.
-    //
-    // La columna "Canton" ya no existe después de migrar, así que la prueba
-    // ejecuta el MISMO SQL del backfill sobre un valor de entrada suelto. Es
-    // la única forma de ejercitar esa lógica una vez aplicada la migración;
-    // si el SQL de aquí y el de la migración divergen, esta prueba deja de
-    // proteger nada — mantenerlos idénticos.
-    [Theory]
-    [InlineData("Nabon", "Nabón")]     // el caso real de la base
-    [InlineData("NABÓN", "Nabón")]     // mayúsculas
-    [InlineData("  Pucara  ", "Pucará")] // espacios y tilde
-    public async Task ElCruceDeCantones_ignoraTildesYMayusculas(
-        string escritoAMano, string esperado)
+    // La decisión de datos más deliberada de la tarea, y la más fácil de
+    // "arreglar" por error en el futuro: Pelincay se sembró sin coordenadas
+    // (los 4 campos en null) porque no se tenían, no por olvido. Patococha
+    // sí las tiene y son las del front.
+    [Fact]
+    public async Task LasComunidadesSembradas_traenLasCoordenadasCorrectas()
     {
         await using var db = api.NuevoDbContext();
 
-        var id = await db.Database
-            .SqlQuery<int>($"""
-                SELECT ct."Id" AS "Value"
+        var patococha = await db.Comunidades.SingleAsync(c => c.Id == 1);
+        patococha.Nombre.ShouldBe("Patococha");
+        patococha.Latitud.ShouldBe(-3.225944m);
+        patococha.Longitud.ShouldBe(-79.504472m);
+
+        var pelincay = await db.Comunidades.SingleAsync(c => c.Id == 5);
+        pelincay.Nombre.ShouldBe("Pelincay");
+        pelincay.Latitud.ShouldBeNull();
+        pelincay.Longitud.ShouldBeNull();
+        pelincay.AltitudMinM.ShouldBeNull();
+        pelincay.AltitudMaxM.ShouldBeNull();
+    }
+
+    // La columna "Canton" ya no existe después de migrar, así que esta
+    // prueba NO puede correr el backfill contra "Comunidades" — lo monta
+    // sobre una tabla temporal con la misma forma que tenía esa tabla antes
+    // de migrar ("Canton" texto + "CantonId") y ejecuta LITERALMENTE el
+    // UPDATE ... FROM del backfill de la migración
+    // (20260830020720_ComunidadCuelgaDeCanton.cs: mismo translate(), mismo
+    // WHERE "CantonId" = 0, SIN el predicado de provincia que tenía la
+    // versión anterior de esta prueba — ese predicado ocultaba el problema
+    // de nombres de cantón repetidos entre provincias). Si el SQL de aquí y
+    // el de la migración divergen, esta prueba deja de proteger nada:
+    // mantenerlos idénticos.
+    //
+    // La conexión se abre explícitamente porque una tabla TEMP solo vive
+    // mientras la conexión de sesión sigue abierta; si EF la cerrara entre
+    // sentencias (su comportamiento por defecto), la tabla desaparecería
+    // antes del UPDATE.
+    [Fact]
+    public async Task ElBackfill_cruzaIgnorandoTildesYMayusculasYRespetaLoYaAsignado()
+    {
+        await using var db = api.NuevoDbContext();
+        await db.Database.OpenConnectionAsync();
+        try
+        {
+            await db.Database.ExecuteSqlRawAsync("""
+                CREATE TEMP TABLE "ComunidadesBackfillTmp" (
+                    "Id" integer PRIMARY KEY,
+                    "Canton" varchar(100) NOT NULL,
+                    "CantonId" integer NOT NULL
+                );
+                """);
+
+            // Fila 4 simula una comunidad cuyo CantonId ya fue asignado
+            // (999, valor centinela sin cantón real): la guarda
+            // "CantonId = 0" del backfill no debe tocarla. Es el mismo caso
+            // que protege a Las Nieves de que el backfill le pise el
+            // CantonId ya corregido a mano en el HasData.
+            await db.Database.ExecuteSqlRawAsync("""
+                INSERT INTO "ComunidadesBackfillTmp" ("Id", "Canton", "CantonId") VALUES
+                    (1, 'Nabon', 0),
+                    (2, 'NABÓN', 0),
+                    (3, '  Pucara  ', 0),
+                    (4, 'Las Nieves', 999);
+                """);
+
+            // Copia literal del UPDATE ... FROM del backfill, aplicado sobre
+            // la tabla temporal en vez de "Comunidades".
+            await db.Database.ExecuteSqlRawAsync("""
+                UPDATE "ComunidadesBackfillTmp" c
+                SET "CantonId" = ct."Id"
                 FROM "Cantones" ct
-                WHERE translate(lower(trim({escritoAMano})),
+                WHERE c."CantonId" = 0
+                  AND translate(lower(trim(c."Canton")),
                                 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunAEIOUUN')
                     = translate(lower(trim(ct."Nombre")),
+                                'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunAEIOUUN');
+                """);
+
+            async Task<int> CantonIdDe(int id) =>
+                await db.Database
+                    .SqlQuery<int>($"""
+                        SELECT "CantonId" AS "Value"
+                        FROM "ComunidadesBackfillTmp" WHERE "Id" = {id}
+                        """)
+                    .SingleAsync();
+
+            (await CantonIdDe(1)).ShouldBe(4); // Nabón — "Nabon" sin tilde, el caso real de la base
+            (await CantonIdDe(2)).ShouldBe(4); // Nabón — mayúsculas
+            (await CantonIdDe(3)).ShouldBe(6); // Pucará — espacios y sin tilde
+            (await CantonIdDe(4)).ShouldBe(999); // ya asignado: el backfill no la toca
+        }
+        finally
+        {
+            await db.Database.CloseConnectionAsync();
+        }
+    }
+
+    // Un nombre de cantón puede existir en más de una provincia: "Bolívar"
+    // en Carchi (id 31) y en Manabí (id 138). Es la razón de ser de la
+    // guarda "DO $$ ... HAVING count(*) > 1" que la migración corre antes
+    // del backfill (20260830020720_ComunidadCuelgaDeCanton.cs): con texto
+    // libre no hay forma de saber cuál de los dos era, y esta prueba
+    // demuestra que el cruce por nombre normalizado sí encuentra ambos.
+    [Fact]
+    public async Task ElCruceDeCantones_esAmbiguoParaBolivarEntreProvincias()
+    {
+        await using var db = api.NuevoDbContext();
+
+        var candidatos = await db.Database
+            .SqlQuery<int>($"""
+                SELECT count(*) AS "Value"
+                FROM "Cantones" ct
+                WHERE translate(lower(trim(ct."Nombre")),
                                 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunAEIOUUN')
-                  AND ct."ProvinciaId" = 1
+                    = translate(lower(trim('Bolívar')),
+                                'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunAEIOUUN')
                 """)
             .SingleAsync();
 
-        var canton = await db.Cantones.FindAsync(id);
-
-        canton!.Nombre.ShouldBe(esperado);
+        candidatos.ShouldBeGreaterThan(1);
     }
 
     // Dos provincias distintas pueden tener una comunidad con el mismo
@@ -137,6 +231,21 @@ public class CatalogoGeograficoTests(ApiFactory api) : IAsyncLifetime
             Nombre = "San José", CantonId = 2, CatReferencia = CentroAcopio.PAT,
         });
 
-        await Should.NotThrowAsync(() => db.SaveChangesAsync());
+        try
+        {
+            await Should.NotThrowAsync(() => db.SaveChangesAsync());
+        }
+        finally
+        {
+            // "Comunidades" está en TablesToIgnore de Respawn (es catálogo
+            // sembrado, no dato de prueba) y por eso NO se trunca entre
+            // pruebas. Sin esta limpieza, estas dos filas sobrevivirían a
+            // esta prueba y romperían la siguiente corrida de la batería
+            // contra la misma base (por ejemplo, cualquier aserción que
+            // cuente filas de "Comunidades").
+            db.Comunidades.RemoveRange(
+                db.Comunidades.Where(c => c.Nombre == "San José"));
+            await db.SaveChangesAsync();
+        }
     }
 }

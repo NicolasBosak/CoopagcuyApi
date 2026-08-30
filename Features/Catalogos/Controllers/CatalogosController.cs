@@ -44,8 +44,15 @@ public class CatalogosController(ICatalogosService service) : ControllerBase
     public async Task<IActionResult> ActualizarComunidad(
         int id, [FromBody] GuardarComunidadDto dto)
     {
-        var ok = await service.ActualizarComunidadAsync(id, dto);
-        return ok ? NoContent() : NotFound();
+        try
+        {
+            var ok = await service.ActualizarComunidadAsync(id, dto);
+            return ok ? NoContent() : NotFound();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { mensaje = ex.Message });
+        }
     }
 
     [HttpPatch("comunidades/{id:int}/estado")]

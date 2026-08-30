@@ -42,6 +42,14 @@ public class CatalogosService(AppDbContext db) : ICatalogosService
 
     public async Task<ComunidadResponseDto> CrearComunidadAsync(GuardarComunidadDto dto)
     {
+        // El alta contra el catálogo de cantones llega en la Task 3. Hasta
+        // entonces esto falla explícito y no con una violación de clave
+        // foránea que el controlador no sabe traducir: un 409 con causa se
+        // lee, un 500 sin cuerpo no.
+        throw new InvalidOperationException(
+            "El alta de comunidades está temporalmente deshabilitada: " +
+            "requiere el catálogo de cantones.");
+
         var nombre = dto.Nombre.Trim();
         var existe = await db.Comunidades
             .AnyAsync(c => c.Nombre.ToLower() == nombre.ToLower());
@@ -50,10 +58,6 @@ public class CatalogosService(AppDbContext db) : ICatalogosService
             throw new InvalidOperationException(
                 $"Ya existe una comunidad con el nombre '{nombre}'.");
 
-        // dto.Canton sigue siendo texto libre aquí: el alta/edición contra el
-        // catálogo de cantones (CantonId) es la Task 3. Por ahora este alta
-        // queda deliberadamente incompleta — no hay pantalla ni prueba que
-        // dependa de ella todavía.
         var comunidad = new Comunidad
         {
             Nombre = nombre,
@@ -70,11 +74,18 @@ public class CatalogosService(AppDbContext db) : ICatalogosService
 
     public async Task<bool> ActualizarComunidadAsync(int id, GuardarComunidadDto dto)
     {
+        // La edición contra el catálogo de cantones llega en la Task 3. Hasta
+        // entonces esto falla explícito: sin este throw, dto.Canton se
+        // descartaba en silencio y la API respondía 204 sin haber cambiado
+        // el cantón que el administrador pidió cambiar.
+        throw new InvalidOperationException(
+            "La edición de comunidades está temporalmente deshabilitada: " +
+            "requiere el catálogo de cantones.");
+
         var comunidad = await db.Comunidades.FindAsync(id);
         if (comunidad is null) return false;
 
         comunidad.Nombre = dto.Nombre.Trim();
-        // dto.Canton no se asigna aquí: ver comentario en CrearComunidadAsync.
         comunidad.CatReferencia = dto.CatReferencia;
 
         await db.SaveChangesAsync();

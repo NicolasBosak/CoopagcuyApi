@@ -18,3 +18,22 @@ WHERE NOT EXISTS (
         = translate(lower(trim(ct."Nombre")), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunAEIOUUN')
 )
 ORDER BY c."Nombre";
+
+-- Comunidades cuyo cantón escrito a mano cruza contra MÁS DE UN cantón del
+-- catálogo. El catálogo es nacional y hay nombres de cantón repetidos entre
+-- provincias ("Bolívar" en Carchi y Manabí, "Olmedo" en Loja y Manabí): con
+-- texto libre no hay forma de saber cuál era la comunidad, y un UPDATE que
+-- cruce por nombre elegiría uno en silencio. Si esta consulta devuelve filas,
+-- la migración se va a detener igual que con las que no cruzan; hay que
+-- asignar el cantón correcto a mano antes de subirla.
+SELECT c."Id",
+       c."Nombre"   AS comunidad,
+       c."Canton"   AS canton_escrito_a_mano,
+       count(*)     AS cantones_candidatos
+FROM "Comunidades" c
+JOIN "Cantones" ct
+  ON translate(lower(trim(c."Canton")), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunAEIOUUN')
+   = translate(lower(trim(ct."Nombre")), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunAEIOUUN')
+GROUP BY c."Id", c."Nombre", c."Canton"
+HAVING count(*) > 1
+ORDER BY c."Nombre";
