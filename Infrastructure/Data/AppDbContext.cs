@@ -523,9 +523,16 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             // Los cinco del piloto, con su código intacto y el cantón donde están
             // físicamente. Los CantonId salen de GeografiaEcuador (Azuay):
             // 4 Nabón, 6 Pucará, 8 Santa Isabel.
+            //
+            // NIE = 6 (Pucará), corregido en una migración posterior a la
+            // siembra inicial: el documento de la cooperativa sitúa la
+            // comunidad "Las Nieves" en Pucará (así quedó sembrada la
+            // comunidad, CantonId 6, más abajo), pero el centro de acopio del
+            // mismo nombre se sembró apuntando a Nabón (CantonId 4) por error
+            // — la corrección se propagó a la comunidad y no al centro.
             e.HasData(
                 new CentroAcopio { Codigo = "PAT", Nombre = "Patococha", CantonId = 6 },
-                new CentroAcopio { Codigo = "NIE", Nombre = "Las Nieves", CantonId = 4 },
+                new CentroAcopio { Codigo = "NIE", Nombre = "Las Nieves", CantonId = 6 },
                 new CentroAcopio { Codigo = "HUE", Nombre = "Huertas", CantonId = 8 },
                 new CentroAcopio { Codigo = "NAB", Nombre = "Nabón / El Progreso", CantonId = 4 },
                 new CentroAcopio { Codigo = "PEL", Nombre = "Pelincay", CantonId = 6 }

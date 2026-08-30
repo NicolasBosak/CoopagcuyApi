@@ -32,15 +32,35 @@ public class CatalogoCatTests(ApiFactory api) : IAsyncLifetime
     [Fact]
     public async Task CadaCentro_conoceSuCantonYSuProvincia()
     {
+        // Los cinco, no solo PAT: una transposición de CantonId entre dos
+        // centros del piloto (como la que tenía "NIE", sembrado en Nabón en
+        // vez de Pucará) es exactamente el tipo de error que una prueba que
+        // solo mira PAT no puede detectar.
         await using var db = api.NuevoDbContext();
 
-        var pat = await db.CentrosAcopio
+        var centros = await db.CentrosAcopio
             .Include(c => c.Canton).ThenInclude(c => c.Provincia)
-            .SingleAsync(c => c.Codigo == "PAT");
+            .ToDictionaryAsync(c => c.Codigo);
 
-        pat.Nombre.ShouldBe("Patococha");
-        pat.Canton.Nombre.ShouldBe("Pucará");
-        pat.Canton.Provincia.Nombre.ShouldBe("Azuay");
+        centros["PAT"].Nombre.ShouldBe("Patococha");
+        centros["PAT"].Canton.Nombre.ShouldBe("Pucará");
+        centros["PAT"].Canton.Provincia.Nombre.ShouldBe("Azuay");
+
+        centros["NIE"].Nombre.ShouldBe("Las Nieves");
+        centros["NIE"].Canton.Nombre.ShouldBe("Pucará");
+        centros["NIE"].Canton.Provincia.Nombre.ShouldBe("Azuay");
+
+        centros["HUE"].Nombre.ShouldBe("Huertas");
+        centros["HUE"].Canton.Nombre.ShouldBe("Santa Isabel");
+        centros["HUE"].Canton.Provincia.Nombre.ShouldBe("Azuay");
+
+        centros["NAB"].Nombre.ShouldBe("Nabón / El Progreso");
+        centros["NAB"].Canton.Nombre.ShouldBe("Nabón");
+        centros["NAB"].Canton.Provincia.Nombre.ShouldBe("Azuay");
+
+        centros["PEL"].Nombre.ShouldBe("Pelincay");
+        centros["PEL"].Canton.Nombre.ShouldBe("Pucará");
+        centros["PEL"].Canton.Provincia.Nombre.ShouldBe("Azuay");
     }
 
     // La clave foránea es lo que impide que una jaula nazca apuntando a un
