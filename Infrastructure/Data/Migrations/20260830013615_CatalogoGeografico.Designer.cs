@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CoopagcuyApi.Infrastructure.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260830012024_CatalogoGeografico")]
+    [Migration("20260830013615_CatalogoGeografico")]
     partial class CatalogoGeografico
     {
         /// <inheritdoc />
@@ -725,861 +725,861 @@ namespace CoopagcuyApi.Infrastructure.Data.Migrations
                         {
                             Id = 74,
                             Activo = true,
-                            Nombre = "La Concordia",
-                            ProvinciaId = 8
-                        },
-                        new
-                        {
-                            Id = 75,
-                            Activo = true,
                             Nombre = "San Cristóbal",
                             ProvinciaId = 9
                         },
                         new
                         {
-                            Id = 76,
+                            Id = 75,
                             Activo = true,
                             Nombre = "Isabela",
                             ProvinciaId = 9
                         },
                         new
                         {
-                            Id = 77,
+                            Id = 76,
                             Activo = true,
                             Nombre = "Santa Cruz",
                             ProvinciaId = 9
                         },
                         new
                         {
-                            Id = 78,
+                            Id = 77,
                             Activo = true,
                             Nombre = "Guayaquil",
                             ProvinciaId = 10
                         },
                         new
                         {
-                            Id = 79,
+                            Id = 78,
                             Activo = true,
                             Nombre = "Alfredo Baquerizo Moreno",
                             ProvinciaId = 10
                         },
                         new
                         {
-                            Id = 80,
+                            Id = 79,
                             Activo = true,
                             Nombre = "Balao",
                             ProvinciaId = 10
                         },
                         new
                         {
-                            Id = 81,
+                            Id = 80,
                             Activo = true,
                             Nombre = "Balzar",
                             ProvinciaId = 10
                         },
                         new
                         {
-                            Id = 82,
+                            Id = 81,
                             Activo = true,
                             Nombre = "Colimes",
                             ProvinciaId = 10
                         },
                         new
                         {
-                            Id = 83,
+                            Id = 82,
                             Activo = true,
                             Nombre = "Daule",
                             ProvinciaId = 10
                         },
                         new
                         {
-                            Id = 84,
+                            Id = 83,
                             Activo = true,
                             Nombre = "Durán",
                             ProvinciaId = 10
                         },
                         new
                         {
-                            Id = 85,
+                            Id = 84,
                             Activo = true,
                             Nombre = "El Empalme",
                             ProvinciaId = 10
                         },
                         new
                         {
-                            Id = 86,
+                            Id = 85,
                             Activo = true,
                             Nombre = "El Triunfo",
                             ProvinciaId = 10
                         },
                         new
                         {
-                            Id = 87,
+                            Id = 86,
                             Activo = true,
                             Nombre = "Milagro",
                             ProvinciaId = 10
                         },
                         new
                         {
-                            Id = 88,
+                            Id = 87,
                             Activo = true,
                             Nombre = "Naranjal",
                             ProvinciaId = 10
                         },
                         new
                         {
-                            Id = 89,
+                            Id = 88,
                             Activo = true,
                             Nombre = "Naranjito",
                             ProvinciaId = 10
                         },
                         new
                         {
-                            Id = 90,
+                            Id = 89,
                             Activo = true,
                             Nombre = "Palestina",
                             ProvinciaId = 10
                         },
                         new
                         {
-                            Id = 91,
+                            Id = 90,
                             Activo = true,
                             Nombre = "Pedro Carbo",
                             ProvinciaId = 10
                         },
                         new
                         {
-                            Id = 92,
+                            Id = 91,
                             Activo = true,
                             Nombre = "Samborondón",
                             ProvinciaId = 10
                         },
                         new
                         {
-                            Id = 93,
+                            Id = 92,
                             Activo = true,
                             Nombre = "Santa Lucía",
                             ProvinciaId = 10
                         },
                         new
                         {
-                            Id = 94,
+                            Id = 93,
                             Activo = true,
                             Nombre = "Salitre",
                             ProvinciaId = 10
                         },
                         new
                         {
-                            Id = 95,
+                            Id = 94,
                             Activo = true,
                             Nombre = "San Jacinto de Yaguachi",
                             ProvinciaId = 10
                         },
                         new
                         {
-                            Id = 96,
+                            Id = 95,
                             Activo = true,
                             Nombre = "Playas",
                             ProvinciaId = 10
                         },
                         new
                         {
-                            Id = 97,
+                            Id = 96,
                             Activo = true,
                             Nombre = "Simón Bolívar",
                             ProvinciaId = 10
                         },
                         new
                         {
-                            Id = 98,
+                            Id = 97,
                             Activo = true,
                             Nombre = "Coronel Marcelino Maridueña",
                             ProvinciaId = 10
                         },
                         new
                         {
-                            Id = 99,
+                            Id = 98,
                             Activo = true,
                             Nombre = "Lomas de Sargentillo",
                             ProvinciaId = 10
                         },
                         new
                         {
-                            Id = 100,
+                            Id = 99,
                             Activo = true,
                             Nombre = "Nobol",
                             ProvinciaId = 10
                         },
                         new
                         {
-                            Id = 101,
+                            Id = 100,
                             Activo = true,
                             Nombre = "General Antonio Elizalde",
                             ProvinciaId = 10
                         },
                         new
                         {
-                            Id = 102,
+                            Id = 101,
                             Activo = true,
                             Nombre = "Isidro Ayora",
                             ProvinciaId = 10
                         },
                         new
                         {
-                            Id = 103,
+                            Id = 102,
                             Activo = true,
                             Nombre = "Ibarra",
                             ProvinciaId = 11
                         },
                         new
                         {
-                            Id = 104,
+                            Id = 103,
                             Activo = true,
                             Nombre = "Antonio Ante",
                             ProvinciaId = 11
                         },
                         new
                         {
-                            Id = 105,
+                            Id = 104,
                             Activo = true,
                             Nombre = "Cotacachi",
                             ProvinciaId = 11
                         },
                         new
                         {
-                            Id = 106,
+                            Id = 105,
                             Activo = true,
                             Nombre = "Otavalo",
                             ProvinciaId = 11
                         },
                         new
                         {
-                            Id = 107,
+                            Id = 106,
                             Activo = true,
                             Nombre = "Pimampiro",
                             ProvinciaId = 11
                         },
                         new
                         {
-                            Id = 108,
+                            Id = 107,
                             Activo = true,
                             Nombre = "San Miguel de Urcuquí",
                             ProvinciaId = 11
                         },
                         new
                         {
-                            Id = 109,
+                            Id = 108,
                             Activo = true,
                             Nombre = "Loja",
                             ProvinciaId = 12
                         },
                         new
                         {
-                            Id = 110,
+                            Id = 109,
                             Activo = true,
                             Nombre = "Calvas",
                             ProvinciaId = 12
                         },
                         new
                         {
-                            Id = 111,
+                            Id = 110,
                             Activo = true,
                             Nombre = "Catamayo",
                             ProvinciaId = 12
                         },
                         new
                         {
-                            Id = 112,
+                            Id = 111,
                             Activo = true,
                             Nombre = "Celica",
                             ProvinciaId = 12
                         },
                         new
                         {
-                            Id = 113,
+                            Id = 112,
                             Activo = true,
                             Nombre = "Chaguarpamba",
                             ProvinciaId = 12
                         },
                         new
                         {
-                            Id = 114,
+                            Id = 113,
                             Activo = true,
                             Nombre = "Espíndola",
                             ProvinciaId = 12
                         },
                         new
                         {
-                            Id = 115,
+                            Id = 114,
                             Activo = true,
                             Nombre = "Gonzanamá",
                             ProvinciaId = 12
                         },
                         new
                         {
-                            Id = 116,
+                            Id = 115,
                             Activo = true,
                             Nombre = "Macará",
                             ProvinciaId = 12
                         },
                         new
                         {
-                            Id = 117,
+                            Id = 116,
                             Activo = true,
                             Nombre = "Paltas",
                             ProvinciaId = 12
                         },
                         new
                         {
-                            Id = 118,
+                            Id = 117,
                             Activo = true,
                             Nombre = "Puyango",
                             ProvinciaId = 12
                         },
                         new
                         {
-                            Id = 119,
+                            Id = 118,
                             Activo = true,
                             Nombre = "Saraguro",
                             ProvinciaId = 12
                         },
                         new
                         {
-                            Id = 120,
+                            Id = 119,
                             Activo = true,
                             Nombre = "Sozoranga",
                             ProvinciaId = 12
                         },
                         new
                         {
-                            Id = 121,
+                            Id = 120,
                             Activo = true,
                             Nombre = "Zapotillo",
                             ProvinciaId = 12
                         },
                         new
                         {
-                            Id = 122,
+                            Id = 121,
                             Activo = true,
                             Nombre = "Pindal",
                             ProvinciaId = 12
                         },
                         new
                         {
-                            Id = 123,
+                            Id = 122,
                             Activo = true,
                             Nombre = "Quilanga",
                             ProvinciaId = 12
                         },
                         new
                         {
-                            Id = 124,
+                            Id = 123,
                             Activo = true,
                             Nombre = "Olmedo",
                             ProvinciaId = 12
                         },
                         new
                         {
-                            Id = 125,
+                            Id = 124,
                             Activo = true,
                             Nombre = "Babahoyo",
                             ProvinciaId = 13
                         },
                         new
                         {
-                            Id = 126,
+                            Id = 125,
                             Activo = true,
                             Nombre = "Baba",
                             ProvinciaId = 13
                         },
                         new
                         {
-                            Id = 127,
+                            Id = 126,
                             Activo = true,
                             Nombre = "Montalvo",
                             ProvinciaId = 13
                         },
                         new
                         {
-                            Id = 128,
+                            Id = 127,
                             Activo = true,
                             Nombre = "Puebloviejo",
                             ProvinciaId = 13
                         },
                         new
                         {
-                            Id = 129,
+                            Id = 128,
                             Activo = true,
                             Nombre = "Quevedo",
                             ProvinciaId = 13
                         },
                         new
                         {
-                            Id = 130,
+                            Id = 129,
                             Activo = true,
                             Nombre = "Urdaneta",
                             ProvinciaId = 13
                         },
                         new
                         {
-                            Id = 131,
+                            Id = 130,
                             Activo = true,
                             Nombre = "Ventanas",
                             ProvinciaId = 13
                         },
                         new
                         {
-                            Id = 132,
+                            Id = 131,
                             Activo = true,
                             Nombre = "Vínces",
                             ProvinciaId = 13
                         },
                         new
                         {
-                            Id = 133,
+                            Id = 132,
                             Activo = true,
                             Nombre = "Palenque",
                             ProvinciaId = 13
                         },
                         new
                         {
-                            Id = 134,
+                            Id = 133,
                             Activo = true,
                             Nombre = "Buena Fe",
                             ProvinciaId = 13
                         },
                         new
                         {
-                            Id = 135,
+                            Id = 134,
                             Activo = true,
                             Nombre = "Valencia",
                             ProvinciaId = 13
                         },
                         new
                         {
-                            Id = 136,
+                            Id = 135,
                             Activo = true,
                             Nombre = "Mocache",
                             ProvinciaId = 13
                         },
                         new
                         {
-                            Id = 137,
+                            Id = 136,
                             Activo = true,
                             Nombre = "Quinsaloma",
                             ProvinciaId = 13
                         },
                         new
                         {
-                            Id = 138,
+                            Id = 137,
                             Activo = true,
                             Nombre = "Portoviejo",
                             ProvinciaId = 14
                         },
                         new
                         {
-                            Id = 139,
+                            Id = 138,
                             Activo = true,
                             Nombre = "Bolívar",
                             ProvinciaId = 14
                         },
                         new
                         {
-                            Id = 140,
+                            Id = 139,
                             Activo = true,
                             Nombre = "Chone",
                             ProvinciaId = 14
                         },
                         new
                         {
-                            Id = 141,
+                            Id = 140,
                             Activo = true,
                             Nombre = "El Carmen",
                             ProvinciaId = 14
                         },
                         new
                         {
-                            Id = 142,
+                            Id = 141,
                             Activo = true,
                             Nombre = "Flavio Alfaro",
                             ProvinciaId = 14
                         },
                         new
                         {
-                            Id = 143,
+                            Id = 142,
                             Activo = true,
                             Nombre = "Jipijapa",
                             ProvinciaId = 14
                         },
                         new
                         {
-                            Id = 144,
+                            Id = 143,
                             Activo = true,
                             Nombre = "Junín",
                             ProvinciaId = 14
                         },
                         new
                         {
-                            Id = 145,
+                            Id = 144,
                             Activo = true,
                             Nombre = "Manta",
                             ProvinciaId = 14
                         },
                         new
                         {
-                            Id = 146,
+                            Id = 145,
                             Activo = true,
                             Nombre = "Montecristi",
                             ProvinciaId = 14
                         },
                         new
                         {
-                            Id = 147,
+                            Id = 146,
                             Activo = true,
                             Nombre = "Paján",
                             ProvinciaId = 14
                         },
                         new
                         {
-                            Id = 148,
+                            Id = 147,
                             Activo = true,
                             Nombre = "Pichincha",
                             ProvinciaId = 14
                         },
                         new
                         {
-                            Id = 149,
+                            Id = 148,
                             Activo = true,
                             Nombre = "Rocafuerte",
                             ProvinciaId = 14
                         },
                         new
                         {
-                            Id = 150,
+                            Id = 149,
                             Activo = true,
                             Nombre = "Santa Ana",
                             ProvinciaId = 14
                         },
                         new
                         {
-                            Id = 151,
+                            Id = 150,
                             Activo = true,
                             Nombre = "Sucre",
                             ProvinciaId = 14
                         },
                         new
                         {
-                            Id = 152,
+                            Id = 151,
                             Activo = true,
                             Nombre = "Tosagua",
                             ProvinciaId = 14
                         },
                         new
                         {
-                            Id = 153,
+                            Id = 152,
                             Activo = true,
                             Nombre = "24 de Mayo",
                             ProvinciaId = 14
                         },
                         new
                         {
-                            Id = 154,
+                            Id = 153,
                             Activo = true,
                             Nombre = "Pedernales",
                             ProvinciaId = 14
                         },
                         new
                         {
-                            Id = 155,
+                            Id = 154,
                             Activo = true,
                             Nombre = "Olmedo",
                             ProvinciaId = 14
                         },
                         new
                         {
-                            Id = 156,
+                            Id = 155,
                             Activo = true,
                             Nombre = "Puerto López",
                             ProvinciaId = 14
                         },
                         new
                         {
-                            Id = 157,
+                            Id = 156,
                             Activo = true,
                             Nombre = "Jama",
                             ProvinciaId = 14
                         },
                         new
                         {
-                            Id = 158,
+                            Id = 157,
                             Activo = true,
                             Nombre = "Jaramijó",
                             ProvinciaId = 14
                         },
                         new
                         {
-                            Id = 159,
+                            Id = 158,
                             Activo = true,
                             Nombre = "San Vicente",
                             ProvinciaId = 14
                         },
                         new
                         {
-                            Id = 160,
+                            Id = 159,
                             Activo = true,
                             Nombre = "Morona",
                             ProvinciaId = 15
                         },
                         new
                         {
-                            Id = 161,
+                            Id = 160,
                             Activo = true,
                             Nombre = "Gualaquiza",
                             ProvinciaId = 15
                         },
                         new
                         {
-                            Id = 162,
+                            Id = 161,
                             Activo = true,
                             Nombre = "Limón Indanza",
                             ProvinciaId = 15
                         },
                         new
                         {
-                            Id = 163,
+                            Id = 162,
                             Activo = true,
                             Nombre = "Palora",
                             ProvinciaId = 15
                         },
                         new
                         {
-                            Id = 164,
+                            Id = 163,
                             Activo = true,
                             Nombre = "Santiago",
                             ProvinciaId = 15
                         },
                         new
                         {
-                            Id = 165,
+                            Id = 164,
                             Activo = true,
                             Nombre = "Sucúa",
                             ProvinciaId = 15
                         },
                         new
                         {
-                            Id = 166,
+                            Id = 165,
                             Activo = true,
                             Nombre = "Huamboya",
                             ProvinciaId = 15
                         },
                         new
                         {
-                            Id = 167,
+                            Id = 166,
                             Activo = true,
                             Nombre = "San Juan Bosco",
                             ProvinciaId = 15
                         },
                         new
                         {
-                            Id = 168,
+                            Id = 167,
                             Activo = true,
                             Nombre = "Taisha",
                             ProvinciaId = 15
                         },
                         new
                         {
-                            Id = 169,
+                            Id = 168,
                             Activo = true,
                             Nombre = "Logroño",
                             ProvinciaId = 15
                         },
                         new
                         {
-                            Id = 170,
+                            Id = 169,
                             Activo = true,
                             Nombre = "Pablo Sexto",
                             ProvinciaId = 15
                         },
                         new
                         {
-                            Id = 171,
+                            Id = 170,
                             Activo = true,
                             Nombre = "Tiwintza",
                             ProvinciaId = 15
                         },
                         new
                         {
-                            Id = 172,
+                            Id = 171,
                             Activo = true,
                             Nombre = "Tena",
                             ProvinciaId = 16
                         },
                         new
                         {
-                            Id = 173,
+                            Id = 172,
                             Activo = true,
                             Nombre = "Archidona",
                             ProvinciaId = 16
                         },
                         new
                         {
-                            Id = 174,
+                            Id = 173,
                             Activo = true,
                             Nombre = "El Chaco",
                             ProvinciaId = 16
                         },
                         new
                         {
-                            Id = 175,
+                            Id = 174,
                             Activo = true,
                             Nombre = "Quijos",
                             ProvinciaId = 16
                         },
                         new
                         {
-                            Id = 176,
+                            Id = 175,
                             Activo = true,
                             Nombre = "Carlos Julio Arosemena Tola",
                             ProvinciaId = 16
                         },
                         new
                         {
-                            Id = 177,
+                            Id = 176,
                             Activo = true,
                             Nombre = "Orellana",
                             ProvinciaId = 17
                         },
                         new
                         {
-                            Id = 178,
+                            Id = 177,
                             Activo = true,
                             Nombre = "Aguarico",
                             ProvinciaId = 17
                         },
                         new
                         {
-                            Id = 179,
+                            Id = 178,
                             Activo = true,
                             Nombre = "La Joya de los Sachas",
                             ProvinciaId = 17
                         },
                         new
                         {
-                            Id = 180,
+                            Id = 179,
                             Activo = true,
                             Nombre = "Loreto",
                             ProvinciaId = 17
                         },
                         new
                         {
-                            Id = 181,
+                            Id = 180,
                             Activo = true,
                             Nombre = "Pastaza",
                             ProvinciaId = 18
                         },
                         new
                         {
-                            Id = 182,
+                            Id = 181,
                             Activo = true,
                             Nombre = "Mera",
                             ProvinciaId = 18
                         },
                         new
                         {
-                            Id = 183,
+                            Id = 182,
                             Activo = true,
                             Nombre = "Santa Clara",
                             ProvinciaId = 18
                         },
                         new
                         {
-                            Id = 184,
+                            Id = 183,
                             Activo = true,
                             Nombre = "Arajuno",
                             ProvinciaId = 18
                         },
                         new
                         {
-                            Id = 185,
+                            Id = 184,
                             Activo = true,
                             Nombre = "Quito",
                             ProvinciaId = 19
                         },
                         new
                         {
-                            Id = 186,
+                            Id = 185,
                             Activo = true,
                             Nombre = "Cayambe",
                             ProvinciaId = 19
                         },
                         new
                         {
-                            Id = 187,
+                            Id = 186,
                             Activo = true,
                             Nombre = "Mejía",
                             ProvinciaId = 19
                         },
                         new
                         {
-                            Id = 188,
+                            Id = 187,
                             Activo = true,
                             Nombre = "Pedro Moncayo",
                             ProvinciaId = 19
                         },
                         new
                         {
-                            Id = 189,
+                            Id = 188,
                             Activo = true,
                             Nombre = "Rumiñahui",
                             ProvinciaId = 19
                         },
                         new
                         {
-                            Id = 190,
+                            Id = 189,
                             Activo = true,
                             Nombre = "San Miguel de los Bancos",
                             ProvinciaId = 19
                         },
                         new
                         {
-                            Id = 191,
+                            Id = 190,
                             Activo = true,
                             Nombre = "Pedro Vicente Maldonado",
                             ProvinciaId = 19
                         },
                         new
                         {
-                            Id = 192,
+                            Id = 191,
                             Activo = true,
                             Nombre = "Puerto Quito",
                             ProvinciaId = 19
                         },
                         new
                         {
-                            Id = 193,
+                            Id = 192,
                             Activo = true,
                             Nombre = "Santa Elena",
                             ProvinciaId = 20
                         },
                         new
                         {
-                            Id = 194,
+                            Id = 193,
                             Activo = true,
                             Nombre = "La Libertad",
                             ProvinciaId = 20
                         },
                         new
                         {
-                            Id = 195,
+                            Id = 194,
                             Activo = true,
                             Nombre = "Salinas",
                             ProvinciaId = 20
                         },
                         new
                         {
-                            Id = 196,
+                            Id = 195,
                             Activo = true,
                             Nombre = "Santo Domingo",
+                            ProvinciaId = 21
+                        },
+                        new
+                        {
+                            Id = 196,
+                            Activo = true,
+                            Nombre = "La Concordia",
                             ProvinciaId = 21
                         },
                         new

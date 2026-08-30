@@ -77,9 +77,11 @@ public static class GeografiaEcuador
             [7] = ["Machala", "Arenillas", "Atahualpa", "Balsas", "Chilla",
                    "El Guabo", "Huaquillas", "Marcabelí", "Pasaje", "Piñas",
                    "Portovelo", "Santa Rosa", "Zaruma", "Las Lajas"],
-            // 8 · Esmeraldas (8)
+            // 8 · Esmeraldas (7). La Concordia no está aquí: se creó como
+            // cantón de Esmeraldas en 2007, pero la consulta popular la pasó
+            // a Santo Domingo de los Tsáchilas y ahí pertenece hoy.
             [8] = ["Esmeraldas", "Eloy Alfaro", "Muisne", "Quinindé",
-                   "San Lorenzo", "Atacames", "Rioverde", "La Concordia"],
+                   "San Lorenzo", "Atacames", "Rioverde"],
             // 9 · Galápagos (3)
             [9] = ["San Cristóbal", "Isabela", "Santa Cruz"],
             // 10 · Guayas (25)
@@ -124,14 +126,13 @@ public static class GeografiaEcuador
                     "Puerto Quito"],
             // 20 · Santa Elena (3)
             [20] = ["Santa Elena", "La Libertad", "Salinas"],
-            // 21 · Santo Domingo de los Tsáchilas (1). El brief original
+            // 21 · Santo Domingo de los Tsáchilas (2). El brief original
             // repetía "La Concordia" aquí y en Esmeraldas (8): el mismo
             // cantón contado dos veces era el error que inflaba la semilla
-            // a 222. Esmeraldas es la provincia que se queda con él aquí
-            // porque el Id de Loja (109) ya es contractual para tareas
-            // siguientes y depende de que las provincias 1-11 no cambien
-            // de tamaño.
-            [21] = ["Santo Domingo"],
+            // a 222. Se queda en Santo Domingo porque es la provincia a la
+            // que pertenece hoy: nació como cantón de Esmeraldas en 2007,
+            // pero la consulta popular la trasladó aquí.
+            [21] = ["Santo Domingo", "La Concordia"],
             // 22 · Sucumbíos (7)
             [22] = ["Lago Agrio", "Gonzalo Pizarro", "Putumayo", "Shushufindi",
                     "Sucumbíos", "Cascales", "Cuyabeno"],
