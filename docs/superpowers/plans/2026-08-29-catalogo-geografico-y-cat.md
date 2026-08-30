@@ -466,18 +466,39 @@ Añadir a `CatalogoGeograficoTests.cs`:
         comunidades.ShouldAllBe(c => c.Canton.Provincia.Nombre == "Azuay");
     }
 
-    // El backfill de la migración no puede dejar ninguna comunidad huérfana:
-    // si una quedara sin cantón, su ficha pública no sabría de dónde es el cuy.
-    [Fact]
-    public async Task NingunaComunidad_quedaSinCanton()
+    // El cruce del backfill ignora tildes y mayúsculas. No es un detalle: en
+    // la base real hay una comunidad cuyo cantón se escribió "Nabon" desde
+    // Administración, y con comparación cruda se habría quedado sin cantón.
+    //
+    // La columna "Canton" ya no existe después de migrar, así que la prueba
+    // ejecuta el MISMO SQL del backfill sobre un valor de entrada suelto. Es
+    // la única forma de ejercitar esa lógica una vez aplicada la migración;
+    // si el SQL de aquí y el de la migración divergen, esta prueba deja de
+    // proteger nada — mantenerlos idénticos.
+    [Theory]
+    [InlineData("Nabon", "Nabón")]     // el caso real de la base
+    [InlineData("NABÓN", "Nabón")]     // mayúsculas
+    [InlineData("  Pucara  ", "Pucará")] // espacios y tilde
+    public async Task ElCruceDeCantones_ignoraTildesYMayusculas(
+        string escritoAMano, string esperado)
     {
         await using var db = api.NuevoDbContext();
 
-        var huerfanas = await db.Comunidades
-            .Where(c => c.CantonId == 0)
-            .CountAsync();
+        var id = await db.Database
+            .SqlQuery<int>($"""
+                SELECT ct."Id" AS "Value"
+                FROM "Cantones" ct
+                WHERE translate(lower(trim({escritoAMano})),
+                                'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunAEIOUUN')
+                    = translate(lower(trim(ct."Nombre")),
+                                'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunAEIOUUN')
+                  AND ct."ProvinciaId" = 1
+                """)
+            .SingleAsync();
 
-        huerfanas.ShouldBe(0);
+        var canton = await db.Cantones.FindAsync(id);
+
+        canton!.Nombre.ShouldBe(esperado);
     }
 
     // Dos provincias distintas pueden tener una comunidad con el mismo
@@ -717,7 +738,7 @@ En las consultas EF que ya hacen `.Include(p => p.Comunidad)`, encadenar `.ThenI
 docker compose -f docker-compose.tests.yml run --rm tests dotnet test tests/CoopagcuyApi.Tests/CoopagcuyApi.Tests.csproj --filter "FullyQualifiedName~CatalogoGeograficoTests"
 ```
 
-Esperado: 7 pruebas en verde.
+Esperado: 9 pruebas en verde (la `[Theory]` cuenta tres).
 
 - [ ] **Step 10: Correr la batería completa**
 
@@ -2710,6 +2731,7 @@ git commit -m "feat: el front lee los centros de acopio del catálogo, no de una
 
 **Files:**
 - Modify: `src/pages/Administracion.tsx`
+- Create: `src/components/admin/SelectorCanton.tsx`
 - Create: `src/components/admin/PanelCatalogos.tsx`
 - Create: `src/components/admin/TablaProvincias.tsx`, `FormProvincia.tsx`
 - Create: `src/components/admin/TablaCantones.tsx`, `FormCanton.tsx`
@@ -2717,7 +2739,107 @@ git commit -m "feat: el front lee los centros de acopio del catálogo, no de una
 
 **Interfaces:**
 - Consumes: `useProvincias`, `useCantones`, `useCentrosAcopio`, `etiquetaCat` (Task 7); `geografiaApi`, `centrosAcopioApi` (Task 7); el componente `Segmentado` de `src/components/ui/Segmentado.tsx` y `ModalShell` de `src/components/ui/ModalShell.tsx`.
-- Produces: `PanelCatalogos` — un componente sin props que agrupa las cuatro sub-pestañas.
+- Produces:
+  - `PanelCatalogos` — componente sin props que agrupa las cuatro sub-pestañas.
+  - `SelectorCanton` — `{ cantonId: number | undefined; onCambio: (id: number | undefined) => void; requerido?: boolean }`. Lo consumen `FormCentroAcopio` (esta tarea) y `FormComunidad` (Task 9).
+
+- [ ] **Step 0: Escribir el selector de cantón compartido**
+
+Los dos formularios que vienen —el del CAT y el de la comunidad— necesitan la misma pieza: dos `select` encadenados, el reseteo del cantón al cambiar de provincia, y la deducción de la provincia cuando se abre en modo edición y solo se conoce el cantón. Es la lógica más sutil de esta fase; teniéndola dos veces, una de las copias se desviaría.
+
+Crear `src/components/admin/SelectorCanton.tsx`:
+
+```tsx
+import { useEffect, useState } from "react";
+import { useProvincias, useCantones } from "../../hooks/useCatalogos";
+
+interface Props {
+    cantonId: number | undefined;
+    onCambio: (id: number | undefined) => void;
+    requerido?: boolean;
+}
+
+/**
+ * Elegir un cantón, en dos pasos: provincia y después cantón.
+ *
+ * En un paso solo serían 221 opciones en una lista plana, con cantones
+ * homónimos ("Bolívar" está en Carchi y en Manabí) que el usuario no podría
+ * distinguir.
+ *
+ * Vive suelto y no dentro de un formulario porque lo usan dos —el del centro
+ * de acopio y el de la comunidad— y las tres reglas de abajo son fáciles de
+ * implementar mal por separado.
+ */
+export function SelectorCanton({ cantonId, onCambio, requerido = true }: Props) {
+    const [provinciaId, setProvinciaId] = useState<number | undefined>();
+
+    const { data: provincias = [] } = useProvincias();
+    const { data: cantones = [] } = useCantones(provinciaId);
+    const { data: todosLosCantones = [] } = useCantones();
+
+    // Al abrir en modo edición llega un cantón pero no su provincia: hay que
+    // deducirla o el primer selector arrancaría vacío y el segundo, deshabilitado,
+    // dejando al usuario sin ver lo que ya está guardado.
+    useEffect(() => {
+        if (cantonId === undefined || provinciaId !== undefined) return;
+        const suyo = todosLosCantones.find((c) => c.id === cantonId);
+        if (suyo) setProvinciaId(suyo.provinciaId);
+    }, [cantonId, provinciaId, todosLosCantones]);
+
+    return (
+        <>
+            <div>
+                <label className="block text-xs font-bold uppercase tracking-wide
+                    text-gray-500 mb-1">
+                    Provincia
+                </label>
+                <select
+                    required={requerido}
+                    value={provinciaId ?? ""}
+                    onChange={(e) => {
+                        setProvinciaId(e.target.value ? Number(e.target.value) : undefined);
+                        // El cantón elegido pertenecía a la provincia anterior:
+                        // sin limpiarlo, el formulario enviaría un cantón que no
+                        // está en la lista que el usuario tiene delante.
+                        onCambio(undefined);
+                    }}
+                    className="w-full h-12 px-3 rounded-xl border-2 border-gray-200
+                        text-base focus:border-primary-500 focus:outline-none"
+                >
+                    <option value="">Elige una provincia…</option>
+                    {provincias.map((p) => (
+                        <option key={p.id} value={p.id}>{p.nombre}</option>
+                    ))}
+                </select>
+            </div>
+
+            <div>
+                <label className="block text-xs font-bold uppercase tracking-wide
+                    text-gray-500 mb-1">
+                    Cantón
+                </label>
+                <select
+                    required={requerido}
+                    value={cantonId ?? ""}
+                    disabled={!provinciaId}
+                    onChange={(e) =>
+                        onCambio(e.target.value ? Number(e.target.value) : undefined)}
+                    className="w-full h-12 px-3 rounded-xl border-2 border-gray-200
+                        text-base disabled:bg-gray-100
+                        focus:border-primary-500 focus:outline-none"
+                >
+                    <option value="">
+                        {provinciaId ? "Elige un cantón…" : "Elige antes la provincia"}
+                    </option>
+                    {cantones.map((c) => (
+                        <option key={c.id} value={c.id}>{c.nombre}</option>
+                    ))}
+                </select>
+            </div>
+        </>
+    );
+}
+```
 
 - [ ] **Step 1: Cambiar la pestaña de Administración**
 
@@ -2949,69 +3071,19 @@ El campo del código, **deshabilitado al editar**, con la explicación a la vist
                 </div>
 ```
 
-Y los dos selectores encadenados, provincia → cantón:
+Y el cantón, con el componente del paso 0 — que ya trae dentro el encadenamiento, el reseteo y la deducción de la provincia al editar:
 
 ```tsx
-                <div>
-                    <label className="block text-xs font-bold uppercase tracking-wide
-                        text-gray-500 mb-1">
-                        Provincia
-                    </label>
-                    <select
-                        required
-                        value={provinciaId ?? ""}
-                        onChange={(e) => {
-                            setProvinciaId(Number(e.target.value));
-                            // Al cambiar de provincia, el cantón elegido deja
-                            // de pertenecer a la lista: se limpia o el
-                            // formulario enviaría un cantón de otra provincia.
-                            setCantonId(undefined);
-                        }}
-                        className="w-full h-12 px-3 rounded-xl border-2 border-gray-200
-                            text-base focus:border-primary-500 focus:outline-none"
-                    >
-                        <option value="">Elige una provincia…</option>
-                        {provincias.map((p) => (
-                            <option key={p.id} value={p.id}>{p.nombre}</option>
-                        ))}
-                    </select>
-                </div>
-
-                <div>
-                    <label className="block text-xs font-bold uppercase tracking-wide
-                        text-gray-500 mb-1">
-                        Cantón
-                    </label>
-                    <select
-                        required
-                        value={cantonId ?? ""}
-                        disabled={!provinciaId}
-                        onChange={(e) => setCantonId(Number(e.target.value))}
-                        className="w-full h-12 px-3 rounded-xl border-2 border-gray-200
-                            text-base disabled:bg-gray-100
-                            focus:border-primary-500 focus:outline-none"
-                    >
-                        <option value="">
-                            {provinciaId ? "Elige un cantón…" : "Elige antes la provincia"}
-                        </option>
-                        {cantones.map((c) => (
-                            <option key={c.id} value={c.id}>{c.nombre}</option>
-                        ))}
-                    </select>
-                </div>
+                <SelectorCanton cantonId={cantonId} onCambio={setCantonId} />
 ```
 
-**Al editar**, `provinciaId` arranca en `undefined` pero el centro ya tiene cantón. Resolver la provincia del cantón guardado al montar:
+Con eso, el estado del formulario no necesita `provinciaId` ni las consultas de provincias y cantones:
 
 ```tsx
-    // Al abrir en modo edición solo tenemos el cantón; la provincia hay que
-    // deducirla para que su selector arranque en el sitio correcto.
-    const { data: todosLosCantones = [] } = useCantones();
-    useEffect(() => {
-        if (!editando || provinciaId !== undefined) return;
-        const suyo = todosLosCantones.find((c) => c.id === centro.cantonId);
-        if (suyo) setProvinciaId(suyo.provinciaId);
-    }, [editando, provinciaId, todosLosCantones, centro]);
+    const [codigo, setCodigo] = useState(centro?.codigo ?? "");
+    const [nombre, setNombre] = useState(centro?.nombre ?? "");
+    const [cantonId, setCantonId] = useState<number | undefined>(centro?.cantonId);
+    const [error, setError] = useState<string | null>(null);
 ```
 
 - [ ] **Step 6: Compilar, pasar el linter y verificar en el navegador**
@@ -3042,30 +3114,18 @@ git commit -m "feat: pantallas de provincias, cantones y centros de acopio"
 - Modify: `src/components/admin/TablaComunidades.tsx`
 
 **Interfaces:**
-- Consumes: `Comunidad` y `GuardarComunidadRequest` (Task 7), `useProvincias`, `useCantones`, `useCentrosAcopio`, `etiquetaCat`, `useNombreCat` (Task 7).
+- Consumes: `Comunidad` y `GuardarComunidadRequest` (Task 7), `useCentrosAcopio`, `etiquetaCat`, `useNombreCat` (Task 7), `SelectorCanton` (Task 8).
 - Produces: nada que consuman otras tareas.
 
 - [ ] **Step 1: Cambiar el estado y las consultas de `FormComunidad`**
 
 ```tsx
     const [nombre, setNombre] = useState(comunidad?.nombre ?? "");
-    const [provinciaId, setProvinciaId] = useState<number | undefined>();
     const [cantonId, setCantonId] = useState<number | undefined>(comunidad?.cantonId);
     const [cat, setCat] = useState(comunidad?.catReferencia ?? "");
     const [error, setError] = useState<string | null>(null);
 
-    const { data: provincias = [] } = useProvincias();
-    const { data: cantones = [] } = useCantones(provinciaId);
-    const { data: todosLosCantones = [] } = useCantones();
     const { data: centros = [] } = useCentrosAcopio();
-
-    // Al editar solo tenemos el cantón; la provincia se deduce para que su
-    // selector arranque donde corresponde.
-    useEffect(() => {
-        if (!editando || provinciaId !== undefined) return;
-        const suyo = todosLosCantones.find((c) => c.id === comunidad.cantonId);
-        if (suyo) setProvinciaId(suyo.provinciaId);
-    }, [editando, provinciaId, todosLosCantones, comunidad]);
 ```
 
 Y el cuerpo de la mutación:
@@ -3074,9 +3134,13 @@ Y el cuerpo de la mutación:
             const body = { nombre, cantonId: cantonId!, catReferencia: cat };
 ```
 
-- [ ] **Step 2: Sustituir el input de cantón por los dos selectores**
+- [ ] **Step 2: Sustituir el input de cantón por el selector compartido**
 
-Reemplazar el bloque del `<input>` de cantón por los mismos dos selectores encadenados de `FormCentroAcopio` (Task 8, step 5): **Provincia** y **Cantón**, con el `setCantonId(undefined)` al cambiar de provincia y el `disabled={!provinciaId}` en el segundo.
+Reemplazar el bloque completo del `<input>` de cantón por el componente de la Task 8, que ya trae los dos `select` encadenados, el reseteo al cambiar de provincia y la deducción de la provincia al editar:
+
+```tsx
+                <SelectorCanton cantonId={cantonId} onCambio={setCantonId} />
+```
 
 - [ ] **Step 3: Cambiar el selector de CAT**
 
