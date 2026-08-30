@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using CoopagcuyApi.Common;
 using CoopagcuyApi.Features.Catalogos.DTOs;
 using CoopagcuyApi.Features.Catalogos.Models;
 using CoopagcuyApi.Infrastructure.Data;
@@ -115,9 +116,11 @@ public partial class CatalogosService(AppDbContext db) : ICatalogosService
         if (!await db.Cantones.AnyAsync(c => c.Id == cantonId && c.Activo))
             throw new InvalidOperationException("El cantón indicado no existe o está inactivo.");
 
-        if (!await db.CentrosAcopio.AnyAsync(c => c.Codigo == cat && c.Activo))
-            throw new InvalidOperationException(
-                $"El centro de acopio '{cat}' no existe o está inactivo.");
+        // Task 6: misma comprobación que usan Usuario/Productora/Recepción,
+        // vía la pieza compartida (Common/ValidadorCat.cs) en vez de una
+        // copia local — este archivo era la única de las cuatro que no se
+        // había migrado.
+        await db.ValidarCatActivoAsync(cat);
 
         var repetida = await db.Comunidades.AnyAsync(c =>
             c.CantonId == cantonId

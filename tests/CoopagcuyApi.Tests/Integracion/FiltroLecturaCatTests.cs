@@ -24,7 +24,13 @@ namespace CoopagcuyApi.Tests.Integracion;
 /// Un código de forma válida (tres letras) pero que no es ninguno de los
 /// centros reales (`?cat=XYZ`) debe devolver cero filas en las tres: un
 /// filtro que no encuentra nada devuelve nada, sin necesidad de conocer la
-/// lista de códigos reales (eso sigue siendo la Task 6).
+/// lista de códigos reales. Decisión ya tomada en la Task 6, con
+/// `ValidadorCat.ValidarCatActivoAsync` en pie: el filtro de LECTURA sigue
+/// sin validar contra el catálogo a propósito, para que un reporte histórico
+/// pueda seguir consultando por un centro que hoy ya está desactivado (los
+/// lotes, pagos y ganancias de esa historia no dejan de ser reales porque el
+/// centro se haya dado de baja). La validación de catálogo solo se aplica en
+/// las rutas de ESCRITURA (alta de usuario/productora, registro de entrega).
 /// </summary>
 [Collection(ColeccionApi.Nombre)]
 public class FiltroLecturaCatTests(ApiFactory api) : IAsyncLifetime

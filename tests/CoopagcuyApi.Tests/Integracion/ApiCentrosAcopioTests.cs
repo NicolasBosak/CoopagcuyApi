@@ -140,8 +140,15 @@ public class ApiCentrosAcopioTests(ApiFactory api) : IAsyncLifetime
 
         try
         {
-            await api.ComoAdmin().PutAsJsonAsync("/api/catalogos/centros-acopio/PAT",
+            var respuesta = await api.ComoAdmin().PutAsJsonAsync(
+                "/api/catalogos/centros-acopio/PAT",
                 new { codigo = "XXX", nombre = "Patococha renombrada", cantonId = 6 });
+
+            // Sin esta aserción, una regresión que convirtiera este PUT en
+            // un 409 (por ejemplo, una validación de más que lo rechazara)
+            // seguiría en verde: las aserciones de abajo solo comprueban que
+            // "PAT" sigue existiendo, no que la actualización en sí ocurrió.
+            respuesta.StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
             var lista = await api.ComoAdmin()
                 .GetFromJsonAsync<List<CatLeido>>("/api/catalogos/centros-acopio");
@@ -173,15 +180,21 @@ public class ApiCentrosAcopioTests(ApiFactory api) : IAsyncLifetime
                 new { activo = false });
 
         respuesta.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+
+        // No basta con el 409: en este código TODO fallo de negocio sale por
+        // 409, así que por sí solo no distingue esta guarda (jaulas
+        // abiertas) de la otra (productoras activas). El mensaje sí lo hace.
+        var cuerpo = await respuesta.Content.ReadAsStringAsync();
+        cuerpo.ShouldContain("jaula(s) abierta(s)");
     }
 
     [Fact]
     public async Task UnCentro_conProductorasActivas_noSeDesactiva()
     {
-        // Productoras tampoco se trunca... salvo que SÍ se trunca (no está en
-        // TablesToIgnore): la productora sembrada aquí desaparece sola en la
-        // siguiente limpieza. La desactivación se rechaza (409), así que
-        // NIE.Activo tampoco cambia.
+        // Productoras SÍ se trunca entre pruebas (no está en TablesToIgnore):
+        // la productora sembrada aquí desaparece sola en la siguiente
+        // limpieza. La desactivación se rechaza (409), así que NIE.Activo
+        // tampoco cambia.
         await Sembrador.ProductoraAsync(api, "0104576277", cat: "NIE", comunidadId: 2);
 
         var respuesta = await api.ComoAdmin()
@@ -189,6 +202,11 @@ public class ApiCentrosAcopioTests(ApiFactory api) : IAsyncLifetime
                 new { activo = false });
 
         respuesta.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+
+        // Mismo motivo que en la prueba anterior: el mensaje es lo único que
+        // distingue esta guarda (productoras activas) de la de jaulas.
+        var cuerpo = await respuesta.Content.ReadAsStringAsync();
+        cuerpo.ShouldContain("productora(s) activa(s)");
     }
 
     [Fact]

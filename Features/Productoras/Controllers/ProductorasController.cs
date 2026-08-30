@@ -109,8 +109,21 @@ public class ProductorasController(
 
         // La auditoría identifica al usuario por su cédula (claim del token)
         var modificadoPor = User.FindFirstValue("cedula") ?? "desconocido";
-        var ok = await service.ActualizarAsync(id, dto, modificadoPor);
-        return ok ? NoContent() : NotFound();
+
+        // Igual que en Crear: desde la Task 6, ActualizarAsync valida el CAT
+        // contra el catálogo real y puede lanzar para un código inexistente
+        // o desactivado (por ejemplo, si el CAT de la productora se dio de
+        // baja después de asignársela). Sin este catch, ese caso llegaba al
+        // manejador global y salía como 500 en vez de 409.
+        try
+        {
+            var ok = await service.ActualizarAsync(id, dto, modificadoPor);
+            return ok ? NoContent() : NotFound();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { mensaje = ex.Message });
+        }
     }
 
     /// <summary>
