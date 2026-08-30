@@ -1,4 +1,3 @@
-using CoopagcuyApi.Common;
 using CoopagcuyApi.Features.Catalogos.Models;
 using CoopagcuyApi.Tests.Infra;
 using Microsoft.EntityFrameworkCore;
@@ -307,11 +306,11 @@ public class CatalogoGeograficoTests(ApiFactory api) : IAsyncLifetime
 
         db.Comunidades.Add(new Comunidad
         {
-            Nombre = "San José", CantonId = 1, CatReferencia = CentroAcopio.PAT,
+            Nombre = "San José", CantonId = 1, CatReferencia = "PAT",
         });
         db.Comunidades.Add(new Comunidad
         {
-            Nombre = "San José", CantonId = 2, CatReferencia = CentroAcopio.PAT,
+            Nombre = "San José", CantonId = 2, CatReferencia = "PAT",
         });
 
         try

@@ -1,6 +1,4 @@
-﻿using CoopagcuyApi.Common;
-
-namespace CoopagcuyApi.Common.Auth;
+﻿namespace CoopagcuyApi.Common.Auth;
 
 public class Usuario
 {
@@ -19,7 +17,7 @@ public class Usuario
 
     // Centro de acopio asignado: un Operador de CAT solo puede registrar
     // entregas en su propio centro (comunidad)
-    public CentroAcopio? CatAsignado { get; set; }
+    public string? CatAsignado { get; set; }
 
     // Se activa al restablecerle la contraseña: el front lo obliga a poner
     // una propia antes de dejarle usar el resto de la aplicación, para que

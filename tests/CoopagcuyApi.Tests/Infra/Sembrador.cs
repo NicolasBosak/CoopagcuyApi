@@ -21,7 +21,7 @@ public static class Sembrador
         ApiFactory api,
         string cedula,
         RolUsuario rol = RolUsuario.OperadorCAT,
-        CentroAcopio? cat = CentroAcopio.PAT,
+        string? cat = "PAT",
         bool activo = true,
         string password = PasswordPorDefecto)
     {
@@ -55,7 +55,7 @@ public static class Sembrador
     public static async Task<Productora> ProductoraAsync(
         ApiFactory api,
         string cedula,
-        CentroAcopio cat = CentroAcopio.PAT,
+        string cat = "PAT",
         int comunidadId = 1,
         bool activa = true)
     {
@@ -90,7 +90,7 @@ public static class Sembrador
         string cedulaProductora)
     {
         var productora = await ProductoraAsync(
-            api, cedulaProductora, CentroAcopio.PAT, comunidadId: 1);
+            api, cedulaProductora, "PAT", comunidadId: 1);
 
         await using var db = api.NuevoDbContext();
 
@@ -98,7 +98,7 @@ public static class Sembrador
         {
             CodigoLote = "PAT-20260818-001",
             ProductoraId = productora.Id,
-            CentroAcopio = CentroAcopio.PAT,
+            CentroAcopio = "PAT",
             CantidadAnimales = 2,
             PesoTotalGramos = 1800,
             FechaRecepcion = DateTime.UtcNow,
@@ -205,7 +205,7 @@ public static class Sembrador
     public static async Task<(int PagoId, int NovedadId)> PagoConNovedadAsync(
         ApiFactory api, string cedula, decimal monto)
     {
-        var productora = await ProductoraAsync(api, cedula, CentroAcopio.PAT);
+        var productora = await ProductoraAsync(api, cedula, "PAT");
 
         var cuyes = new object[]
         {
@@ -275,7 +275,7 @@ public static class Sembrador
     public static async Task<(int PagoId, int NovedadId)> PagoConNovedadDeCuyVendidoAsync(
         ApiFactory api, string cedula, decimal monto)
     {
-        var productora = await ProductoraAsync(api, cedula, CentroAcopio.PAT);
+        var productora = await ProductoraAsync(api, cedula, "PAT");
 
         var cuyes = new object[]
         {

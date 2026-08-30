@@ -35,14 +35,11 @@ public enum RolUsuario
     AdminTecnico
 }
 
-public enum CentroAcopio
-{
-    PAT, // Patococha
-    NIE, // Las Nieves
-    HUE, // Huertas
-    NAB, // Nabón/El Progreso
-    PEL  // Pelincay
-}
+// El centro de acopio ERA un enum de cinco valores. Dejó de serlo cuando la
+// organización necesitó crear centros nuevos sin recompilar: ahora es un
+// catálogo (Features/Catalogos/Models/CentroAcopio.cs) y su código de tres
+// letras viaja como string. Las columnas de base no cambiaron: ya se
+// persistían con HasConversion<string>().
 
 /// <summary>
 /// Ciclo de vida de un pago. Las transiciones son de un solo sentido: no se

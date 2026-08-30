@@ -1,4 +1,3 @@
-using CoopagcuyApi.Common;
 using CoopagcuyApi.Common.Auth;
 using CoopagcuyApi.Features.Productoras.DTOs;
 using CoopagcuyApi.Features.Productoras.Models;
@@ -23,6 +22,7 @@ public class ProductoraService(AppDbContext db) : IProductoraService
     public async Task<ProductoraResponseDto> CrearAsync(CrearProductoraDto dto)
     {
         var cedula = dto.Cedula.Trim();
+        dto.CatAsignado = NormalizarCat(dto.CatAsignado);
 
         // La cédula se valida aquí y no solo en el validador del controlador,
         // igual que en UsuarioService. El validador cubre el endpoint actual,
@@ -73,8 +73,8 @@ public class ProductoraService(AppDbContext db) : IProductoraService
         if (!string.IsNullOrEmpty(comunidad))
             query = query.Where(p => p.Comunidad.Nombre.Contains(comunidad));
 
-        if (!string.IsNullOrEmpty(cat) && Enum.TryParse<Common.CentroAcopio>(cat, out var catEnum))
-            query = query.Where(p => p.CatAsignado == catEnum);
+        if (!string.IsNullOrEmpty(cat))
+            query = query.Where(p => p.CatAsignado == cat);
 
         // Incluye el conteo de cuyes retornados desde la planta,
         // para que el CAT sepa qué productora presenta devoluciones
@@ -82,7 +82,7 @@ public class ProductoraService(AppDbContext db) : IProductoraService
             .Select(p => new ProductoraResponseDto(
                 p.Id, p.NombreCompleto, p.Cedula, p.ComunidadId,
                 p.Comunidad.Nombre, p.Comunidad.Canton.Nombre,
-                p.CatAsignado.ToString(), p.Telefono,
+                p.CatAsignado, p.Telefono,
                 p.Activa, p.FechaRegistro,
                 db.RetornosProductora.Count(r => r.ProductoraId == p.Id)))
             .ToListAsync();
@@ -109,11 +109,15 @@ public class ProductoraService(AppDbContext db) : IProductoraService
             ?? throw new InvalidOperationException(
                 $"La comunidad con Id {dto.ComunidadId} no existe.");
 
+        // Antes de comparar contra lo guardado: si no, el historial
+        // registraría un cambio de "PAT" a "pat" que no es tal.
+        dto.CatAsignado = NormalizarCat(dto.CatAsignado);
+
         RegistrarCambio(id, "NombreCompleto", productora.NombreCompleto, dto.NombreCompleto, modificadoPor);
         // El historial guarda el nombre, no el Id: quien lo lee necesita
         // entenderlo sin resolver claves contra el catálogo
         RegistrarCambio(id, "Comunidad", productora.Comunidad.Nombre, nuevaComunidad.Nombre, modificadoPor);
-        RegistrarCambio(id, "CatAsignado", productora.CatAsignado.ToString(), dto.CatAsignado.ToString(), modificadoPor);
+        RegistrarCambio(id, "CatAsignado", productora.CatAsignado, dto.CatAsignado, modificadoPor);
         RegistrarCambio(id, "Telefono", productora.Telefono, dto.Telefono, modificadoPor);
 
         productora.NombreCompleto = dto.NombreCompleto;
@@ -164,12 +168,19 @@ public class ProductoraService(AppDbContext db) : IProductoraService
         });
     }
 
+    // El código del CAT se normaliza AQUÍ, en el borde, y no en cada
+    // consulta: Postgres distingue mayúsculas y una productora guardada
+    // con "pat" dejaría al operador de PAT viendo una bandeja vacía sin
+    // ningún error que lo explique.
+    private static string NormalizarCat(string? cat) =>
+        (cat ?? string.Empty).Trim().ToUpperInvariant();
+
     // Requiere Comunidad y Comunidad.Canton cargados (Include/ThenInclude o
     // asignados al crear)
     private static ProductoraResponseDto MapToDto(Productora p) => new(
         p.Id, p.NombreCompleto, p.Cedula, p.ComunidadId,
         p.Comunidad.Nombre, p.Comunidad.Canton.Nombre,
-        p.CatAsignado.ToString(), p.Telefono,
+        p.CatAsignado, p.Telefono,
         p.Activa, p.FechaRegistro
     );
 }

@@ -1,4 +1,3 @@
-using CoopagcuyApi.Common;
 using CoopagcuyApi.Features.Catalogos.DTOs;
 using CoopagcuyApi.Features.Catalogos.Models;
 using CoopagcuyApi.Infrastructure.Data;
@@ -17,13 +16,13 @@ public interface ICatalogosService
 
 public class CatalogosService(AppDbContext db) : ICatalogosService
 {
-    private static readonly Dictionary<CentroAcopio, string> NombresCat = new()
+    private static readonly Dictionary<string, string> NombresCat = new()
     {
-        [CentroAcopio.PAT] = "Patococha",
-        [CentroAcopio.NIE] = "Las Nieves",
-        [CentroAcopio.HUE] = "Huertas",
-        [CentroAcopio.NAB] = "Nabón / El Progreso",
-        [CentroAcopio.PEL] = "Pelincay"
+        ["PAT"] = "Patococha",
+        ["NIE"] = "Las Nieves",
+        ["HUE"] = "Huertas",
+        ["NAB"] = "Nabón / El Progreso",
+        ["PEL"] = "Pelincay"
     };
 
     public async Task<IEnumerable<ComunidadResponseDto>> ListarComunidadesAsync(
@@ -36,7 +35,7 @@ public class CatalogosService(AppDbContext db) : ICatalogosService
         return await query
             .OrderBy(c => c.Nombre)
             .Select(c => new ComunidadResponseDto(
-                c.Id, c.Nombre, c.Canton.Nombre, c.CatReferencia.ToString(), c.Activa))
+                c.Id, c.Nombre, c.Canton.Nombre, c.CatReferencia, c.Activa))
             .ToListAsync();
     }
 
@@ -77,5 +76,5 @@ public class CatalogosService(AppDbContext db) : ICatalogosService
     }
 
     public IEnumerable<CentroAcopioDto> ListarCentrosAcopio() =>
-        NombresCat.Select(kv => new CentroAcopioDto(kv.Key.ToString(), kv.Value));
+        NombresCat.Select(kv => new CentroAcopioDto(kv.Key, kv.Value));
 }

@@ -1,5 +1,4 @@
-﻿using CoopagcuyApi.Common;
-using CoopagcuyApi.Features.Reportes.DTOs;
+﻿using CoopagcuyApi.Features.Reportes.DTOs;
 using CoopagcuyApi.Features.Reportes.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -32,11 +31,9 @@ public class ReportesController(IReportesService service) : ControllerBase
         [FromQuery] DateTime? desde,
         [FromQuery] DateTime? hasta)
     {
-        CentroAcopio? catOperador = null;
-        if (User.IsInRole("OperadorCAT") &&
-            Enum.TryParse<CentroAcopio>(
-                User.FindFirst("cat")?.Value, out var cat))
-            catOperador = cat;
+        string? catOperador = null;
+        if (User.IsInRole("OperadorCAT"))
+            catOperador = User.FindFirst("cat")?.Value;
 
         var resultado = await service.ObtenerDashboardAsync(
             desde, hasta, catOperador);

@@ -1,6 +1,4 @@
-using CoopagcuyApi.Common;
-
-namespace CoopagcuyApi.Features.Catalogos.Models;
+﻿namespace CoopagcuyApi.Features.Catalogos.Models;
 
 /// <summary>
 /// Catálogo gestionable de comunidades — RF-102 / RF-506.
@@ -21,7 +19,7 @@ public class Comunidad
     public int CantonId { get; set; }
     public Canton Canton { get; set; } = null!;
 
-    public CentroAcopio CatReferencia { get; set; }
+    public string CatReferencia { get; set; } = string.Empty;
     public bool Activa { get; set; } = true;
 
     // Ubicación en el mapa público. Nullable porque una comunidad dada de

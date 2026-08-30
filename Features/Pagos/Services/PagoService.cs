@@ -13,15 +13,15 @@ public interface IPagoService
 {
     // filtroCat: si viene un CAT (operador acotado), el servicio solo opera
     // sobre productoras de ese centro. null = sin restricción (administrador).
-    Task<PagoResponseDto> RegistrarAsync(RegistrarPagoDto dto, CentroAcopio? filtroCat);
+    Task<PagoResponseDto> RegistrarAsync(RegistrarPagoDto dto, string? filtroCat);
     Task<IEnumerable<PagoResponseDto>> ListarAsync(
-        int? productoraId, DateTime? desde, DateTime? hasta, CentroAcopio? filtroCat);
+        int? productoraId, DateTime? desde, DateTime? hasta, string? filtroCat);
     Task<IEnumerable<LotePendientePagoDto>> ListarLotesPendientesAsync(
-        int productoraId, CentroAcopio? filtroCat);
+        int productoraId, string? filtroCat);
 
     /// Si el pago pertenece a una productora de ese centro. Sirve para
     /// responder 404 sin revelar la existencia del recurso.
-    Task<bool> EsDeCentroAsync(int pagoId, CentroAcopio cat);
+    Task<bool> EsDeCentroAsync(int pagoId, string cat);
 
     /// Tickets pendientes de pago, de TODOS los centros.
     Task<IEnumerable<TicketPorPagarDto>> ListarPorPagarAsync();
@@ -37,11 +37,11 @@ public interface IPagoService
     /// Bytes de la captura, o null si no hay, si caducó, o si el pago es de
     /// otro centro. Un solo null para los tres casos: el controlador responde
     /// 404 sin distinguirlos, que es justo lo que se quiere.
-    Task<byte[]?> ObtenerComprobanteAsync(int pagoId, CentroAcopio? filtroCat);
+    Task<byte[]?> ObtenerComprobanteAsync(int pagoId, string? filtroCat);
 
     /// Marca el pago como recibido y arranca la cuenta atrás de la captura.
     Task<PagoResponseDto> VerificarAsync(
-        int pagoId, VerificarPagoDto dto, CentroAcopio? filtroCat);
+        int pagoId, VerificarPagoDto dto, string? filtroCat);
 
     /// Borra los blobs de las capturas ya caducadas y limpia su referencia.
     /// Devuelve cuántas borró. Se invoca desde el listado: el contenedor del
@@ -50,12 +50,12 @@ public interface IPagoService
 
     /// Cuyes de esa productora en ese lote que todavía no se han vendido.
     Task<IEnumerable<CuyDisponibleDto>> ListarCuyesDisponiblesAsync(
-        int loteId, int productoraId, CentroAcopio? filtroCat);
+        int loteId, int productoraId, string? filtroCat);
 
     /// Registra una venta local: crea el pago ya cobrado y marca los animales.
     /// Todo o nada — si otro se llevó alguno mientras tanto, no queda pago.
     Task<PagoResponseDto> RegistrarVentaLocalAsync(
-        RegistrarVentaLocalDto dto, CentroAcopio? filtroCat);
+        RegistrarVentaLocalDto dto, string? filtroCat);
 }
 
 /// <summary>
@@ -93,14 +93,14 @@ public class PagoService(
         { "Efectivo", "Transferencia", "Cuotas" };
 
     public async Task<PagoResponseDto> RegistrarAsync(
-        RegistrarPagoDto dto, CentroAcopio? filtroCat)
+        RegistrarPagoDto dto, string? filtroCat)
     {
         var productora = await db.Productoras.FindAsync(dto.ProductoraId)
             ?? throw new KeyNotFoundException(
                 $"Productora con Id {dto.ProductoraId} no encontrada.");
 
         // Un operador solo paga a productoras de su propio centro
-        if (filtroCat is CentroAcopio cat && productora.CatAsignado != cat)
+        if (filtroCat is string cat && productora.CatAsignado != cat)
             throw new UnauthorizedAccessException(
                 "Tu usuario solo puede registrar pagos de productoras de su centro.");
 
@@ -149,7 +149,7 @@ public class PagoService(
     }
 
     public async Task<IEnumerable<PagoResponseDto>> ListarAsync(
-        int? productoraId, DateTime? desde, DateTime? hasta, CentroAcopio? filtroCat)
+        int? productoraId, DateTime? desde, DateTime? hasta, string? filtroCat)
     {
         // Barrido oportunista. Va aquí y no en una tarea programada porque el
         // contenedor del API escala a cero: sin tráfico no hay proceso vivo
@@ -163,7 +163,7 @@ public class PagoService(
             .AsQueryable();
 
         // Operador acotado: solo pagos de productoras de su centro
-        if (filtroCat is CentroAcopio cat)
+        if (filtroCat is string cat)
             query = query.Where(p => p.Productora.CatAsignado == cat);
 
         if (productoraId.HasValue)
@@ -201,11 +201,11 @@ public class PagoService(
     /// acepta.
     /// </summary>
     public async Task<IEnumerable<LotePendientePagoDto>> ListarLotesPendientesAsync(
-        int productoraId, CentroAcopio? filtroCat)
+        int productoraId, string? filtroCat)
     {
         // Un operador no puede sondear los lotes pendientes de productoras de
         // otro centro pasando su Id a mano
-        if (filtroCat is CentroAcopio cat)
+        if (filtroCat is string cat)
         {
             var productora = await db.Productoras.FindAsync(productoraId);
             if (productora is null || productora.CatAsignado != cat)
@@ -240,7 +240,7 @@ public class PagoService(
             .Select(l => new LotePendientePagoDto(
                 l.Id,
                 l.CodigoLote,
-                l.CentroAcopio.ToString(),
+                l.CentroAcopio,
                 l.FechaRecepcion,
                 // Lo que queda por enviar de ESTA productora: es la base
                 // sobre la que la planta va a pagar.
@@ -254,7 +254,7 @@ public class PagoService(
             .ToListAsync();
     }
 
-    public Task<bool> EsDeCentroAsync(int pagoId, CentroAcopio cat) =>
+    public Task<bool> EsDeCentroAsync(int pagoId, string cat) =>
         db.Pagos.AnyAsync(p => p.Id == pagoId && p.Productora.CatAsignado == cat);
 
     public async Task<IEnumerable<TicketPorPagarDto>> ListarPorPagarAsync() =>
@@ -274,7 +274,7 @@ public class PagoService(
                 p.Productora.Cedula,
                 p.LoteId!.Value,
                 p.Lote!.CodigoLote,
-                p.Lote.CentroAcopio.ToString(),
+                p.Lote.CentroAcopio,
                 p.Lote.FechaRecepcion,
                 // Aporte de ESTA productora, no el total de la jaula. Y de
                 // ese aporte, solo lo que le toca pagar A LA PLANTA: este
@@ -339,7 +339,7 @@ public class PagoService(
     }
 
     public async Task<byte[]?> ObtenerComprobanteAsync(
-        int pagoId, CentroAcopio? filtroCat)
+        int pagoId, string? filtroCat)
     {
         var pago = await db.Pagos
             .Include(p => p.Productora)
@@ -350,7 +350,7 @@ public class PagoService(
 
         // Centro ajeno: null, no excepción. El controlador responde 404 y no
         // 403 porque confirmar la existencia ya sería filtrar el dato.
-        if (filtroCat is CentroAcopio cat && pago.Productora.CatAsignado != cat)
+        if (filtroCat is string cat && pago.Productora.CatAsignado != cat)
             return null;
 
         if (string.IsNullOrWhiteSpace(pago.ComprobanteUrl)) return null;
@@ -724,7 +724,7 @@ public class PagoService(
     }
 
     public async Task<PagoResponseDto> VerificarAsync(
-        int pagoId, VerificarPagoDto dto, CentroAcopio? filtroCat)
+        int pagoId, VerificarPagoDto dto, string? filtroCat)
     {
         var pago = await db.Pagos
             .Include(p => p.Productora)
@@ -734,7 +734,7 @@ public class PagoService(
 
         // Centro ajeno: KeyNotFound y no Unauthorized, para que el controlador
         // responda 404. Confirmar la existencia filtraría datos de otro CAT.
-        if (filtroCat is CentroAcopio cat && pago.Productora.CatAsignado != cat)
+        if (filtroCat is string cat && pago.Productora.CatAsignado != cat)
             throw new KeyNotFoundException($"Pago con Id {pagoId} no encontrado.");
 
         // Nada que verificar: no hubo transferencia ni captura.
@@ -769,9 +769,9 @@ public class PagoService(
     }
 
     public async Task<IEnumerable<CuyDisponibleDto>> ListarCuyesDisponiblesAsync(
-        int loteId, int productoraId, CentroAcopio? filtroCat)
+        int loteId, int productoraId, string? filtroCat)
     {
-        if (filtroCat is CentroAcopio cat)
+        if (filtroCat is string cat)
         {
             var productora = await db.Productoras.FindAsync(productoraId);
             if (productora is null || productora.CatAsignado != cat)
@@ -792,13 +792,13 @@ public class PagoService(
     }
 
     public async Task<PagoResponseDto> RegistrarVentaLocalAsync(
-        RegistrarVentaLocalDto dto, CentroAcopio? filtroCat)
+        RegistrarVentaLocalDto dto, string? filtroCat)
     {
         var productora = await db.Productoras.FindAsync(dto.ProductoraId)
             ?? throw new KeyNotFoundException(
                 $"Productora con Id {dto.ProductoraId} no encontrada.");
 
-        if (filtroCat is CentroAcopio cat && productora.CatAsignado != cat)
+        if (filtroCat is string cat && productora.CatAsignado != cat)
             throw new UnauthorizedAccessException(
                 "Tu usuario solo puede registrar ventas de productoras de su centro.");
 

@@ -20,7 +20,7 @@ public interface IReportesService
     // Con cat: indicadores del centro de acopio del operador; sin cat:
     // vista global de la cadena (administradores y planta)
     Task<DashboardDto> ObtenerDashboardAsync(
-        DateTime? desde, DateTime? hasta, CentroAcopio? cat = null);
+        DateTime? desde, DateTime? hasta, string? cat = null);
     Task<IEnumerable<ReporteProductoraDto>> ReportePorProductoraAsync(FiltroPeriodoDto filtro);
     Task<IEnumerable<ReporteCATDto>> ReportePorCATAsync(FiltroPeriodoDto filtro);
     Task<IEnumerable<ReporteNovedadDto>> ReporteNovedadesAsync(FiltroPeriodoDto filtro);
@@ -79,7 +79,7 @@ public class ReportesService(AppDbContext db) : IReportesService
     // ── Dashboard — RF-508 ────────────────────────────────────────────
 
     public async Task<DashboardDto> ObtenerDashboardAsync(
-        DateTime? desde, DateTime? hasta, CentroAcopio? cat = null)
+        DateTime? desde, DateTime? hasta, string? cat = null)
     {
         var desdeUtc = desde.HasValue
             ? DateTime.SpecifyKind(desde.Value, DateTimeKind.Utc)
@@ -97,8 +97,8 @@ public class ReportesService(AppDbContext db) : IReportesService
 
         // Un Operador de CAT ve la recepción de su propio centro; los
         // indicadores de cadena (faenamientos, QR) se mantienen globales
-        if (cat.HasValue)
-            query = query.Where(l => l.CentroAcopio == cat.Value);
+        if (!string.IsNullOrEmpty(cat))
+            query = query.Where(l => l.CentroAcopio == cat);
 
         var lotes = await query
             .Include(l => l.Cuyes)
@@ -140,7 +140,7 @@ public class ReportesService(AppDbContext db) : IReportesService
             AnimalesRechazados: rechazados,
             LotesConQR: await db.CodigosQR.CountAsync(q => q.Activo),
             TotalProductoras: await db.Productoras.CountAsync(p =>
-                p.Activa && (cat == null || p.CatAsignado == cat.Value)),
+                p.Activa && (cat == null || p.CatAsignado == cat)),
             TotalFaenamientos: await db.Faenamientos.CountAsync(),
             FechaCorte: hastaUtc,
             RetornosDesdePlanta: retornos,
@@ -165,9 +165,8 @@ public class ReportesService(AppDbContext db) : IReportesService
                         c.Lote.FechaRecepcion < hastaUtc &&
                         c.ProductoraId != null);
 
-        if (!string.IsNullOrEmpty(filtro.CentroAcopio) &&
-            Enum.TryParse<CentroAcopio>(filtro.CentroAcopio, out var cat))
-            query = query.Where(c => c.Lote.CentroAcopio == cat);
+        if (EsCatValido(filtro.CentroAcopio))
+            query = query.Where(c => c.Lote.CentroAcopio == filtro.CentroAcopio);
 
         var cuyes = await query.AsNoTracking().ToListAsync();
 
@@ -182,7 +181,7 @@ public class ReportesService(AppDbContext db) : IReportesService
                     ProductoraId: p.Id,
                     NombreProductora: p.NombreCompleto,
                     Comunidad: p.Comunidad.Nombre,
-                    CentroAcopio: p.CatAsignado.ToString(),
+                    CentroAcopio: p.CatAsignado,
                     TotalLotes: g.Select(c => c.LoteId).Distinct().Count(),
                     TotalAnimales: g.Count(),
                     LotesAceptados: g.Count(c => c.Estado == EstadoLote.Aceptado),
@@ -216,7 +215,7 @@ public class ReportesService(AppDbContext db) : IReportesService
                 var total = g.Count();
                 var aceptados = g.Count(l => l.Estado == EstadoLote.Aceptado);
                 return new ReporteCATDto(
-                    CentroAcopio: g.Key.ToString(),
+                    CentroAcopio: g.Key,
                     TotalLotes: total,
                     TotalAnimales: g.Sum(l => l.CantidadAnimales),
                     LotesAceptados: aceptados,
@@ -242,9 +241,8 @@ public class ReportesService(AppDbContext db) : IReportesService
             .Where(n => n.FechaRegistro >= desdeUtc &&
                         n.FechaRegistro < hastaUtc);
 
-        if (!string.IsNullOrEmpty(filtro.CentroAcopio) &&
-            Enum.TryParse<CentroAcopio>(filtro.CentroAcopio, out var cat))
-            query = query.Where(n => n.Lote.CentroAcopio == cat);
+        if (EsCatValido(filtro.CentroAcopio))
+            query = query.Where(n => n.Lote.CentroAcopio == filtro.CentroAcopio);
 
         return await query
             .OrderByDescending(n => n.FechaRegistro)
@@ -255,7 +253,7 @@ public class ReportesService(AppDbContext db) : IReportesService
                     ? n.Lote.Productora.NombreCompleto : "Varias productoras",
                 n.Lote.Productora != null
                     ? n.Lote.Productora.Comunidad.Nombre : "-",
-                n.Lote.CentroAcopio.ToString(),
+                n.Lote.CentroAcopio,
                 n.Tipo.ToString(),
                 n.Descripcion,
                 n.PesoRegistradoGramos,
@@ -376,9 +374,8 @@ public class ReportesService(AppDbContext db) : IReportesService
             .Where(c => c.Lote.FechaRecepcion >= desdeUtc &&
                         c.Lote.FechaRecepcion < hastaUtc);
 
-        if (!string.IsNullOrEmpty(filtro.CentroAcopio) &&
-            Enum.TryParse<CentroAcopio>(filtro.CentroAcopio, out var cat))
-            query = query.Where(c => c.Lote.CentroAcopio == cat);
+        if (EsCatValido(filtro.CentroAcopio))
+            query = query.Where(c => c.Lote.CentroAcopio == filtro.CentroAcopio);
 
         return await query
             .OrderByDescending(c => c.Lote.FechaRecepcion)
@@ -396,7 +393,7 @@ public class ReportesService(AppDbContext db) : IReportesService
                     ? c.Productora.Comunidad.Nombre
                     : c.Lote.Productora != null
                         ? c.Lote.Productora.Comunidad.Nombre : string.Empty,
-                c.Lote.CentroAcopio.ToString(),
+                c.Lote.CentroAcopio,
                 c.NumeroEnLote,
                 c.PesoGramos,
                 c.ColorPelaje,
@@ -599,15 +596,14 @@ public class ReportesService(AppDbContext db) : IReportesService
             .Where(r => r.FechaRetorno >= desdeUtc &&
                         r.FechaRetorno < hastaUtc);
 
-        if (!string.IsNullOrEmpty(filtro.CentroAcopio) &&
-            Enum.TryParse<CentroAcopio>(filtro.CentroAcopio, out var cat))
+        if (EsCatValido(filtro.CentroAcopio))
         {
             // Las devoluciones por despacho abarcan un lote faenado que
             // puede cruzar varios CAT: solo las legadas (por jaula)
             // admiten este filtro
             devQuery = devQuery.Where(d =>
-                d.Lote != null && d.Lote.CentroAcopio == cat);
-            retQuery = retQuery.Where(r => r.Lote.CentroAcopio == cat);
+                d.Lote != null && d.Lote.CentroAcopio == filtro.CentroAcopio);
+            retQuery = retQuery.Where(r => r.Lote.CentroAcopio == filtro.CentroAcopio);
         }
 
         var devoluciones = await devQuery
@@ -693,9 +689,8 @@ public class ReportesService(AppDbContext db) : IReportesService
         IQueryable<Pago> query = PagosDelPeriodo(filtro)
             .Include(p => p.Productora).ThenInclude(pr => pr.Comunidad);
 
-        if (!string.IsNullOrEmpty(filtro.CentroAcopio) &&
-            Enum.TryParse<CentroAcopio>(filtro.CentroAcopio, out var cat))
-            query = query.Where(p => p.Productora!.CatAsignado == cat);
+        if (EsCatValido(filtro.CentroAcopio))
+            query = query.Where(p => p.Productora!.CatAsignado == filtro.CentroAcopio);
 
         var pagos = await query.AsNoTracking().ToListAsync();
 
@@ -709,7 +704,7 @@ public class ReportesService(AppDbContext db) : IReportesService
                     ProductoraId: p.Id,
                     NombreProductora: p.NombreCompleto,
                     Comunidad: p.Comunidad.Nombre,
-                    CentroAcopio: p.CatAsignado.ToString(),
+                    CentroAcopio: p.CatAsignado,
                     CobradoLocal: cobrado,
                     PactadoCuotas: pactado,
                     PagadoPlanta: planta,
@@ -741,9 +736,8 @@ public class ReportesService(AppDbContext db) : IReportesService
         IQueryable<Pago> query = PagosDelPeriodo(filtro)
             .Include(p => p.Productora);
 
-        if (!string.IsNullOrEmpty(filtro.CentroAcopio) &&
-            Enum.TryParse<CentroAcopio>(filtro.CentroAcopio, out var catFiltro))
-            query = query.Where(p => p.Productora!.CatAsignado == catFiltro);
+        if (EsCatValido(filtro.CentroAcopio))
+            query = query.Where(p => p.Productora!.CatAsignado == filtro.CentroAcopio);
 
         var pagos = await query.AsNoTracking().ToListAsync();
 
@@ -753,7 +747,7 @@ public class ReportesService(AppDbContext db) : IReportesService
             {
                 var (cobrado, pactado, planta) = SumarPorCanal(g);
                 return new GananciaCatDto(
-                    CentroAcopio: g.Key.ToString(),
+                    CentroAcopio: g.Key,
                     CobradoLocal: cobrado,
                     PactadoCuotas: pactado,
                     PagadoPlanta: planta,
@@ -769,9 +763,8 @@ public class ReportesService(AppDbContext db) : IReportesService
     {
         var query = PagosDelPeriodo(filtro);
 
-        if (!string.IsNullOrEmpty(filtro.CentroAcopio) &&
-            Enum.TryParse<CentroAcopio>(filtro.CentroAcopio, out var cat))
-            query = query.Where(p => p.Productora!.CatAsignado == cat);
+        if (EsCatValido(filtro.CentroAcopio))
+            query = query.Where(p => p.Productora!.CatAsignado == filtro.CentroAcopio);
 
         var pagos = await query.AsNoTracking().ToListAsync();
 
@@ -1110,14 +1103,19 @@ public class ReportesService(AppDbContext db) : IReportesService
     // TryParse case-sensitive que usan los filtros reales (aquí y en cada
     // consulta de arriba), !IsNullOrEmpty en DescripcionAlcanceCat, e
     // IsNullOrWhiteSpace en el sufijo del nombre de archivo del controlador.
-    // Solo la primera refleja lo que de verdad pasa: Enum.TryParse<CentroAcopio>
-    // es case-sensitive, así que "?cat=pat" no filtra nada — con las otras
-    // dos nociones ese mismo ?cat=pat pasaba como "válido" y el libro
+    // Solo la primera refleja lo que de verdad pasa: el código del CAT es
+    // de tres letras MAYÚSCULAS y la comparación contra la columna es
+    // sensible a mayúsculas, así que "?cat=pat" no filtra nada — con las
+    // otras dos nociones ese mismo ?cat=pat pasaba como "válido" y el libro
     // terminaba declarando (y el archivo nombrando) un alcance más angosto
     // que sus datos reales: el fallo que esta etiqueta existe para evitar,
     // invertido.
+    //
+    // Se comprueba la FORMA del código, no la lista de códigos: la lista
+    // dejó de estar compilada en el binario cuando el CAT dejó de ser un
+    // enum, y volver a fijarla aquí desharía justo eso.
     public static bool EsCatValido(string? cat) =>
-        !string.IsNullOrEmpty(cat) && Enum.TryParse<CentroAcopio>(cat, out _);
+        cat is { Length: 3 } && cat.All(c => c is >= 'A' and <= 'Z');
 
     private static void EscribirEncabezadosGanancias(
         IXLWorksheet hoja, string[] encabezados, int fila = 1)
@@ -1366,9 +1364,8 @@ public class ReportesService(AppDbContext db) : IReportesService
             .AsSplitQuery()
             .ToListAsync();
 
-        if (!string.IsNullOrEmpty(filtro.CentroAcopio) &&
-            Enum.TryParse<CentroAcopio>(filtro.CentroAcopio, out var cat))
-            lotes = lotes.Where(l => l.CentroAcopio == cat).ToList();
+        if (EsCatValido(filtro.CentroAcopio))
+            lotes = lotes.Where(l => l.CentroAcopio == filtro.CentroAcopio).ToList();
 
         return lotes
             .Select(l =>
@@ -1379,7 +1376,7 @@ public class ReportesService(AppDbContext db) : IReportesService
                 var enEspera = Math.Max(0, l.CantidadAnimales - usados);
                 var (prod, com) = ResumenProductoras(l);
                 return new ReporteEntradaDto(
-                    l.CodigoLote, l.CentroAcopio.ToString(), prod, com,
+                    l.CodigoLote, l.CentroAcopio, prod, com,
                     enEspera, l.Movilizacion!.FechaRecepcionPlanta!.Value);
             })
             .Where(r => r.CantidadEnEspera > 0)
@@ -1405,10 +1402,9 @@ public class ReportesService(AppDbContext db) : IReportesService
             .AsSplitQuery()
             .ToListAsync();
 
-        if (!string.IsNullOrEmpty(filtro.CentroAcopio) &&
-            Enum.TryParse<CentroAcopio>(filtro.CentroAcopio, out var cat))
+        if (EsCatValido(filtro.CentroAcopio))
             faes = faes.Where(lf =>
-                lf.Sesiones.Any(s => s.Lote.CentroAcopio == cat)).ToList();
+                lf.Sesiones.Any(s => s.Lote.CentroAcopio == filtro.CentroAcopio)).ToList();
 
         return faes
             .Select(lf =>

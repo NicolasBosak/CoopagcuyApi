@@ -55,7 +55,7 @@ public class VentaLocalYPlantaTests(ApiFactory api) : IAsyncLifetime
         // UnaJaulaHistoricaSinDetalleSigueApareciendoComoPendiente en este
         // mismo archivo.
         var productora = await Sembrador.ProductoraAsync(
-            api, Cedula, CentroAcopio.PAT);
+            api, Cedula, "PAT");
 
         const string codigoLote = "PAT-20260822-901";
         await using (var db = api.NuevoDbContext())
@@ -64,7 +64,7 @@ public class VentaLocalYPlantaTests(ApiFactory api) : IAsyncLifetime
             {
                 CodigoLote = codigoLote,
                 ProductoraId = productora.Id,
-                CentroAcopio = CentroAcopio.PAT,
+                CentroAcopio = "PAT",
                 CantidadAnimales = 3,
                 PesoTotalGramos = 3900,
                 FechaRecepcion = DateTime.UtcNow,
@@ -270,7 +270,7 @@ public class VentaLocalYPlantaTests(ApiFactory api) : IAsyncLifetime
         // animal, el lote desaparece del selector aunque nadie haya vendido
         // nada, y la productora se queda sin poder cobrarlo.
         var productora = await Sembrador.ProductoraAsync(
-            api, Cedula, CentroAcopio.PAT);
+            api, Cedula, "PAT");
 
         const string codigoLote = "PAT-20260822-900";
         await using (var db = api.NuevoDbContext())
@@ -279,7 +279,7 @@ public class VentaLocalYPlantaTests(ApiFactory api) : IAsyncLifetime
             {
                 CodigoLote = codigoLote,
                 ProductoraId = productora.Id,
-                CentroAcopio = CentroAcopio.PAT,
+                CentroAcopio = "PAT",
                 CantidadAnimales = 4,
                 PesoTotalGramos = 5200,
                 FechaRecepcion = DateTime.UtcNow,
@@ -315,7 +315,7 @@ public class VentaLocalYPlantaTests(ApiFactory api) : IAsyncLifetime
     private async Task<Venta> VenderAsync(int vendidos)
     {
         var productora = await Sembrador.ProductoraAsync(
-            api, Cedula, CentroAcopio.PAT);
+            api, Cedula, "PAT");
 
         var cuyes = Enumerable.Range(0, 5).Select(_ => new
         {

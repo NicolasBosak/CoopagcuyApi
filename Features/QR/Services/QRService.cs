@@ -268,7 +268,7 @@ public class QRService(
                     ? $"Familia productora de {comunidadesAporte[0].Comunidad}"
                     : "Familias productoras de COOPAGCUY",
             CentroAcopio: string.Join(" y ", sesiones
-                .Select(s => s.Lote.CentroAcopio.ToString()).Distinct()),
+                .Select(s => s.Lote.CentroAcopio).Distinct()),
             FechaRecepcion: primerLote?.FechaRecepcion ?? fechaFaenamiento,
             CantidadAnimales: unidadesTotales,
             EstadoCalidad: conNovedad ? "ConNovedad" : "Aceptado",

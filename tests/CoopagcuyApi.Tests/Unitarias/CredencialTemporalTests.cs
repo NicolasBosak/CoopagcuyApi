@@ -20,7 +20,7 @@ public class CredencialTemporalTests
         Cedula = "0104576277",
         PasswordHash = BCrypt.Net.BCrypt.HashPassword("la-anterior-1234"),
         Rol = RolUsuario.OperadorCAT,
-        CatAsignado = CentroAcopio.PAT
+        CatAsignado = "PAT"
     };
 
     [Fact]

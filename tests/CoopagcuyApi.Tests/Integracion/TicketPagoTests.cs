@@ -164,7 +164,7 @@ public class TicketPagoTests(ApiFactory api) : IAsyncLifetime
         // pasarían aunque la consulta de los animales vendidos faltara. Aquí
         // se comprueba que el bloque llega al documento.
         var productora = await Sembrador.ProductoraAsync(
-            api, CedulaProductora, CentroAcopio.PAT);
+            api, CedulaProductora, "PAT");
 
         var cuyes = Enumerable.Range(0, 3).Select(_ => new
         {
@@ -233,7 +233,7 @@ public class TicketPagoTests(ApiFactory api) : IAsyncLifetime
         // imprimía "Cuyes aportados: 5" aunque la operadora hubiera creado
         // el pago viendo 3 (ListarLotesPendientesAsync sí restaba).
         var productora = await Sembrador.ProductoraAsync(
-            api, CedulaProductora, CentroAcopio.PAT);
+            api, CedulaProductora, "PAT");
 
         var cuyes = Enumerable.Range(0, 5).Select(_ => new
         {
@@ -319,7 +319,7 @@ public class TicketPagoTests(ApiFactory api) : IAsyncLifetime
         // verde. Es el síntoma original del arreglo 2 ("dice 15 cuando se
         // pagan 12"), ahora en la rama de venta local.
         var productora = await Sembrador.ProductoraAsync(
-            api, CedulaProductora, CentroAcopio.PAT);
+            api, CedulaProductora, "PAT");
 
         var cuyes = Enumerable.Range(0, 5).Select(_ => new
         {
@@ -394,7 +394,7 @@ public class TicketPagoTests(ApiFactory api) : IAsyncLifetime
         // LA COMUNIDAD…" y la línea de método — que es exactamente lo que
         // esta prueba quiere afirmar que existe.
         var productora = await Sembrador.ProductoraAsync(
-            api, CedulaProductora, CentroAcopio.PAT);
+            api, CedulaProductora, "PAT");
 
         var codigoPlanta = await SembrarLoteDeTresAsync(productora.Id, "020");
         var codigoVentaLocal = await SembrarLoteDeTresAsync(productora.Id, "021");
@@ -482,7 +482,7 @@ public class TicketPagoTests(ApiFactory api) : IAsyncLifetime
         {
             CodigoLote = $"PAT-20260819-{sufijo}",
             ProductoraId = productoraId,
-            CentroAcopio = CentroAcopio.PAT,
+            CentroAcopio = "PAT",
             CantidadAnimales = 3,
             PesoTotalGramos = 3900,
             FechaRecepcion = DateTime.UtcNow,
@@ -522,7 +522,7 @@ public class TicketPagoTests(ApiFactory api) : IAsyncLifetime
         string cedula, decimal monto)
     {
         var productora = await Sembrador.ProductoraAsync(
-            api, cedula, CentroAcopio.PAT);
+            api, cedula, "PAT");
 
         var cuyes = new object[]
         {
@@ -587,7 +587,7 @@ public class TicketPagoTests(ApiFactory api) : IAsyncLifetime
     private async Task<int> PagoSembradoAsync()
     {
         var productora = await Sembrador.ProductoraAsync(
-            api, CedulaProductora, CentroAcopio.PAT);
+            api, CedulaProductora, "PAT");
 
         var cuyes = Enumerable.Range(0, 3).Select(_ => new
         {

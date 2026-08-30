@@ -1,5 +1,4 @@
-﻿using CoopagcuyApi.Common;
-using CoopagcuyApi.Common.Auth;
+﻿using CoopagcuyApi.Common.Auth;
 using CoopagcuyApi.Common.Auth.Recuperacion;
 using CoopagcuyApi.Features.Catalogos.Models;
 using CoopagcuyApi.Features.Faenamiento.Models;
@@ -52,7 +51,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasIndex(p => p.Cedula).IsUnique();
             e.Property(p => p.NombreCompleto).HasMaxLength(150).IsRequired();
             e.Property(p => p.Cedula).HasMaxLength(13).IsRequired();
-            e.Property(p => p.CatAsignado).HasConversion<string>();
+            e.Property(p => p.CatAsignado).HasMaxLength(3);
 
             // Restrict: una comunidad con productoras registradas no puede
             // borrarse. La baja se hace con Activa = false en el catálogo.
@@ -79,7 +78,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(l => l.CodigoLote).HasMaxLength(20).IsRequired();
             e.Property(l => l.PesoTotalGramos).HasPrecision(10, 2);
             e.Property(l => l.Estado).HasConversion<string>();
-            e.Property(l => l.CentroAcopio).HasConversion<string>();
+            e.Property(l => l.CentroAcopio).HasMaxLength(3);
             e.HasOne(l => l.Productora)
              .WithMany(p => p.Lotes)
              .HasForeignKey(l => l.ProductoraId);
@@ -192,7 +191,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(u => u.Cedula).HasMaxLength(10).IsRequired();
             e.Property(u => u.Email).HasMaxLength(200);
             e.Property(u => u.Rol).HasConversion<string>();
-            e.Property(u => u.CatAsignado).HasConversion<string>();
+            e.Property(u => u.CatAsignado).HasMaxLength(3);
         });
 
         // Devolución — RF-307: nace de un despacho; Lote y sesión quedan
@@ -412,7 +411,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             // veces: idempotencia del sync también para las pendientes.
             e.HasIndex(v => new { v.DispositivoId, v.IdCliente }).IsUnique();
             e.Property(v => v.Cedula).HasMaxLength(10).IsRequired();
-            e.Property(v => v.CentroAcopio).HasConversion<string>();
+            e.Property(v => v.CentroAcopio).HasMaxLength(3);
             e.Property(v => v.ResponsableRecepcion).HasMaxLength(150).IsRequired();
             e.Property(v => v.Observaciones).HasMaxLength(500);
             e.Property(v => v.DispositivoId).HasMaxLength(100).IsRequired();
@@ -492,7 +491,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             // del Ecuador y un índice global bloquearía el alta de la segunda.
             e.HasIndex(c => new { c.CantonId, c.Nombre }).IsUnique();
             e.Property(c => c.Nombre).HasMaxLength(100).IsRequired();
-            e.Property(c => c.CatReferencia).HasConversion<string>();
+            e.Property(c => c.CatReferencia).HasMaxLength(3);
             e.Property(c => c.Latitud).HasPrecision(9, 6);
             e.Property(c => c.Longitud).HasPrecision(9, 6);
 
@@ -505,14 +504,14 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             // los de GeografiaEcuador: 4 Nabón, 6 Pucará, 8 Santa Isabel (Azuay).
             // Las coordenadas venían del front (coordenadas.ts) y suben aquí.
             e.HasData(
-                new Comunidad { Id = 1, Nombre = "Patococha",           CantonId = 6, CatReferencia = CentroAcopio.PAT, Latitud = -3.225944m, Longitud = -79.504472m, AltitudMinM = 3190, AltitudMaxM = 3190 },
-                new Comunidad { Id = 2, Nombre = "Las Nieves",          CantonId = 6, CatReferencia = CentroAcopio.NIE, Latitud = -3.083667m, Longitud = -79.451222m, AltitudMinM = 3200, AltitudMaxM = 3370 },
-                new Comunidad { Id = 3, Nombre = "Huertas",             CantonId = 8, CatReferencia = CentroAcopio.HUE, Latitud = -3.135528m, Longitud = -79.395972m, AltitudMinM = 2600, AltitudMaxM = 2900 },
-                new Comunidad { Id = 4, Nombre = "Nabón / El Progreso", CantonId = 4, CatReferencia = CentroAcopio.NAB, Latitud = -3.340833m, Longitud = -79.204806m, AltitudMinM = 2600, AltitudMaxM = 2800 },
+                new Comunidad { Id = 1, Nombre = "Patococha",           CantonId = 6, CatReferencia = "PAT", Latitud = -3.225944m, Longitud = -79.504472m, AltitudMinM = 3190, AltitudMaxM = 3190 },
+                new Comunidad { Id = 2, Nombre = "Las Nieves",          CantonId = 6, CatReferencia = "NIE", Latitud = -3.083667m, Longitud = -79.451222m, AltitudMinM = 3200, AltitudMaxM = 3370 },
+                new Comunidad { Id = 3, Nombre = "Huertas",             CantonId = 8, CatReferencia = "HUE", Latitud = -3.135528m, Longitud = -79.395972m, AltitudMinM = 2600, AltitudMaxM = 2900 },
+                new Comunidad { Id = 4, Nombre = "Nabón / El Progreso", CantonId = 4, CatReferencia = "NAB", Latitud = -3.340833m, Longitud = -79.204806m, AltitudMinM = 2600, AltitudMaxM = 2800 },
                 // Pelincay va SIN coordenadas a propósito: nadie ha ido a tomarlas.
                 // Inventar una aproximada en la única pantalla que ve el consumidor
                 // cuesta más que declarar el hueco — el mapa la nombra sin pin.
-                new Comunidad { Id = 5, Nombre = "Pelincay",            CantonId = 6, CatReferencia = CentroAcopio.PEL }
+                new Comunidad { Id = 5, Nombre = "Pelincay",            CantonId = 6, CatReferencia = "PEL" }
             );
         });
     }

@@ -1,12 +1,10 @@
-using CoopagcuyApi.Common;
-
-namespace CoopagcuyApi.Features.Catalogos.DTOs;
+﻿namespace CoopagcuyApi.Features.Catalogos.DTOs;
 
 public class GuardarComunidadDto
 {
     public string Nombre { get; set; } = string.Empty;
     public string Canton { get; set; } = string.Empty;
-    public CentroAcopio CatReferencia { get; set; }
+    public string CatReferencia { get; set; } = string.Empty;
 }
 
 public record ComunidadResponseDto(

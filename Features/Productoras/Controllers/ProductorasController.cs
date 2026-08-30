@@ -1,5 +1,4 @@
 ﻿using System.Security.Claims;
-using CoopagcuyApi.Common;
 using CoopagcuyApi.Common.Auth;
 using CoopagcuyApi.Features.Productoras.DTOs;
 using CoopagcuyApi.Features.Productoras.Services;
@@ -59,9 +58,8 @@ public class ProductorasController(
         // sella con el CAT de su token. Se hace ANTES de validar para que el
         // validador vea el objeto definitivo, y para que un cuerpo con otro
         // centro no sea un error sino sencillamente un dato ignorado.
-        if (User.CatRestringido() is string catOperador &&
-            Enum.TryParse<CentroAcopio>(catOperador, out var catDelToken))
-            dto.CatAsignado = catDelToken;
+        if (User.CatRestringido() is string catOperador)
+            dto.CatAsignado = catOperador;
 
         var validacion = await validator.ValidateAsync(dto);
         if (!validacion.IsValid)
@@ -98,9 +96,8 @@ public class ProductorasController(
                 mensaje = "Tu usuario solo puede editar productoras de su centro."
             });
 
-        if (User.CatRestringido() is string catOperador &&
-            Enum.TryParse<CentroAcopio>(catOperador, out var catDelToken))
-            dto.CatAsignado = catDelToken;
+        if (User.CatRestringido() is string catOperador)
+            dto.CatAsignado = catOperador;
 
         var validacion = await validator.ValidateAsync(dto);
         if (!validacion.IsValid)

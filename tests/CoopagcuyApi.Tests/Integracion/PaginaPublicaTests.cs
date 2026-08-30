@@ -71,7 +71,7 @@ public class PaginaPublicaTests(ApiFactory api) : IAsyncLifetime
     private async Task SembrarPaginaAsync()
     {
         var productora = await Sembrador.ProductoraAsync(
-            api, CedulaProductora, CentroAcopio.PAT, comunidadId: 1);
+            api, CedulaProductora, "PAT", comunidadId: 1);
 
         await using var db = api.NuevoDbContext();
 
@@ -79,7 +79,7 @@ public class PaginaPublicaTests(ApiFactory api) : IAsyncLifetime
         {
             CodigoLote = "PAT-20260818-001",
             ProductoraId = productora.Id,
-            CentroAcopio = CentroAcopio.PAT,
+            CentroAcopio = "PAT",
             CantidadAnimales = 2,
             PesoTotalGramos = 2600,
             FechaRecepcion = DateTime.UtcNow,

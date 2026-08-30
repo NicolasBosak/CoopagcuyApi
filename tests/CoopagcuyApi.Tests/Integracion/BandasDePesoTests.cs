@@ -24,7 +24,7 @@ public class BandasDePesoTests(ApiFactory api) : IAsyncLifetime
     private async Task<CuyGuardado> RegistrarUnCuyAsync(decimal pesoGramos)
     {
         var productora = await Sembrador.ProductoraAsync(
-            api, CedulaProductora, CentroAcopio.PAT);
+            api, CedulaProductora, "PAT");
 
         var cuerpo = new
         {
@@ -103,7 +103,7 @@ public class BandasDePesoTests(ApiFactory api) : IAsyncLifetime
         // "Negro" salió del catálogo de captura. Si llegara desde una tablet
         // con caché antigua, se guarda tal cual sin marcar el lote.
         var productora = await Sembrador.ProductoraAsync(
-            api, CedulaProductora, CentroAcopio.PAT);
+            api, CedulaProductora, "PAT");
 
         var cuerpo = new
         {

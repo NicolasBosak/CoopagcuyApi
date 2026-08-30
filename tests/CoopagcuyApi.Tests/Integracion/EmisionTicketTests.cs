@@ -31,7 +31,7 @@ public class EmisionTicketTests(ApiFactory api) : IAsyncLifetime
     private async Task<(int ProductoraId, int LoteId)> EntregaAsync(int cuantosCuyes)
     {
         var productora = await Sembrador.ProductoraAsync(
-            api, CedulaProductora, CentroAcopio.PAT);
+            api, CedulaProductora, "PAT");
 
         var cuyes = Enumerable.Range(0, cuantosCuyes)
             .Select(_ => Cuy(1300m)).ToArray();

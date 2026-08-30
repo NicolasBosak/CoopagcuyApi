@@ -14,24 +14,24 @@ namespace CoopagcuyApi.Features.Recepcion.Services;
 public interface IRecepcionService
 {
     Task<EntregaResultadoDto> RegistrarEntregaAsync(RegistrarEntregaDto dto);
-    Task<LoteResponseDto?> ObtenerLoteAbiertoAsync(CentroAcopio cat);
+    Task<LoteResponseDto?> ObtenerLoteAbiertoAsync(string cat);
     Task<LoteResponseDto?> CerrarLoteAsync(string codigoLote);
     Task<LoteResponseDto?> ObtenerLotePorIdAsync(int id);
     Task<LoteResponseDto?> ObtenerLotePorCodigoAsync(string codigo);
     Task<IEnumerable<LoteResponseDto>> ListarLotesAsync(
-        CentroAcopio? cat, EstadoLote? estado, DateTime? desde, DateTime? hasta);
+        string? cat, EstadoLote? estado, DateTime? desde, DateTime? hasta);
     Task<SyncResultadoDto> SincronizarEntregasAsync(SyncEntregasDto dto);
 
     // Bandeja de vinculación (admin): entregas offline con cédula válida sin
     // productora en el centro
-    Task<IEnumerable<VinculacionPendienteDto>> ListarVinculacionesAsync(CentroAcopio? filtroCat);
+    Task<IEnumerable<VinculacionPendienteDto>> ListarVinculacionesAsync(string? filtroCat);
     Task<EntregaResultadoDto> ResolverVinculacionAsync(int id, int productoraId, string resueltaPor);
     Task<bool> DescartarVinculacionAsync(int id, string resueltaPor);
 
     /// Bytes de la evidencia, o null si la novedad no tiene foto, si ya
     /// caducó, si el blob fue borrado por la política de ciclo de vida, o si
     /// el lote de la novedad no pertenece al CAT indicado (cuando se pasa).
-    Task<byte[]?> ObtenerFotoNovedadAsync(int novedadId, CentroAcopio? catEfectivo);
+    Task<byte[]?> ObtenerFotoNovedadAsync(int novedadId, string? catEfectivo);
 }
 
 public class RecepcionService(AppDbContext db, IBlobStorageService blobService)
@@ -179,6 +179,14 @@ public class RecepcionService(AppDbContext db, IBlobStorageService blobService)
         if (dto.Cuyes.Count == 0)
             throw new InvalidOperationException(
                 "La entrega debe incluir al menos un cuy.");
+
+        // El código del CAT se normaliza AQUÍ, en el borde por donde entra
+        // toda entrega (la del CAT en línea, la del sync offline y la que
+        // se reconstruye al resolver una vinculación): Postgres distingue
+        // mayúsculas, así que un "pat" minúsculo abriría una jaula paralela
+        // y dejaría al operador viendo una bandeja vacía sin ningún error
+        // que lo explique.
+        dto.CentroAcopio = (dto.CentroAcopio ?? string.Empty).Trim().ToUpperInvariant();
 
         // Validar las fotos ANTES de resolver la productora: si esta entrega
         // termina en la bandeja de vinculación, dto.Cuyes se serializa tal
@@ -333,7 +341,7 @@ public class RecepcionService(AppDbContext db, IBlobStorageService blobService)
         );
     }
 
-    public async Task<LoteResponseDto?> ObtenerLoteAbiertoAsync(CentroAcopio cat)
+    public async Task<LoteResponseDto?> ObtenerLoteAbiertoAsync(string cat)
     {
         var lote = await db.Lotes
             .Where(l => l.CentroAcopio == cat && !l.Cerrado)
@@ -366,7 +374,7 @@ public class RecepcionService(AppDbContext db, IBlobStorageService blobService)
         return await MapearLoteAsync(lote.Id);
     }
 
-    public async Task<byte[]?> ObtenerFotoNovedadAsync(int novedadId, CentroAcopio? catEfectivo)
+    public async Task<byte[]?> ObtenerFotoNovedadAsync(int novedadId, string? catEfectivo)
     {
         var novedad = await db.Novedades.AsNoTracking()
             .Include(n => n.Lote)
@@ -377,7 +385,7 @@ public class RecepcionService(AppDbContext db, IBlobStorageService blobService)
         // Mismo filtro de centro que ObtenerLotePorId/ObtenerLotePorCodigo/
         // ListarLotes: un OperadorCAT no debe poder bajarse la evidencia de
         // otro centro solo por probar ids secuenciales.
-        if (catEfectivo is CentroAcopio cat && novedad.Lote?.CentroAcopio != cat)
+        if (catEfectivo is string cat && novedad.Lote?.CentroAcopio != cat)
             return null;
 
         // La fecha manda sobre el blob: en cuanto caduca dejamos de servirla,
@@ -474,7 +482,7 @@ public class RecepcionService(AppDbContext db, IBlobStorageService blobService)
     }
 
     public async Task<IEnumerable<LoteResponseDto>> ListarLotesAsync(
-        CentroAcopio? cat, EstadoLote? estado, DateTime? desde, DateTime? hasta)
+        string? cat, EstadoLote? estado, DateTime? desde, DateTime? hasta)
     {
         var query = db.Lotes
             .Include(l => l.Productora)
@@ -484,8 +492,8 @@ public class RecepcionService(AppDbContext db, IBlobStorageService blobService)
             .Include(l => l.Movilizacion)
             .AsQueryable();
 
-        if (cat.HasValue)
-            query = query.Where(l => l.CentroAcopio == cat.Value);
+        if (!string.IsNullOrEmpty(cat))
+            query = query.Where(l => l.CentroAcopio == cat);
 
         if (estado.HasValue)
             query = query.Where(l => l.Estado == estado.Value);
@@ -631,12 +639,12 @@ public class RecepcionService(AppDbContext db, IBlobStorageService blobService)
     // ── Bandeja de vinculación (admin) ────────────────────────────────────
 
     public async Task<IEnumerable<VinculacionPendienteDto>> ListarVinculacionesAsync(
-        CentroAcopio? filtroCat)
+        string? filtroCat)
     {
         var query = db.EntregasPendientesVinculacion
             .Where(v => v.Estado == EstadoVinculacion.Pendiente);
 
-        if (filtroCat is CentroAcopio cat)
+        if (filtroCat is string cat)
             query = query.Where(v => v.CentroAcopio == cat);
 
         var pendientes = await query
@@ -648,7 +656,7 @@ public class RecepcionService(AppDbContext db, IBlobStorageService blobService)
         {
             var cuyes = DeserializarCuyes(v.CuyesJson);
             return new VinculacionPendienteDto(
-                v.Id, v.Cedula, v.CentroAcopio.ToString(), v.FechaCaptura,
+                v.Id, v.Cedula, v.CentroAcopio, v.FechaCaptura,
                 v.EnAyunas, v.ResponsableRecepcion, v.Observaciones,
                 cuyes.Count, cuyes.Sum(c => c.PesoGramos),
                 v.DispositivoId, v.FechaCreacion);
@@ -819,12 +827,11 @@ public class RecepcionService(AppDbContext db, IBlobStorageService blobService)
     // Formato: CAT-AAAAMMDD-SEC  ej: PAT-20260615-001
 
     private async Task<string> GenerarCodigoLoteAsync(
-    CentroAcopio cat, DateTime fecha)
+    string cat, DateTime fecha)
     {
-        var prefijo = cat.ToString();
         var fechaUtc = DateTime.SpecifyKind(fecha, DateTimeKind.Utc);
         var fechaStr = fechaUtc.ToString("yyyyMMdd");
-        var baseStr = $"{prefijo}-{fechaStr}-";
+        var baseStr = $"{cat}-{fechaStr}-";
 
         var conteo = await db.Lotes
             .CountAsync(l =>
@@ -899,7 +906,7 @@ public class RecepcionService(AppDbContext db, IBlobStorageService blobService)
             CodigoLote: lote.CodigoLote,
             ProductoraId: lote.ProductoraId,
             NombreProductora: nombreProductora,
-            CentroAcopio: lote.CentroAcopio.ToString(),
+            CentroAcopio: lote.CentroAcopio,
             FechaRecepcion: lote.FechaRecepcion,
             CantidadAnimales: lote.CantidadAnimales,
             PesoTotalGramos: lote.PesoTotalGramos,

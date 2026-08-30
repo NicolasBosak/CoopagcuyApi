@@ -1,6 +1,4 @@
-﻿using CoopagcuyApi.Common;
-
-namespace CoopagcuyApi.Features.Productoras.DTOs;
+﻿namespace CoopagcuyApi.Features.Productoras.DTOs;
 
 public class CrearProductoraDto
 {
@@ -8,7 +6,7 @@ public class CrearProductoraDto
     public string Cedula { get; set; } = string.Empty;
     // Comunidad del catálogo. El cantón ya no se envía: se deriva de ella.
     public int ComunidadId { get; set; }
-    public CentroAcopio CatAsignado { get; set; }
+    public string CatAsignado { get; set; } = string.Empty;
     public string? Telefono { get; set; }
 }
 

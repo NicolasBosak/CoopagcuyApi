@@ -102,7 +102,7 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
                     .ToList();
 
                 return new LoteDisponibleDto(
-                    l.Id, l.CodigoLote, l.CentroAcopio.ToString(),
+                    l.Id, l.CodigoLote, l.CentroAcopio,
                     l.FechaRecepcion, l.CantidadAnimales,
                     disponibles, cuyesDisponibles);
             })

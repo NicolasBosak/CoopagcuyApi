@@ -111,7 +111,7 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
         // CAT todavía no tiene en mano— y el ticket (que sí compara sin
         // distinguir mayúsculas) diría "A CUOTAS" para la misma fila.
         var productora = await Sembrador.ProductoraAsync(
-            api, Cedula, CentroAcopio.PAT);
+            api, Cedula, "PAT");
 
         await using (var db = api.NuevoDbContext())
         {
@@ -146,9 +146,9 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
         // pone a A primero porque tiene MÁS cobrado en mano, aunque su
         // suma total sea menor.
         var productoraA = await Sembrador.ProductoraAsync(
-            api, Cedula, CentroAcopio.PAT);
+            api, Cedula, "PAT");
         var productoraB = await Sembrador.ProductoraAsync(
-            api, CedulaNie, CentroAcopio.PAT, comunidadId: 2);
+            api, CedulaNie, "PAT", comunidadId: 2);
 
         await using (var db = api.NuevoDbContext())
         {
@@ -194,9 +194,9 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
         // las productoras de NIE, sin ningún error ni señal de que el
         // filtro no hizo nada.
         var enPat = await Sembrador.ProductoraAsync(
-            api, Cedula, CentroAcopio.PAT);
+            api, Cedula, "PAT");
         var enNie = await Sembrador.ProductoraAsync(
-            api, CedulaNie, CentroAcopio.NIE, comunidadId: 2);
+            api, CedulaNie, "NIE", comunidadId: 2);
 
         await using (var db = api.NuevoDbContext())
         {
@@ -240,9 +240,9 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
         // front que pida ?cat=PAT en /ganancias/mes recibiría el mes con los
         // pagos de NIE mezclados adentro, sin ningún error ni señal.
         var enPat = await Sembrador.ProductoraAsync(
-            api, Cedula, CentroAcopio.PAT);
+            api, Cedula, "PAT");
         var enNie = await Sembrador.ProductoraAsync(
-            api, CedulaNie, CentroAcopio.NIE, comunidadId: 2);
+            api, CedulaNie, "NIE", comunidadId: 2);
 
         await using (var db = api.NuevoDbContext())
         {
@@ -286,9 +286,9 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
         // las filas (una por CAT) en vez de acotar a una — mismo parámetro,
         // comportamiento distinto entre los tres endpoints hermanos.
         var enPat = await Sembrador.ProductoraAsync(
-            api, Cedula, CentroAcopio.PAT);
+            api, Cedula, "PAT");
         var enNie = await Sembrador.ProductoraAsync(
-            api, CedulaNie, CentroAcopio.NIE, comunidadId: 2);
+            api, CedulaNie, "NIE", comunidadId: 2);
 
         await using (var db = api.NuevoDbContext())
         {
@@ -751,10 +751,13 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
     [Fact]
     public async Task UnCatNoParseableNoFiltraYDeclaraTodosLosCentros()
     {
-        // Should-fix 2: Enum.TryParse<CentroAcopio> es case-sensitive (el
-        // mismo que usan los filtros reales, arriba, en cada consulta), así
-        // que ?cat=pat (minúsculas) no coincide con ningún valor del enum:
-        // el filtro NO se aplica y deben salir las DOS CAT. Antes del fix,
+        // Should-fix 2: ReportesService.EsCatValido exige tres letras
+        // MAYÚSCULAS (el mismo criterio que usan los filtros reales,
+        // arriba, en cada consulta), así que ?cat=pat (minúsculas) no es un
+        // código de CAT: el filtro NO se aplica y deben salir las DOS CAT.
+        // El ?cat= NO se normaliza a propósito — a diferencia de las altas,
+        // un filtro de lectura mal escrito debe declararse como "sin
+        // filtro" y no adivinar qué quiso pedir quien lo escribió. Antes del fix,
         // DescripcionAlcanceCat solo miraba IsNullOrEmpty(cat) y el
         // controlador miraba IsNullOrWhiteSpace(cat) — dos criterios más
         // laxos que el TryParse real —, así que el libro igual imprimía
@@ -762,9 +765,9 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
         // afirmando un recorte que el contenido no tiene: el fallo
         // invertido que esta etiqueta existe para evitar.
         var enPat = await Sembrador.ProductoraAsync(
-            api, Cedula, CentroAcopio.PAT);
+            api, Cedula, "PAT");
         var enNie = await Sembrador.ProductoraAsync(
-            api, CedulaNie, CentroAcopio.NIE, comunidadId: 2);
+            api, CedulaNie, "NIE", comunidadId: 2);
 
         await using (var db = api.NuevoDbContext())
         {
@@ -1006,7 +1009,7 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
     private async Task SembrarPagosAsync()
     {
         var productora = await Sembrador.ProductoraAsync(
-            api, Cedula, CentroAcopio.PAT);
+            api, Cedula, "PAT");
 
         await using var db = api.NuevoDbContext();
         db.Pagos.AddRange(
@@ -1059,7 +1062,7 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
     private async Task SembrarPagoDeFinDeMesAsync()
     {
         var productora = await Sembrador.ProductoraAsync(
-            api, Cedula, CentroAcopio.PAT);
+            api, Cedula, "PAT");
 
         await using var db = api.NuevoDbContext();
         db.Pagos.Add(new Pago
@@ -1084,7 +1087,7 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
     /// (NumeroEnLote 1..cantidadAnimales), todos suyos y ninguno vendido en
     /// la comunidad todavía.
     private async Task<(Productora Productora, Lote Lote)> SembrarLoteAsync(
-        string cedula, int cantidadAnimales, CentroAcopio cat = CentroAcopio.PAT)
+        string cedula, int cantidadAnimales, string cat = "PAT")
     {
         var productora = await Sembrador.ProductoraAsync(api, cedula, cat);
 

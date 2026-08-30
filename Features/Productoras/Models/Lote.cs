@@ -24,7 +24,7 @@ public class Lote
     public int? ProductoraId { get; set; }
     public Productora? Productora { get; set; }
 
-    public CentroAcopio CentroAcopio { get; set; }
+    public string CentroAcopio { get; set; } = string.Empty;
     public DateTime FechaRecepcion { get; set; }
     public int CantidadAnimales { get; set; }          // máx 15 por SRS RF-104
     public decimal PesoTotalGramos { get; set; }

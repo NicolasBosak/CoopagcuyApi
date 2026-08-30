@@ -19,7 +19,7 @@ public class RecepcionController(
 {
     // Un Operador de CAT solo puede registrar en su centro asignado.
     // El CAT del operador viaja como claim en el token JWT.
-    private string? CatNoAutorizado(CentroAcopio cat)
+    private string? CatNoAutorizado(string cat)
     {
         if (!User.IsInRole("OperadorCAT")) return null;
 
@@ -28,18 +28,17 @@ public class RecepcionController(
             return "Tu usuario no tiene un centro de acopio asignado. " +
                    "Pide a un administrador que te lo asigne.";
 
-        return catOperador != cat.ToString()
+        return catOperador != cat
             ? $"Tu usuario solo puede registrar en el centro {catOperador}."
             : null;
     }
 
     // CAT asignado al operador (para filtrar lo que ve). null si no es
     // OperadorCAT o no tiene centro asignado.
-    private CentroAcopio? CatDelOperador()
+    private string? CatDelOperador()
     {
         if (!User.IsInRole("OperadorCAT")) return null;
-        var cat = User.FindFirst("cat")?.Value;
-        return Enum.TryParse<CentroAcopio>(cat, out var c) ? c : null;
+        return User.FindFirst("cat")?.Value;
     }
 
     // ── Entregas por productora: armado de jaulas de hasta 15 ─────────
@@ -86,7 +85,7 @@ public class RecepcionController(
     /// </summary>
     [HttpGet("lotes/abierto")]
     [Authorize(Roles = "OperadorCAT,AdminCooperativa,OperadorFaenamiento")]
-    public async Task<IActionResult> ObtenerLoteAbierto([FromQuery] CentroAcopio cat)
+    public async Task<IActionResult> ObtenerLoteAbierto([FromQuery] string cat)
     {
         // El operador de CAT solo consulta la jaula de su propio centro
         var catEfectivo = CatDelOperador() ?? cat;
@@ -104,8 +103,7 @@ public class RecepcionController(
     {
         // El código de jaula empieza con el CAT (PAT-…, NIE-…)
         var prefijo = codigoLote.Split('-')[0];
-        if (Enum.TryParse<CentroAcopio>(prefijo, out var catLote) &&
-            CatNoAutorizado(catLote) is string motivo)
+        if (CatNoAutorizado(prefijo) is string motivo)
             return StatusCode(StatusCodes.Status403Forbidden, new { mensaje = motivo });
 
         try
@@ -123,8 +121,8 @@ public class RecepcionController(
     // ni por código: las lecturas puntuales aplican el mismo filtro que
     // el listado
     private bool LoteFueraDeSuCat(DTOs.LoteResponseDto lote) =>
-        CatDelOperador() is CentroAcopio catOperador
-        && lote.CentroAcopio != catOperador.ToString();
+        CatDelOperador() is string catOperador
+        && lote.CentroAcopio != catOperador;
 
     /// <summary>
     /// Obtiene un lote por su Id interno.
@@ -171,7 +169,7 @@ public class RecepcionController(
     [HttpGet("lotes")]
     [Authorize(Roles = "OperadorCAT,AdminCooperativa,OperadorFaenamiento")]
     public async Task<IActionResult> ListarLotes(
-        [FromQuery] CentroAcopio? cat,
+        [FromQuery] string? cat,
         [FromQuery] EstadoLote? estado,
         [FromQuery] DateTime? desde,
         [FromQuery] DateTime? hasta)
@@ -299,9 +297,9 @@ public class RecepcionController(
         var resultado = await movilizacionService.ListarAsync(pendientes);
 
         // El operador de CAT solo ve las movilizaciones de su centro
-        if (CatDelOperador() is CentroAcopio cat)
+        if (CatDelOperador() is string cat)
             resultado = resultado
-                .Where(m => m.CentroAcopio == cat.ToString())
+                .Where(m => m.CentroAcopio == cat)
                 .ToList();
 
         return Ok(resultado);
@@ -317,7 +315,7 @@ public class RecepcionController(
         var resultado = await movilizacionService.ObtenerPorCodigoLoteAsync(codigoLote);
         if (resultado is null) return NotFound();
 
-        if (CatDelOperador() is CentroAcopio cat && resultado.CentroAcopio != cat.ToString())
+        if (CatDelOperador() is string cat && resultado.CentroAcopio != cat)
             return StatusCode(StatusCodes.Status403Forbidden, new
             {
                 mensaje = "Tu usuario solo puede consultar movilizaciones de su centro."

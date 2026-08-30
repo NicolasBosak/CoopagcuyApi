@@ -26,7 +26,7 @@ public class UsuarioService(AppDbContext db) : IUsuarioService
             .Select(u => new UsuarioResponseDto(
                 u.Id, u.NombreCompleto, u.Cedula, u.Email,
                 u.Rol.ToString(),
-                u.CatAsignado != null ? u.CatAsignado.ToString() : null,
+                u.CatAsignado,
                 u.Activo, u.FechaCreacion))
             .ToListAsync();
     }
@@ -40,7 +40,8 @@ public class UsuarioService(AppDbContext db) : IUsuarioService
     public async Task<UsuarioCreadoDto> CrearAsync(CrearUsuarioDto dto)
     {
         ValidarCedula(dto.Cedula);
-        ValidarCatOperador(dto.Rol, dto.CatAsignado);
+        var cat = NormalizarCat(dto.CatAsignado);
+        ValidarCatOperador(dto.Rol, cat);
 
         var cedula = dto.Cedula.Trim();
         var existe = await db.Usuarios.AnyAsync(u => u.Cedula == cedula);
@@ -55,7 +56,7 @@ public class UsuarioService(AppDbContext db) : IUsuarioService
             Email = NormalizarEmail(dto.Email),
             Rol = dto.Rol,
             CatAsignado = dto.Rol == RolUsuario.OperadorCAT
-                ? dto.CatAsignado : null
+                ? cat : null
         };
 
         // La contraseña la genera el sistema: el administrador da de alta la
@@ -73,14 +74,15 @@ public class UsuarioService(AppDbContext db) : IUsuarioService
         var usuario = await db.Usuarios.FindAsync(id);
         if (usuario is null) return false;
 
-        ValidarCatOperador(dto.Rol, dto.CatAsignado);
+        var cat = NormalizarCat(dto.CatAsignado);
+        ValidarCatOperador(dto.Rol, cat);
 
         usuario.NombreCompleto = dto.NombreCompleto.Trim();
         // La cédula es inmutable; el correo de contacto sí puede cambiar
         usuario.Email = NormalizarEmail(dto.Email);
         usuario.Rol = dto.Rol;
         usuario.CatAsignado = dto.Rol == RolUsuario.OperadorCAT
-            ? dto.CatAsignado : null;
+            ? cat : null;
 
         await db.SaveChangesAsync();
         return true;
@@ -88,7 +90,7 @@ public class UsuarioService(AppDbContext db) : IUsuarioService
 
     // Un Operador de CAT debe tener centro asignado: es lo que limita
     // dónde puede registrar entregas
-    private static void ValidarCatOperador(RolUsuario rol, CentroAcopio? cat)
+    private static void ValidarCatOperador(RolUsuario rol, string? cat)
     {
         if (rol == RolUsuario.OperadorCAT && cat is null)
             throw new InvalidOperationException(
@@ -134,8 +136,14 @@ public class UsuarioService(AppDbContext db) : IUsuarioService
         string.IsNullOrWhiteSpace(email)
             ? null : email.Trim().ToLowerInvariant();
 
+    // El código del CAT se normaliza AQUÍ, en el borde, y no en cada consulta:
+    // Postgres distingue mayúsculas y un "pat" minúsculo dejaría al operador
+    // viendo una bandeja vacía sin ningún error que lo explique.
+    private static string? NormalizarCat(string? cat) =>
+        string.IsNullOrWhiteSpace(cat) ? null : cat.Trim().ToUpperInvariant();
+
     private static UsuarioResponseDto MapToDto(Usuario u) => new(
         u.Id, u.NombreCompleto, u.Cedula, u.Email,
-        u.Rol.ToString(), u.CatAsignado?.ToString(),
+        u.Rol.ToString(), u.CatAsignado,
         u.Activo, u.FechaCreacion);
 }
