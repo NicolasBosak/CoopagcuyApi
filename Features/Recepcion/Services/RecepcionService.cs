@@ -505,6 +505,14 @@ public class RecepcionService(AppDbContext db, IBlobStorageService blobService)
     public async Task<IEnumerable<LoteResponseDto>> ListarLotesAsync(
         string? cat, EstadoLote? estado, DateTime? desde, DateTime? hasta)
     {
+        // Arreglo Task 4: el filtro de lectura se normaliza aquí, en la
+        // entrada del servicio, igual que RegistrarEntregaAsync normaliza la
+        // escritura. Postgres compara CentroAcopio distinguiendo mayúsculas,
+        // y un ?cat=pat sin normalizar dejaría al operador viendo una lista
+        // vacía sin ningún error que lo explique. Un cat nulo o vacío sigue
+        // significando "sin filtro".
+        cat = string.IsNullOrWhiteSpace(cat) ? null : cat.Trim().ToUpperInvariant();
+
         var query = db.Lotes
             .Include(l => l.Productora)
             .Include(l => l.Novedades)

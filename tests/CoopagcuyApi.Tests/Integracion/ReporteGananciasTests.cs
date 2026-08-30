@@ -749,21 +749,18 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task UnCatNoParseableNoFiltraYDeclaraTodosLosCentros()
+    public async Task UnCatEnMinusculasFiltraIgualQueEnMayusculas()
     {
-        // Should-fix 2: ReportesService.EsCatValido exige tres letras
-        // MAYÚSCULAS (el mismo criterio que usan los filtros reales,
-        // arriba, en cada consulta), así que ?cat=pat (minúsculas) no es un
-        // código de CAT: el filtro NO se aplica y deben salir las DOS CAT.
-        // El ?cat= NO se normaliza a propósito — a diferencia de las altas,
-        // un filtro de lectura mal escrito debe declararse como "sin
-        // filtro" y no adivinar qué quiso pedir quien lo escribió. Antes del fix,
-        // DescripcionAlcanceCat solo miraba IsNullOrEmpty(cat) y el
-        // controlador miraba IsNullOrWhiteSpace(cat) — dos criterios más
-        // laxos que el TryParse real —, así que el libro igual imprimía
-        // "Centro de acopio: pat" y el archivo se llamaba "...-pat.xlsx",
-        // afirmando un recorte que el contenido no tiene: el fallo
-        // invertido que esta etiqueta existe para evitar.
+        // Arreglo Task 4: esta prueba fijaba que ?cat=pat (minúsculas) NO
+        // filtrara — un accidente heredado del enum (Enum.TryParse<CentroAcopio>
+        // era sensible a mayúsculas), no una decisión de diseño. Con el
+        // enum fuera, ese mismo accidente dejaba TRES respuestas distintas
+        // a "¿qué pasa con un ?cat= en minúsculas?": Reportes no filtraba,
+        // Productoras devolvía cero filas y Recepción (lotes) también cero.
+        // La decisión ahora es normalizar el filtro de lectura en las tres
+        // rutas (FiltroPeriodoDto, ProductoraService.ObtenerTodasAsync,
+        // RecepcionService.ListarLotesAsync): ?cat=pat vale lo mismo que
+        // ?cat=PAT en todas. No restaurar el comportamiento viejo.
         var enPat = await Sembrador.ProductoraAsync(
             api, Cedula, "PAT");
         var enNie = await Sembrador.ProductoraAsync(
@@ -803,10 +800,11 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
 
         respuesta.StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        // El nombre del archivo NO lleva sufijo de CAT: "pat" no parsea.
+        // El nombre del archivo SÍ lleva el sufijo, en mayúsculas: el filtro
+        // se aplicó de verdad.
         var nombreArchivo = respuesta.Content.Headers.ContentDisposition?.FileName?.Trim('"');
         nombreArchivo.ShouldNotBeNull();
-        nombreArchivo.ToLowerInvariant().ShouldNotContain("-pat");
+        nombreArchivo.ShouldContain("-PAT");
 
         var bytes = await respuesta.Content.ReadAsByteArrayAsync();
         using var libro = new XLWorkbook(new MemoryStream(bytes));
@@ -817,15 +815,15 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
             var textos = libro.Worksheet(nombreGanancia).Column(1)
                 .CellsUsed().Select(c => c.GetString()).ToList();
 
-            textos.ShouldContain("Centro de acopio: Todos los centros de acopio");
-            textos.ShouldNotContain("Centro de acopio: pat");
+            textos.ShouldContain("Centro de acopio: PAT");
+            textos.ShouldNotContain("Centro de acopio: Todos los centros de acopio");
         }
 
-        // Sin filtro real aplicado, "Ganancias por CAT" trae las DOS filas.
+        // Con el filtro normalizado aplicado, "Ganancias por CAT" solo trae PAT.
         var centrosEnHoja = libro.Worksheet("Ganancias por CAT").Column(1)
             .CellsUsed().Select(c => c.GetString())
             .Where(s => s is "PAT" or "NIE").ToList();
-        centrosEnHoja.Count.ShouldBe(2);
+        centrosEnHoja.ShouldBe(["PAT"]);
     }
 
     [Fact]

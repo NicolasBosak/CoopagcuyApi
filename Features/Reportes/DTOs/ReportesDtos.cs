@@ -229,8 +229,25 @@ public record MargenDto(
 
 // ── Filtros compartidos ───────────────────────────────────────────────
 
-public record FiltroPeriodoDto(
-    DateTime Desde,
-    DateTime Hasta,
-    string? CentroAcopio = null
-);
+// El ?cat= se normaliza en este único borde por donde entran los ~20
+// filtros de lectura de Reportes (todos construyen este DTO desde el
+// controlador): Postgres compara CentroAcopio distinguiendo mayúsculas, y
+// un ?cat=pat sin normalizar dejaría a quien lo pidió viendo "Todos los
+// centros" o una hoja vacía sin ningún error que lo explique. Una cadena
+// vacía o solo espacios se guarda como null: eso sigue significando "sin
+// filtro" en todo el feature.
+public record FiltroPeriodoDto
+{
+    public DateTime Desde { get; }
+    public DateTime Hasta { get; }
+    public string? CentroAcopio { get; }
+
+    public FiltroPeriodoDto(DateTime desde, DateTime hasta, string? centroAcopio = null)
+    {
+        Desde = desde;
+        Hasta = hasta;
+        CentroAcopio = string.IsNullOrWhiteSpace(centroAcopio)
+            ? null
+            : centroAcopio.Trim().ToUpperInvariant();
+    }
+}

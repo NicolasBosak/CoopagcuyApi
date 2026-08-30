@@ -165,7 +165,7 @@ public class ReportesService(AppDbContext db) : IReportesService
                         c.Lote.FechaRecepcion < hastaUtc &&
                         c.ProductoraId != null);
 
-        if (EsCatValido(filtro.CentroAcopio))
+        if (filtro.CentroAcopio is not null)
             query = query.Where(c => c.Lote.CentroAcopio == filtro.CentroAcopio);
 
         var cuyes = await query.AsNoTracking().ToListAsync();
@@ -241,7 +241,7 @@ public class ReportesService(AppDbContext db) : IReportesService
             .Where(n => n.FechaRegistro >= desdeUtc &&
                         n.FechaRegistro < hastaUtc);
 
-        if (EsCatValido(filtro.CentroAcopio))
+        if (filtro.CentroAcopio is not null)
             query = query.Where(n => n.Lote.CentroAcopio == filtro.CentroAcopio);
 
         return await query
@@ -374,7 +374,7 @@ public class ReportesService(AppDbContext db) : IReportesService
             .Where(c => c.Lote.FechaRecepcion >= desdeUtc &&
                         c.Lote.FechaRecepcion < hastaUtc);
 
-        if (EsCatValido(filtro.CentroAcopio))
+        if (filtro.CentroAcopio is not null)
             query = query.Where(c => c.Lote.CentroAcopio == filtro.CentroAcopio);
 
         return await query
@@ -596,7 +596,7 @@ public class ReportesService(AppDbContext db) : IReportesService
             .Where(r => r.FechaRetorno >= desdeUtc &&
                         r.FechaRetorno < hastaUtc);
 
-        if (EsCatValido(filtro.CentroAcopio))
+        if (filtro.CentroAcopio is not null)
         {
             // Las devoluciones por despacho abarcan un lote faenado que
             // puede cruzar varios CAT: solo las legadas (por jaula)
@@ -689,7 +689,7 @@ public class ReportesService(AppDbContext db) : IReportesService
         IQueryable<Pago> query = PagosDelPeriodo(filtro)
             .Include(p => p.Productora).ThenInclude(pr => pr.Comunidad);
 
-        if (EsCatValido(filtro.CentroAcopio))
+        if (filtro.CentroAcopio is not null)
             query = query.Where(p => p.Productora!.CatAsignado == filtro.CentroAcopio);
 
         var pagos = await query.AsNoTracking().ToListAsync();
@@ -736,7 +736,7 @@ public class ReportesService(AppDbContext db) : IReportesService
         IQueryable<Pago> query = PagosDelPeriodo(filtro)
             .Include(p => p.Productora);
 
-        if (EsCatValido(filtro.CentroAcopio))
+        if (filtro.CentroAcopio is not null)
             query = query.Where(p => p.Productora!.CatAsignado == filtro.CentroAcopio);
 
         var pagos = await query.AsNoTracking().ToListAsync();
@@ -763,7 +763,7 @@ public class ReportesService(AppDbContext db) : IReportesService
     {
         var query = PagosDelPeriodo(filtro);
 
-        if (EsCatValido(filtro.CentroAcopio))
+        if (filtro.CentroAcopio is not null)
             query = query.Where(p => p.Productora!.CatAsignado == filtro.CentroAcopio);
 
         var pagos = await query.AsNoTracking().ToListAsync();
@@ -1098,25 +1098,6 @@ public class ReportesService(AppDbContext db) : IReportesService
         return stream.ToArray();
     }
 
-    // Should-fix 2: único criterio de "¿este ?cat= es válido?" para todo el
-    // feature. Antes había tres nociones distintas del mismo concepto: el
-    // TryParse case-sensitive que usan los filtros reales (aquí y en cada
-    // consulta de arriba), !IsNullOrEmpty en DescripcionAlcanceCat, e
-    // IsNullOrWhiteSpace en el sufijo del nombre de archivo del controlador.
-    // Solo la primera refleja lo que de verdad pasa: el código del CAT es
-    // de tres letras MAYÚSCULAS y la comparación contra la columna es
-    // sensible a mayúsculas, así que "?cat=pat" no filtra nada — con las
-    // otras dos nociones ese mismo ?cat=pat pasaba como "válido" y el libro
-    // terminaba declarando (y el archivo nombrando) un alcance más angosto
-    // que sus datos reales: el fallo que esta etiqueta existe para evitar,
-    // invertido.
-    //
-    // Se comprueba la FORMA del código, no la lista de códigos: la lista
-    // dejó de estar compilada en el binario cuando el CAT dejó de ser un
-    // enum, y volver a fijarla aquí desharía justo eso.
-    public static bool EsCatValido(string? cat) =>
-        cat is { Length: 3 } && cat.All(c => c is >= 'A' and <= 'Z');
-
     private static void EscribirEncabezadosGanancias(
         IXLWorksheet hoja, string[] encabezados, int fila = 1)
     {
@@ -1137,11 +1118,18 @@ public class ReportesService(AppDbContext db) : IReportesService
     // junto a la hoja 4 ("margen $Y", que es de TODA la cooperativa) como si
     // ambas hablaran del mismo universo.
     //
-    // Should-fix 2: usa EsCatValido, no un simple !IsNullOrEmpty — un
-    // ?cat=pat (minúsculas) no filtró nada arriba, así que esta línea no
-    // puede decir "Centro de acopio: pat" como si sí lo hubiera hecho.
+    // Arreglo Task 4: el ?cat= llega aquí ya normalizado a mayúsculas por
+    // FiltroPeriodoDto (el borde único de todo el feature), así que un
+    // simple null-check basta y es lo mismo que "no filtró arriba". El
+    // criterio viejo (EsCatValido, forma de tres letras A-Z) se retiró:
+    // con la normalización puesta, su única función residual era responder
+    // distinto que Productoras y Recepción ante una forma rara (?cat=p,
+    // ?cat=PATO) — las otras dos simplemente no encuentran esa fila y
+    // devuelven cero; Reportes hace ahora lo mismo, sin volver a fijar en
+    // el binario la lista de los cinco códigos ni comparar contra ella
+    // (eso es la Task 6).
     private static string DescripcionAlcanceCat(string? cat) =>
-        EsCatValido(cat) ? cat! : "Todos los centros de acopio";
+        cat ?? "Todos los centros de acopio";
 
     // Una sola función que escribe la celda; las dos de abajo solo deciden
     // en qué fila.
@@ -1364,7 +1352,7 @@ public class ReportesService(AppDbContext db) : IReportesService
             .AsSplitQuery()
             .ToListAsync();
 
-        if (EsCatValido(filtro.CentroAcopio))
+        if (filtro.CentroAcopio is not null)
             lotes = lotes.Where(l => l.CentroAcopio == filtro.CentroAcopio).ToList();
 
         return lotes
@@ -1402,7 +1390,7 @@ public class ReportesService(AppDbContext db) : IReportesService
             .AsSplitQuery()
             .ToListAsync();
 
-        if (EsCatValido(filtro.CentroAcopio))
+        if (filtro.CentroAcopio is not null)
             faes = faes.Where(lf =>
                 lf.Sesiones.Any(s => s.Lote.CentroAcopio == filtro.CentroAcopio)).ToList();
 

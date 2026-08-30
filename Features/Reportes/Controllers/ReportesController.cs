@@ -405,17 +405,15 @@ public class ReportesController(IReportesService service) : ControllerBase
         [FromQuery] DateTime hasta,
         [FromQuery] string? cat)
     {
-        var bytes = await service.ExportarExcelGananciasAsync(
-            new FiltroPeriodoDto(desde, hasta, cat));
+        var filtro = new FiltroPeriodoDto(desde, hasta, cat);
+        var bytes = await service.ExportarExcelGananciasAsync(filtro);
 
-        // Should-fix 2: mismo criterio que el resto del feature
-        // (ReportesService.EsCatValido), no IsNullOrWhiteSpace — antes esta
-        // era la TERCERA noción distinta de "¿tiene CAT?" en el mismo
-        // feature. Con IsNullOrWhiteSpace, un ?cat=pat (minúsculas) pasaba
-        // como válido y el archivo se nombraba "-pat.xlsx" aunque el filtro
-        // nunca se aplicó — el nombre habría prometido un recorte que el
-        // contenido no tiene.
-        var sufijoCat = ReportesService.EsCatValido(cat) ? $"-{cat}" : "";
+        // Arreglo Task 4: se lee filtro.CentroAcopio (ya normalizado por
+        // FiltroPeriodoDto), no el "cat" crudo de la query — así el sufijo
+        // del archivo coincide siempre con lo que de verdad se filtró. Antes
+        // (EsCatValido sobre el "cat" sin normalizar) un ?cat=pat en
+        // minúsculas no habría llevado sufijo aunque ahora sí filtre.
+        var sufijoCat = filtro.CentroAcopio is not null ? $"-{filtro.CentroAcopio}" : "";
         return File(bytes,
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             $"Reporte-Ganancias-{desde:yyyyMMdd}-{hasta:yyyyMMdd}{sufijoCat}.xlsx");

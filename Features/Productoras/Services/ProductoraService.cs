@@ -81,8 +81,15 @@ public class ProductoraService(AppDbContext db) : IProductoraService
         if (!string.IsNullOrEmpty(comunidad))
             query = query.Where(p => p.Comunidad.Nombre.Contains(comunidad));
 
-        if (!string.IsNullOrEmpty(cat))
-            query = query.Where(p => p.CatAsignado == cat);
+        // Arreglo Task 4: el filtro de lectura se normaliza aquí, en la
+        // entrada del servicio, igual que CrearAsync/ActualizarAsync
+        // normalizan la escritura. Postgres compara CatAsignado
+        // distinguiendo mayúsculas, y un ?cat=pat sin normalizar dejaría al
+        // operador viendo una lista vacía sin ningún error que lo explique.
+        // Un cat nulo o vacío sigue significando "sin filtro".
+        var catNormalizado = NormalizarCat(cat);
+        if (!string.IsNullOrEmpty(catNormalizado))
+            query = query.Where(p => p.CatAsignado == catNormalizado);
 
         // Incluye el conteo de cuyes retornados desde la planta,
         // para que el CAT sepa qué productora presenta devoluciones
