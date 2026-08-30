@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using CoopagcuyApi.Common.Auth;
 using CoopagcuyApi.Features.Productoras.DTOs;
 using CoopagcuyApi.Features.Productoras.Models;
@@ -23,6 +24,13 @@ public class ProductoraService(AppDbContext db) : IProductoraService
     {
         var cedula = dto.Cedula.Trim();
         dto.CatAsignado = NormalizarCat(dto.CatAsignado);
+
+        // Validación de FORMA (Task 4): tres letras A-Z, nada más. A
+        // diferencia de Usuario, aquí el CAT es obligatorio siempre —una
+        // productora no puede quedar sin centro—, así que se comprueba
+        // incondicionalmente. La validación contra el catálogo real de CATs
+        // llega en la Task 6 y sustituirá a esta.
+        ValidarFormatoCat(dto.CatAsignado);
 
         // La cédula se valida aquí y no solo en el validador del controlador,
         // igual que en UsuarioService. El validador cubre el endpoint actual,
@@ -113,6 +121,11 @@ public class ProductoraService(AppDbContext db) : IProductoraService
         // registraría un cambio de "PAT" a "pat" que no es tal.
         dto.CatAsignado = NormalizarCat(dto.CatAsignado);
 
+        // Validación de FORMA (Task 4), antes de tocar el historial: si el
+        // CAT no tiene forma válida no debe quedar ni un registro de cambio
+        // a medias. Ver el comentario equivalente en CrearAsync.
+        ValidarFormatoCat(dto.CatAsignado);
+
         RegistrarCambio(id, "NombreCompleto", productora.NombreCompleto, dto.NombreCompleto, modificadoPor);
         // El historial guarda el nombre, no el Id: quien lo lee necesita
         // entenderlo sin resolver claves contra el catálogo
@@ -174,6 +187,20 @@ public class ProductoraService(AppDbContext db) : IProductoraService
     // ningún error que lo explique.
     private static string NormalizarCat(string? cat) =>
         (cat ?? string.Empty).Trim().ToUpperInvariant();
+
+    private static readonly Regex FormatoCat = new("^[A-Z]{3}$", RegexOptions.Compiled);
+
+    // Solo la FORMA: tres letras A-Z. No la lista de los cinco códigos
+    // conocidos —eso volvería a fijar el catálogo en el binario, que es
+    // justo lo que este trabajo viene a deshacer—; esa comprobación llega
+    // en la Task 6 y sustituye a esta.
+    private static void ValidarFormatoCat(string cat)
+    {
+        if (!FormatoCat.IsMatch(cat))
+            throw new InvalidOperationException(
+                $"El código de CAT '{cat}' no es válido: se esperan " +
+                "exactamente tres letras (A-Z).");
+    }
 
     // Requiere Comunidad y Comunidad.Canton cargados (Include/ThenInclude o
     // asignados al crear)

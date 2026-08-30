@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using CoopagcuyApi.Common.Auth.Recuperacion;
 using CoopagcuyApi.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
@@ -92,10 +93,29 @@ public class UsuarioService(AppDbContext db) : IUsuarioService
     // dónde puede registrar entregas
     private static void ValidarCatOperador(RolUsuario rol, string? cat)
     {
-        if (rol == RolUsuario.OperadorCAT && cat is null)
+        // Para cualquier otro rol el CAT ni siquiera se asigna (ver
+        // CrearAsync/ActualizarAsync), así que da igual qué haya llegado en
+        // el DTO: no hay nada que validar.
+        if (rol != RolUsuario.OperadorCAT) return;
+
+        if (cat is null)
             throw new InvalidOperationException(
                 "Un Operador de CAT debe tener un centro de acopio asignado.");
+
+        // Validación de FORMA (Task 4): tres letras A-Z, nada más. No se
+        // comprueba contra la lista de CATs existentes ni contra el
+        // catálogo real — eso es la Task 6, que sustituirá esta comprobación
+        // por una consulta de verdad. Esto solo evita que un dato con forma
+        // absurda (vacío, con dígitos, de otro largo) entre a la base.
+        if (!EsFormatoCatValido(cat))
+            throw new InvalidOperationException(
+                $"El código de CAT '{cat}' no es válido: se esperan " +
+                "exactamente tres letras (A-Z).");
     }
+
+    private static readonly Regex FormatoCat = new("^[A-Z]{3}$", RegexOptions.Compiled);
+
+    private static bool EsFormatoCatValido(string cat) => FormatoCat.IsMatch(cat);
 
     public async Task<bool> CambiarEstadoAsync(int id, bool activo, int usuarioActualId)
     {
