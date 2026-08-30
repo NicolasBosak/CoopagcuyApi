@@ -39,6 +39,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         Set<SolicitudRestablecerPassword>();
     public DbSet<Provincia> Provincias => Set<Provincia>();
     public DbSet<Canton> Cantones => Set<Canton>();
+    public DbSet<CentroAcopio> CentrosAcopio => Set<CentroAcopio>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -52,6 +53,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(p => p.NombreCompleto).HasMaxLength(150).IsRequired();
             e.Property(p => p.Cedula).HasMaxLength(13).IsRequired();
             e.Property(p => p.CatAsignado).HasMaxLength(3);
+
+            // Sin propiedad de navegación: el código ya viaja solo por todo el
+            // sistema y una navegación obligaría a un Include en cada consulta
+            // a cambio de nada.
+            e.HasOne<CentroAcopio>().WithMany()
+                .HasForeignKey(p => p.CatAsignado)
+                .OnDelete(DeleteBehavior.Restrict);
 
             // Restrict: una comunidad con productoras registradas no puede
             // borrarse. La baja se hace con Activa = false en el catálogo.
@@ -82,6 +90,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasOne(l => l.Productora)
              .WithMany(p => p.Lotes)
              .HasForeignKey(l => l.ProductoraId);
+
+            // Sin propiedad de navegación: ver el comentario en Productora.
+            e.HasOne<CentroAcopio>().WithMany()
+                .HasForeignKey(l => l.CentroAcopio)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         // Novedad
@@ -192,6 +205,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(u => u.Email).HasMaxLength(200);
             e.Property(u => u.Rol).HasConversion<string>();
             e.Property(u => u.CatAsignado).HasMaxLength(3);
+
+            // Nullable: solo el OperadorCAT tiene centro asignado. Sin
+            // propiedad de navegación, igual que en Productora y Lote.
+            e.HasOne<CentroAcopio>().WithMany()
+                .HasForeignKey(u => u.CatAsignado)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         // Devolución — RF-307: nace de un despacho; Lote y sesión quedan
@@ -418,6 +437,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(v => v.IdCliente).HasMaxLength(100).IsRequired();
             e.Property(v => v.CuyesJson).IsRequired();
             e.Property(v => v.Estado).HasConversion<string>();
+
+            // Sin propiedad de navegación: ver el comentario en Productora.
+            e.HasOne<CentroAcopio>().WithMany()
+                .HasForeignKey(v => v.CentroAcopio)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         // Solicitud de restablecimiento de contraseña: bandeja que atiende un
@@ -483,6 +507,31 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasData(GeografiaEcuador.Cantones);
         });
 
+        // Centro de acopio — catálogo gestionable. La clave es el código de tres
+        // letras: ver el comentario de la entidad para el porqué.
+        modelBuilder.Entity<CentroAcopio>(e =>
+        {
+            e.HasKey(c => c.Codigo);
+            e.Property(c => c.Codigo).HasMaxLength(3).IsRequired();
+            e.Property(c => c.Nombre).HasMaxLength(100).IsRequired();
+
+            e.HasOne(c => c.Canton)
+                .WithMany()
+                .HasForeignKey(c => c.CantonId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Los cinco del piloto, con su código intacto y el cantón donde están
+            // físicamente. Los CantonId salen de GeografiaEcuador (Azuay):
+            // 4 Nabón, 6 Pucará, 8 Santa Isabel.
+            e.HasData(
+                new CentroAcopio { Codigo = "PAT", Nombre = "Patococha", CantonId = 6 },
+                new CentroAcopio { Codigo = "NIE", Nombre = "Las Nieves", CantonId = 4 },
+                new CentroAcopio { Codigo = "HUE", Nombre = "Huertas", CantonId = 8 },
+                new CentroAcopio { Codigo = "NAB", Nombre = "Nabón / El Progreso", CantonId = 4 },
+                new CentroAcopio { Codigo = "PEL", Nombre = "Pelincay", CantonId = 6 }
+            );
+        });
+
         // Comunidad — catálogo gestionable RF-102 / RF-506
         modelBuilder.Entity<Comunidad>(e =>
         {
@@ -498,6 +547,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasOne(c => c.Canton)
                 .WithMany()
                 .HasForeignKey(c => c.CantonId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Sin propiedad de navegación: ver el comentario en Productora.
+            e.HasOne<CentroAcopio>().WithMany()
+                .HasForeignKey(c => c.CatReferencia)
                 .OnDelete(DeleteBehavior.Restrict);
 
             // Comunidades relevadas en el diagnóstico PRODUCTO1. Los CantonId son
