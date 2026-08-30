@@ -253,9 +253,11 @@ public static class GeografiaEcuador
             [7] = ["Machala", "Arenillas", "Atahualpa", "Balsas", "Chilla",
                    "El Guabo", "Huaquillas", "Marcabelí", "Pasaje", "Piñas",
                    "Portovelo", "Santa Rosa", "Zaruma", "Las Lajas"],
-            // 8 · Esmeraldas (8)
+            // 8 · Esmeraldas (7). La Concordia NO está aquí: se creó como
+            // cantón de Esmeraldas en 2007, pero la consulta popular la pasó
+            // a Santo Domingo de los Tsáchilas y ahí pertenece hoy.
             [8] = ["Esmeraldas", "Eloy Alfaro", "Muisne", "Quinindé",
-                   "San Lorenzo", "Atacames", "Rioverde", "La Concordia"],
+                   "San Lorenzo", "Atacames", "Rioverde"],
             // 9 · Galápagos (3)
             [9] = ["San Cristóbal", "Isabela", "Santa Cruz"],
             // 10 · Guayas (25)
@@ -301,7 +303,7 @@ public static class GeografiaEcuador
             // 20 · Santa Elena (3)
             [20] = ["Santa Elena", "La Libertad", "Salinas"],
             // 21 · Santo Domingo de los Tsáchilas (2)
-            [21] = ["Santo Domingo", "La Concordia"],
+            [21] = ["Santo Domingo", "La Concordia"],   // ver nota en Esmeraldas
             // 22 · Sucumbíos (7)
             [22] = ["Lago Agrio", "Gonzalo Pizarro", "Putumayo", "Shushufindi",
                     "Sucumbíos", "Cascales", "Cuyabeno"],
@@ -353,7 +355,7 @@ modelBuilder.Entity<Provincia>(e =>
 
 // Cantón — cuelga de una provincia. El nombre solo es único DENTRO de su
 // provincia: hay cantones homónimos en el Ecuador ("Bolívar" está en Carchi
-// y en Manabí, "La Concordia" en Esmeraldas y en Santo Domingo).
+// y en Manabí; "Olmedo" en Loja y en Manabí).
 modelBuilder.Entity<Canton>(e =>
 {
     e.HasKey(c => c.Id);
@@ -1924,10 +1926,10 @@ public class ApiCentrosAcopioTests(ApiFactory api) : IAsyncLifetime
     [Fact]
     public async Task UnaComunidad_puedeReferenciarUnCatDeOtraProvincia()
     {
-        // Cantón 109 = Loja (Loja). Es el primero de la provincia 12: las
-        // once anteriores suman 108 cantones en GeografiaEcuador.
+        // Cantón 108 = Loja (Loja). Es el primero de la provincia 12: las
+        // once anteriores suman 107 cantones en GeografiaEcuador.
         await api.ComoAdmin().PostAsJsonAsync("/api/catalogos/centros-acopio",
-            new { codigo = "LOJ", nombre = "Loja Centro", cantonId = 109 });
+            new { codigo = "LOJ", nombre = "Loja Centro", cantonId = 108 });
 
         var respuesta = await api.ComoAdmin()
             .PostAsJsonAsync("/api/catalogos/comunidades",
@@ -3267,12 +3269,12 @@ Cambiar la firma del sembrador existente:
     {
         await using var db = api.NuevoDbContext();
 
-        // Cantón 109 = Loja (Loja), el primero de la provincia 12 en
-        // GeografiaEcuador: las once anteriores suman 108 cantones.
+        // Cantón 108 = Loja (Loja), el primero de la provincia 12 en
+        // GeografiaEcuador: las once anteriores suman 107 cantones.
         var comunidad = new Comunidad
         {
             Nombre = "Comunidad Lojana",
-            CantonId = 109,
+            CantonId = 108,
             CatReferencia = "PAT",
         };
 
@@ -3284,11 +3286,11 @@ Cambiar la firma del sembrador existente:
 
 Comprobar que la clase ya tiene `using System.Text.Json;` (lo usa en la prueba de `estadoCalidad`) y añadir `using CoopagcuyApi.Features.Catalogos.Models;`.
 
-> **Respawn no trunca `Comunidades`** (está en `TablesToIgnore`), así que esta comunidad sobrevive entre pruebas. Como su nombre es único dentro del cantón 109 y ninguna otra prueba lo usa, no molesta; pero si `ComunidadLojanaAsync` se llamara dos veces en la misma corrida chocaría con el índice único. Por eso devuelve el Id de la que ya exista:
+> **Respawn no trunca `Comunidades`** (está en `TablesToIgnore`), así que esta comunidad sobrevive entre pruebas. Como su nombre es único dentro del cantón 108 y ninguna otra prueba lo usa, no molesta; pero si `ComunidadLojanaAsync` se llamara dos veces en la misma corrida chocaría con el índice único. Por eso devuelve el Id de la que ya exista:
 >
 > ```csharp
 >         var existente = await db.Comunidades
->             .FirstOrDefaultAsync(c => c.CantonId == 109 && c.Nombre == "Comunidad Lojana");
+>             .FirstOrDefaultAsync(c => c.CantonId == 108 && c.Nombre == "Comunidad Lojana");
 >         if (existente is not null) return existente.Id;
 > ```
 >
