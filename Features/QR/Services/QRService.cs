@@ -180,14 +180,20 @@ public class QRService(
                     Faenado: cf,
                     Comunidad: f.Lote.Cuyes
                         .FirstOrDefault(c => c.NumeroEnLote == cf.NumeroEnLote)
-                        ?.Productora?.Comunidad.Nombre
-                        ?? f.Lote.Productora?.Comunidad.Nombre
-                        ?? "origen no registrado")))
+                        ?.Productora?.Comunidad
+                        ?? f.Lote.Productora?.Comunidad)))
             .ToList();
 
+        // Se agrupa por Id y no por nombre: con varias provincias puede haber
+        // dos comunidades homónimas en la misma sesión, y agruparlas juntas
+        // sumaría animales de sitios distintos bajo un solo pin.
         var comunidadesAporte = animales
-            .GroupBy(a => a.Comunidad)
-            .Select(g => new ComunidadAporteDto(g.Key, g.Count()))
+            .Where(a => a.Comunidad is not null)
+            .GroupBy(a => a.Comunidad!.Id)
+            .Select(g => new ComunidadAporteDto(
+                g.First().Comunidad!.Nombre, g.Count(),
+                g.First().Comunidad!.Latitud, g.First().Comunidad!.Longitud,
+                g.First().Comunidad!.AltitudMinM, g.First().Comunidad!.AltitudMaxM))
             .OrderByDescending(c => c.Cantidad)
             .ToList();
 

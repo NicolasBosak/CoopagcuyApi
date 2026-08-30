@@ -42,4 +42,10 @@ public record PaginaPublicaDto(
     List<ComunidadAporteDto> ComunidadesAporte
 );
 
-public record ComunidadAporteDto(string Comunidad, int Cantidad);
+// Cuántos animales puso cada comunidad, y dónde queda. Las coordenadas
+// vienen del catálogo desde 2026-08: antes vivían en una tabla del front
+// indexada por nombre, que dejaba sin pin a cualquier comunidad nueva.
+public record ComunidadAporteDto(
+    string Comunidad, int Cantidad,
+    decimal? Latitud, decimal? Longitud,
+    int? AltitudMinM, int? AltitudMaxM);
