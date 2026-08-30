@@ -40,7 +40,11 @@ public class CatalogosService(AppDbContext db) : ICatalogosService
             .ToListAsync();
     }
 
-    public async Task<ComunidadResponseDto> CrearComunidadAsync(GuardarComunidadDto dto)
+    // Sin "async": el cuerpo solo lanza, no hay ningún "await" que justifique
+    // el modificador (y dejarlo produciría CS1998). El throw es síncrono,
+    // pero como el llamador siempre lo hace dentro de un "await service...()"
+    // envuelto en try/catch, el catch lo atrapa igual.
+    public Task<ComunidadResponseDto> CrearComunidadAsync(GuardarComunidadDto dto)
     {
         // El alta contra el catálogo de cantones llega en la Task 3. Hasta
         // entonces esto falla explícito y no con una violación de clave
@@ -49,30 +53,9 @@ public class CatalogosService(AppDbContext db) : ICatalogosService
         throw new InvalidOperationException(
             "El alta de comunidades está temporalmente deshabilitada: " +
             "requiere el catálogo de cantones.");
-
-        var nombre = dto.Nombre.Trim();
-        var existe = await db.Comunidades
-            .AnyAsync(c => c.Nombre.ToLower() == nombre.ToLower());
-
-        if (existe)
-            throw new InvalidOperationException(
-                $"Ya existe una comunidad con el nombre '{nombre}'.");
-
-        var comunidad = new Comunidad
-        {
-            Nombre = nombre,
-            CatReferencia = dto.CatReferencia
-        };
-
-        db.Comunidades.Add(comunidad);
-        await db.SaveChangesAsync();
-
-        return new ComunidadResponseDto(
-            comunidad.Id, comunidad.Nombre, comunidad.Canton.Nombre,
-            comunidad.CatReferencia.ToString(), comunidad.Activa);
     }
 
-    public async Task<bool> ActualizarComunidadAsync(int id, GuardarComunidadDto dto)
+    public Task<bool> ActualizarComunidadAsync(int id, GuardarComunidadDto dto)
     {
         // La edición contra el catálogo de cantones llega en la Task 3. Hasta
         // entonces esto falla explícito: sin este throw, dto.Canton se
@@ -81,15 +64,6 @@ public class CatalogosService(AppDbContext db) : ICatalogosService
         throw new InvalidOperationException(
             "La edición de comunidades está temporalmente deshabilitada: " +
             "requiere el catálogo de cantones.");
-
-        var comunidad = await db.Comunidades.FindAsync(id);
-        if (comunidad is null) return false;
-
-        comunidad.Nombre = dto.Nombre.Trim();
-        comunidad.CatReferencia = dto.CatReferencia;
-
-        await db.SaveChangesAsync();
-        return true;
     }
 
     public async Task<bool> CambiarEstadoComunidadAsync(int id, bool activa)

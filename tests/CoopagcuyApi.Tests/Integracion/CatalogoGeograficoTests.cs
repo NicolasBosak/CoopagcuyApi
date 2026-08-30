@@ -147,15 +147,19 @@ public class CatalogoGeograficoTests(ApiFactory api) : IAsyncLifetime
 
             // Fila 4 simula una comunidad cuyo CantonId ya fue asignado
             // (999, valor centinela sin cantón real): la guarda
-            // "CantonId = 0" del backfill no debe tocarla. Es el mismo caso
-            // que protege a Las Nieves de que el backfill le pise el
-            // CantonId ya corregido a mano en el HasData.
+            // "CantonId = 0" del backfill no debe tocarla. El texto tiene
+            // que cruzar contra el catálogo (aquí "Nabón", que sí existe)
+            // para que la prueba muerda de verdad: si el texto no cruzara
+            // (como pasaba antes con "Las Nieves", que no es ningún cantón
+            // de Bolívar — "Las Naves" sí lo es, pero es otro nombre), la
+            // fila quedaría intacta por el JOIN y no por el WHERE, y quitar
+            // el "CantonId = 0" del UPDATE no haría fallar nada aquí.
             await db.Database.ExecuteSqlRawAsync("""
                 INSERT INTO "ComunidadesBackfillTmp" ("Id", "Canton", "CantonId") VALUES
                     (1, 'Nabon', 0),
                     (2, 'NABÓN', 0),
                     (3, '  Pucara  ', 0),
-                    (4, 'Las Nieves', 999);
+                    (4, 'Nabón', 999);
                 """);
 
             // Copia literal del UPDATE ... FROM del backfill, aplicado sobre
@@ -182,7 +186,7 @@ public class CatalogoGeograficoTests(ApiFactory api) : IAsyncLifetime
             (await CantonIdDe(1)).ShouldBe(4); // Nabón — "Nabon" sin tilde, el caso real de la base
             (await CantonIdDe(2)).ShouldBe(4); // Nabón — mayúsculas
             (await CantonIdDe(3)).ShouldBe(6); // Pucará — espacios y sin tilde
-            (await CantonIdDe(4)).ShouldBe(999); // ya asignado: el backfill no la toca
+            (await CantonIdDe(4)).ShouldBe(999); // ya asignado: el backfill no la toca aunque "Nabón" sí cruce
         }
         finally
         {
@@ -215,6 +219,85 @@ public class CatalogoGeograficoTests(ApiFactory api) : IAsyncLifetime
         candidatos.ShouldBeGreaterThan(1);
     }
 
+    // La prueba anterior solo demuestra la premisa (el catálogo tiene dos
+    // "Bolívar"): no dispara el bloque "DO $$ ... HAVING count(*) > 1" que
+    // la migración corre antes del backfill para frenarse ante esa
+    // ambigüedad. Una guarda que nunca se ejercita en su propio camino de
+    // disparo es peor que ninguna, porque parece protección: una edición
+    // futura podría dejarla muda sin que nada lo note. Esta prueba sí la
+    // ejecuta.
+    //
+    // Copia literal del primer DO $$ de la migración
+    // (20260830020720_ComunidadCuelgaDeCanton.cs), adaptado solo en el
+    // nombre de la tabla ("Comunidades" -> la tabla temporal de abajo, que
+    // por eso necesita también la columna "Nombre" que esa migración usa
+    // para el mensaje). Si el SQL de aquí y el de la migración divergen,
+    // esta prueba deja de proteger nada: mantenerlos idénticos.
+    //
+    // Misma razón que la prueba de arriba para abrir la conexión a mano y
+    // cerrarla en el finally: una tabla TEMP solo vive mientras la conexión
+    // de sesión siga abierta.
+    [Fact]
+    public async Task ElBackfill_paraSiElCantonEsAmbiguoEntreProvincias()
+    {
+        await using var db = api.NuevoDbContext();
+        await db.Database.OpenConnectionAsync();
+        try
+        {
+            await db.Database.ExecuteSqlRawAsync("""
+                CREATE TEMP TABLE "ComunidadesAmbiguedadTmp" (
+                    "Id" integer PRIMARY KEY,
+                    "Nombre" varchar(100) NOT NULL,
+                    "Canton" varchar(100) NOT NULL,
+                    "CantonId" integer NOT NULL
+                );
+                """);
+
+            await db.Database.ExecuteSqlRawAsync("""
+                INSERT INTO "ComunidadesAmbiguedadTmp" ("Id", "Nombre", "Canton", "CantonId") VALUES
+                    (1, 'Comunidad Ambigua', 'Bolívar', 0);
+                """);
+
+            var excepcion = await Should.ThrowAsync<Npgsql.PostgresException>(() =>
+                db.Database.ExecuteSqlRawAsync("""
+                    DO $$
+                    DECLARE ambiguas text;
+                    BEGIN
+                        SELECT string_agg(x.detalle, ', ')
+                        INTO ambiguas
+                        FROM (
+                            SELECT format('%s (cantón "%s", en %s provincias)',
+                                          c."Nombre", c."Canton", count(*)) AS detalle
+                            FROM "ComunidadesAmbiguedadTmp" c
+                            JOIN "Cantones" ct
+                              ON translate(lower(trim(c."Canton")),
+                                           'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunAEIOUUN')
+                               = translate(lower(trim(ct."Nombre")),
+                                           'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunAEIOUUN')
+                            WHERE c."CantonId" = 0
+                            GROUP BY c."Id", c."Nombre", c."Canton"
+                            HAVING count(*) > 1
+                        ) x;
+
+                        IF ambiguas IS NOT NULL THEN
+                            RAISE EXCEPTION
+                                'Hay comunidades cuyo cantón existe en más de una provincia: %. '
+                                'Asígnalas a mano antes de migrar (ver scripts/verificar-cantones.sql).',
+                                ambiguas;
+                        END IF;
+                    END $$;
+                    """));
+
+            // La guarda existe para ser accionable, no solo para abortar: el
+            // mensaje tiene que nombrar la comunidad problemática.
+            excepcion.Message.ShouldContain("Comunidad Ambigua");
+        }
+        finally
+        {
+            await db.Database.CloseConnectionAsync();
+        }
+    }
+
     // Dos provincias distintas pueden tener una comunidad con el mismo
     // nombre. Antes el índice único era global y eso habría bloqueado el alta.
     [Fact]
@@ -237,6 +320,13 @@ public class CatalogoGeograficoTests(ApiFactory api) : IAsyncLifetime
         }
         finally
         {
+            // Si el SaveChangesAsync del try falló, las dos entidades siguen
+            // en el rastreador en estado Added: sin este Clear(), el
+            // SaveChangesAsync de abajo reintentaría el mismo insert que ya
+            // falló, y su excepción sustituiría a la del try, dejando un
+            // mensaje que despista sobre la causa real del fallo.
+            db.ChangeTracker.Clear();
+
             // "Comunidades" está en TablesToIgnore de Respawn (es catálogo
             // sembrado, no dato de prueba) y por eso NO se trunca entre
             // pruebas. Sin esta limpieza, estas dos filas sobrevivirían a
