@@ -1,7 +1,9 @@
-using System.Text.RegularExpressions;
 using CoopagcuyApi.Common.Auth.Recuperacion;
 using CoopagcuyApi.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+// ValidarCatActivoAsync (ValidadorCat) vive en CoopagcuyApi.Common, el
+// namespace padre: no se resuelve solo por anidamiento, hace falta el using.
+using CoopagcuyApi.Common;
 
 namespace CoopagcuyApi.Common.Auth;
 
@@ -42,7 +44,7 @@ public class UsuarioService(AppDbContext db) : IUsuarioService
     {
         ValidarCedula(dto.Cedula);
         var cat = NormalizarCat(dto.CatAsignado);
-        ValidarCatOperador(dto.Rol, cat);
+        await ValidarCatOperadorAsync(dto.Rol, cat);
 
         var cedula = dto.Cedula.Trim();
         var existe = await db.Usuarios.AnyAsync(u => u.Cedula == cedula);
@@ -76,7 +78,7 @@ public class UsuarioService(AppDbContext db) : IUsuarioService
         if (usuario is null) return false;
 
         var cat = NormalizarCat(dto.CatAsignado);
-        ValidarCatOperador(dto.Rol, cat);
+        await ValidarCatOperadorAsync(dto.Rol, cat);
 
         usuario.NombreCompleto = dto.NombreCompleto.Trim();
         // La cédula es inmutable; el correo de contacto sí puede cambiar
@@ -90,8 +92,11 @@ public class UsuarioService(AppDbContext db) : IUsuarioService
     }
 
     // Un Operador de CAT debe tener centro asignado: es lo que limita
-    // dónde puede registrar entregas
-    private static void ValidarCatOperador(RolUsuario rol, string? cat)
+    // dónde puede registrar entregas. Task 6: la validación ya no es de
+    // forma, es contra el catálogo real (ValidadorCat, compartido con
+    // ProductoraService y RecepcionService) — rechaza también un código bien
+    // formado que no existe o que ya fue desactivado.
+    private async Task ValidarCatOperadorAsync(RolUsuario rol, string? cat)
     {
         // Para cualquier otro rol el CAT ni siquiera se asigna (ver
         // CrearAsync/ActualizarAsync), así que da igual qué haya llegado en
@@ -102,20 +107,8 @@ public class UsuarioService(AppDbContext db) : IUsuarioService
             throw new InvalidOperationException(
                 "Un Operador de CAT debe tener un centro de acopio asignado.");
 
-        // Validación de FORMA (Task 4): tres letras A-Z, nada más. No se
-        // comprueba contra la lista de CATs existentes ni contra el
-        // catálogo real — eso es la Task 6, que sustituirá esta comprobación
-        // por una consulta de verdad. Esto solo evita que un dato con forma
-        // absurda (vacío, con dígitos, de otro largo) entre a la base.
-        if (!EsFormatoCatValido(cat))
-            throw new InvalidOperationException(
-                $"El código de CAT '{cat}' no es válido: se esperan " +
-                "exactamente tres letras (A-Z).");
+        await db.ValidarCatActivoAsync(cat);
     }
-
-    private static readonly Regex FormatoCat = new("^[A-Z]{3}$", RegexOptions.Compiled);
-
-    private static bool EsFormatoCatValido(string cat) => FormatoCat.IsMatch(cat);
 
     public async Task<bool> CambiarEstadoAsync(int id, bool activo, int usuarioActualId)
     {

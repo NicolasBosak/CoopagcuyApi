@@ -3,20 +3,49 @@
 public class GuardarComunidadDto
 {
     public string Nombre { get; set; } = string.Empty;
-    public string Canton { get; set; } = string.Empty;
+    public int CantonId { get; set; }
     public string CatReferencia { get; set; } = string.Empty;
+    public decimal? Latitud { get; set; }
+    public decimal? Longitud { get; set; }
+    public int? AltitudMinM { get; set; }
+    public int? AltitudMaxM { get; set; }
 }
 
 public record ComunidadResponseDto(
     int Id,
     string Nombre,
+    int CantonId,
     string Canton,
+    string Provincia,
     string CatReferencia,
-    bool Activa
+    bool Activa,
+    decimal? Latitud,
+    decimal? Longitud,
+    int? AltitudMinM,
+    int? AltitudMaxM
 );
 
-// Catálogo de centros de acopio (fijo, derivado del enum)
-public record CentroAcopioDto(string Codigo, string Nombre);
+// Centro de acopio del catálogo. Antes era `(Codigo, Nombre)` derivado del
+// enum; los campos nuevos son aditivos, así que un cliente viejo sigue
+// leyendo codigo y nombre sin enterarse.
+public record CentroAcopioDto(
+    string Codigo, string Nombre, int CantonId, string Canton,
+    string Provincia, bool Activo);
+
+public class CrearCentroAcopioDto
+{
+    public string Codigo { get; set; } = string.Empty;
+    public string Nombre { get; set; } = string.Empty;
+    public int CantonId { get; set; }
+}
+
+// Sin Codigo a propósito: es inmutable. No ofrecerlo en el contrato dice más
+// que aceptarlo para después rechazarlo.
+public class ActualizarCentroAcopioDto
+{
+    public string Nombre { get; set; } = string.Empty;
+    public int CantonId { get; set; }
+}
 
 // Condición verificable del checklist de transporte CAT → planta
 public record CondicionTransporteDto(string Clave, string Etiqueta);

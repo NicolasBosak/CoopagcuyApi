@@ -186,6 +186,29 @@ public static class Sembrador
         return despacho;
     }
 
+    /// <summary>
+    /// Jaula abierta en un centro, sin animales. Es lo mínimo que impide
+    /// desactivar ese centro: hay cuyes físicamente esperando en él.
+    /// </summary>
+    public static async Task<Lote> LoteAbiertoAsync(ApiFactory api, string cat)
+    {
+        await using var db = api.NuevoDbContext();
+
+        var lote = new Lote
+        {
+            CodigoLote = $"{cat}-20260101-001",
+            CentroAcopio = cat,
+            FechaRecepcion = new DateTime(2026, 1, 1),
+            CantidadAnimales = 0,
+            PesoTotalGramos = 0,
+            Cerrado = false,
+        };
+
+        db.Lotes.Add(lote);
+        await db.SaveChangesAsync();
+        return lote;
+    }
+
     /// JPEG mínimo válido —SOI + APP0 + EOI— en base64. Sirve como captura de
     /// transferencia en cualquier prueba que tenga que pagar un ticket.
     private static readonly byte[] JpegMinimo =

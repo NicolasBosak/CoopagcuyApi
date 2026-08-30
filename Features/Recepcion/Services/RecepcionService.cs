@@ -1,5 +1,4 @@
 ﻿using System.Text.Json;
-using System.Text.RegularExpressions;
 using CoopagcuyApi.Common;
 using CoopagcuyApi.Common.Auth;
 using CoopagcuyApi.Common.Exceptions;
@@ -54,9 +53,6 @@ public class RecepcionService(AppDbContext db, IBlobStorageService blobService)
     // el origen de toda la trazabilidad del animal, así que se rechaza.
     private static readonly TimeSpan AntiguedadMaximaOffline = TimeSpan.FromDays(30);
     private static readonly TimeSpan DesfaseRelojTolerado = TimeSpan.FromMinutes(5);
-
-    // Validación de FORMA del código de CAT (Task 4): tres letras A-Z.
-    private static readonly Regex FormatoCat = new("^[A-Z]{3}$", RegexOptions.Compiled);
 
     // ── Entregas por productora: la jaula se arma acumulando ─────────
     // Cada productora entrega los cuyes que quiera; se suman a la jaula
@@ -200,14 +196,11 @@ public class RecepcionService(AppDbContext db, IBlobStorageService blobService)
         // accionable.
         dto.CentroAcopio = (dto.CentroAcopio ?? string.Empty).Trim().ToUpperInvariant();
 
-        // Validación de FORMA (Task 4): tres letras A-Z, nada más. No se
-        // comprueba contra el catálogo real de CATs —eso es la Task 6—; esto
-        // solo evita que una entrega sin centro de acopio (o con uno de
-        // forma absurda) se persista.
-        if (!FormatoCat.IsMatch(dto.CentroAcopio))
-            throw new InvalidOperationException(
-                $"El centro de acopio '{dto.CentroAcopio}' no es válido: " +
-                "se esperan exactamente tres letras (A-Z).");
+        // Task 6: la validación ya no es de forma, es contra el catálogo
+        // real (ValidadorCat, compartido con UsuarioService y
+        // ProductoraService) — rechaza también un centro de acopio
+        // desactivado, que no debe recibir entregas nuevas.
+        await db.ValidarCatActivoAsync(dto.CentroAcopio);
 
         // Validar las fotos ANTES de resolver la productora: si esta entrega
         // termina en la bandeja de vinculación, dto.Cuyes se serializa tal
