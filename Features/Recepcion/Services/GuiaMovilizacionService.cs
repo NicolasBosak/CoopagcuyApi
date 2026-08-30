@@ -48,16 +48,19 @@ public class GuiaMovilizacionService(AppDbContext db) : IGuiaMovilizacionService
             // igual sin él, porque Productora.Comunidad está marcada como
             // AutoInclude en AppDbContext, pero que un PDF no reviente no
             // debería depender de una configuración que vive en otro archivo.
-            // El cantón sí necesita el ThenInclude: a diferencia de Comunidad,
-            // no está marcado AutoInclude. Se repite en ambos caminos (el
-            // lote.Productora "histórico" y el de cada Cuy) porque el lote
-            // legado sin cuyes vinculados solo llega por el primero.
+            // El cantón y la provincia sí necesitan el ThenInclude: a
+            // diferencia de Comunidad, no están marcados AutoInclude. Se
+            // repite en ambos caminos (el lote.Productora "histórico" y el de
+            // cada Cuy) porque el lote legado sin cuyes vinculados solo llega
+            // por el primero.
             .Include(l => l.Productora).ThenInclude(p => p!.Comunidad)
                 .ThenInclude(c => c.Canton)
+                    .ThenInclude(c => c.Provincia)
             .Include(l => l.Novedades)
             .Include(l => l.Cuyes).ThenInclude(c => c.Productora)
                 .ThenInclude(p => p!.Comunidad)
                 .ThenInclude(c => c.Canton)
+                    .ThenInclude(c => c.Provincia)
             .Include(l => l.Cuyes).ThenInclude(c => c.VentaLocalPago)
             .FirstOrDefaultAsync(l => l.CodigoLote == codigoLote)
             ?? throw new KeyNotFoundException($"Lote {codigoLote} no encontrado.");
@@ -132,7 +135,9 @@ public class GuiaMovilizacionService(AppDbContext db) : IGuiaMovilizacionService
                             {
                                 r.RelativeItem(3).Text(
                                     $"• {productora.NombreCompleto} " +
-                                    $"({productora.Comunidad.Nombre}, {productora.Comunidad.Canton.Nombre})");
+                                    $"({productora.Comunidad.Nombre}, " +
+                                    $"{productora.Comunidad.Canton.Nombre}, " +
+                                    $"{productora.Comunidad.Canton.Provincia.Nombre})");
                                 r.RelativeItem(1).AlignRight().Text(
                                     $"{cantidad} {(cantidad == 1 ? "cuy" : "cuyes")}")
                                     .Bold();

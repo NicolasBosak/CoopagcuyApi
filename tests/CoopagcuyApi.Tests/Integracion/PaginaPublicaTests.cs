@@ -1,10 +1,12 @@
 using System.Net;
 using System.Text.Json;
 using CoopagcuyApi.Common;
+using CoopagcuyApi.Features.Catalogos.Models;
 using CoopagcuyApi.Features.Faenamiento.Models;
 using CoopagcuyApi.Features.Productoras.Models;
 using CoopagcuyApi.Features.QR.Models;
 using CoopagcuyApi.Tests.Infra;
+using Microsoft.EntityFrameworkCore;
 using Shouldly;
 using Xunit;
 
@@ -67,11 +69,64 @@ public class PaginaPublicaTests(ApiFactory api) : IAsyncLifetime
             .ShouldBe("ConNovedad");
     }
 
+    // "Azuay" estuvo escrita a mano en cuatro sitios de QRService. Con una
+    // sola provincia nunca se notó; en cuanto entre otra, el QR le mentiría
+    // al consumidor sobre de dónde viene el cuy que tiene en la mano.
+    [Fact]
+    public async Task LaFichaPublica_diceLaProvinciaDeLaComunidad_noUnaFija()
+    {
+        var comunidadId = await ComunidadLojanaAsync();
+
+        await SembrarPaginaAsync(comunidadId);
+
+        var respuesta = await api.ComoAnonimo()
+            .GetAsync($"/api/qr/publico/{CodigoFaenado}");
+        var json = await respuesta.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(json);
+
+        doc.RootElement.GetProperty("provincia").GetString().ShouldBe("Loja");
+
+        var parametros = doc.RootElement.GetProperty("parametrosAprobados")
+            .EnumerateArray().Select(p => p.GetString()!).ToList();
+        parametros.ShouldContain(p => p.Contains("Loja, Ecuador"));
+    }
+
+    /// Comunidad de Loja que entrega en un CAT de Azuay. Es el caso que
+    /// obliga a derivar la provincia de la COMUNIDAD y no del centro: una
+    /// comunidad entrega donde le queda más cerca, aunque sea otra provincia.
+    private async Task<int> ComunidadLojanaAsync()
+    {
+        await using var db = api.NuevoDbContext();
+
+        // Respawn no trunca Comunidades entre pruebas: si esta prueba corre
+        // dos veces en la misma base, la segunda choca con el índice único
+        // (CantonId, Nombre). Se devuelve la existente en vez de duplicar.
+        var existente = await db.Comunidades
+            .FirstOrDefaultAsync(c => c.CantonId == 108 && c.Nombre == "Comunidad Lojana");
+        if (existente is not null) return existente.Id;
+
+        // Cantón 108 = Loja (Loja), el primero de la provincia 12 en
+        // GeografiaEcuador: las once anteriores suman 107 cantones.
+        var comunidad = new Comunidad
+        {
+            Nombre = "Comunidad Lojana",
+            CantonId = 108,
+            CatReferencia = "PAT",
+        };
+
+        db.Comunidades.Add(comunidad);
+        await db.SaveChangesAsync();
+        return comunidad.Id;
+    }
+
     /// Lote faenado con QR activo y dos animales, uno de ellos con novedad.
-    private async Task SembrarPaginaAsync()
+    /// La comunidad es parámetro desde 2026-08: la ficha pública dice de qué
+    /// provincia viene el cuy, y eso solo se puede verificar con una
+    /// comunidad que no sea de Azuay.
+    private async Task SembrarPaginaAsync(int comunidadId = 1)
     {
         var productora = await Sembrador.ProductoraAsync(
-            api, CedulaProductora, "PAT", comunidadId: 1);
+            api, CedulaProductora, "PAT", comunidadId: comunidadId);
 
         await using var db = api.NuevoDbContext();
 

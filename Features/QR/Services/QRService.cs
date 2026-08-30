@@ -125,6 +125,7 @@ public class QRService(
                     .ThenInclude(l => l.Productora)
                     .ThenInclude(p => p!.Comunidad)
                     .ThenInclude(c => c.Canton)
+                    .ThenInclude(c => c.Provincia)
                 .Include(lf => lf.Sesiones).ThenInclude(f => f.Lote)
                     .ThenInclude(l => l.Cuyes).ThenInclude(c => c.Productora)
                 .AsNoTracking()
@@ -146,6 +147,7 @@ public class QRService(
             var lote = await db.Lotes
                 .Include(l => l.Productora).ThenInclude(p => p!.Comunidad)
                     .ThenInclude(c => c.Canton)
+                    .ThenInclude(c => c.Provincia)
                 .Include(l => l.Cuyes).ThenInclude(c => c.Productora)
                 .Include(l => l.Faenamientos).ThenInclude(f => f.Cuyes)
                 .Include(l => l.CodigoQR)
@@ -180,7 +182,7 @@ public class QRService(
                         .FirstOrDefault(c => c.NumeroEnLote == cf.NumeroEnLote)
                         ?.Productora?.Comunidad.Nombre
                         ?? f.Lote.Productora?.Comunidad.Nombre
-                        ?? "Azuay")))
+                        ?? "origen no registrado")))
             .ToList();
 
         var comunidadesAporte = animales
@@ -191,7 +193,7 @@ public class QRService(
 
         var comunidadOrigen = comunidadesAporte.Count > 0
             ? string.Join(" y ", comunidadesAporte.Select(c => c.Comunidad))
-            : "Azuay";
+            : "origen no registrado";
 
         // Ya no se expone —salió de la página pública en 2026-08— pero el
         // indicador de novedad se calcula a partir de aquí. Borrar esta
@@ -208,13 +210,29 @@ public class QRService(
         var pesoCanalTotal = animales.Sum(a => a.Faenado.PesoCanalGramos ?? 0);
         var promedio = unidadesTotales > 0 ? pesoCanalTotal / unidadesTotales : 0;
 
+        // La provincia sale de la comunidad de la productora del LOTE (nunca
+        // del CAT): una comunidad entrega donde le queda más cerca, aunque
+        // sea en otra provincia, así que el CAT no es dato fiable de origen.
+        var provincias = sesiones
+            .Select(s => s.Lote.Productora?.Comunidad.Canton.Provincia.Nombre)
+            .Where(p => !string.IsNullOrEmpty(p))
+            .Select(p => p!)
+            .Distinct()
+            .ToList();
+
+        // Una sesión de planta puede reunir jaulas de varias provincias. Se
+        // nombran todas: recortar a la primera diría media verdad.
+        var provinciaOrigen = provincias.Count > 0
+            ? string.Join(" y ", provincias)
+            : "Ecuador";
+
         var parametros = new List<string>();
         if (promedio >= 907)
             parametros.Add($"✓ Peso canal óptimo ({promedio:F0}g)");
         else if (promedio >= 880)
             parametros.Add($"✓ Peso canal aceptable ({promedio:F0}g)");
         parametros.Add("✓ Alimentación a base de forraje vegetal");
-        parametros.Add("✓ Crianza familiar — Azuay, Ecuador");
+        parametros.Add($"✓ Crianza familiar — {provinciaOrigen}, Ecuador");
 
         var lotesOrigen = sesiones.Select(s => s.LoteId).Distinct().ToList();
         var faeIds = sesiones
@@ -261,7 +279,8 @@ public class QRService(
         return new PaginaPublicaDto(
             CodigoLote: codigo,
             ComunidadOrigen: comunidadOrigen,
-            Canton: cantones.Count > 0 ? string.Join(" y ", cantones) : "Azuay",
+            Canton: cantones.Count > 0 ? string.Join(" y ", cantones) : "—",
+            Provincia: provinciaOrigen,
             NombreProductora: comunidadesAporte.Count > 1
                 ? $"Familias productoras de {comunidadOrigen}"
                 : comunidadesAporte.Count == 1

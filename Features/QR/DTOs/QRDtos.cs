@@ -18,6 +18,7 @@ public record PaginaPublicaDto(
     string CodigoLote,
     string ComunidadOrigen,
     string Canton,
+    string Provincia,
     string NombreProductora,
     string CentroAcopio,
     DateTime FechaRecepcion,
