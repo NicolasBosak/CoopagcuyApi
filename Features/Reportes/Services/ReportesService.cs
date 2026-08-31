@@ -1199,7 +1199,9 @@ public class ReportesService(AppDbContext db) : IReportesService
     // no se hayan acotado igual — por eso cada una de las seis hojas
     // declara su propio alcance de CAT en una línea debajo de la tabla
     // (EscribirAlcanceCat para las tres primeras, la advertencia fija en
-    // AgregarHojaMargen para las dos últimas), y el nombre del archivo
+    // AgregarHojaMargen para la cuarta y la quinta, y
+    // EscribirAlcanceCatUnidades para la sexta, que es la única medio
+    // filtrada: su columna de comunidad sí respeta ?cat= y la de despacho no), y el nombre del archivo
     // incluye la CAT cuando el pedido vino filtrado (ReportesController).
     public async Task<byte[]> ExportarExcelGananciasAsync(FiltroPeriodoDto filtro)
     {

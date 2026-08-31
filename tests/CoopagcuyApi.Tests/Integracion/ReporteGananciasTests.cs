@@ -982,7 +982,7 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task ElExcelDeGananciasSinDatosMantieneLasCincoHojasConAdvertenciasEnCero()
+    public async Task ElExcelDeGananciasSinDatosMantieneLasSeisHojasConAdvertenciasEnCero()
     {
         // El vecino sin datos de la prueba anterior: un período vacío (sin
         // sembrar nada). Es el caso legítimo más cercano al libro completo
