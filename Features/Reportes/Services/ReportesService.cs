@@ -1267,6 +1267,39 @@ public class ReportesService(AppDbContext db) : IReportesService
         IXLWorksheet hoja, int filaSiguienteVacia, string? cat) =>
         EscribirLineaAlcanceCat(hoja, filaSiguienteVacia + 1, cat);
 
+    // B1: variante SOLO para "Unidades vendidas". Las tres hojas de arriba
+    // están enteramente filtradas por CAT, así que "Centro de acopio: PAT"
+    // es cierto de la hoja completa. En Unidades no lo es: la columna
+    // comunidad SÍ respeta ?cat=, pero despacho y el total NO (un despacho
+    // mezcla animales de varias jaulas y por tanto de varios centros — ver
+    // AgregarHojaMargen). Reutilizar el texto compartido dejaría la misma
+    // frase significando dos cosas distintas en el mismo libro, y el lugar
+    // donde más importa (el total en negrita, leído primero) quedaría
+    // atribuido por error a una sola CAT. Sin ?cat= no hay asimetría que
+    // declarar — las dos columnas son "todos los centros" por igual — así
+    // que ese caso reutiliza la misma redacción que las demás hojas (y el
+    // pin de prueba que la cuenta dos veces sigue funcionando sin cambios).
+    private static string DescripcionAlcanceCatUnidades(string? cat) =>
+        cat is null
+            ? "Todos los centros de acopio"
+            : $"{cat} — solo la columna «Vendidas en la comunidad»; " +
+              "despachadas y total son de toda la cooperativa";
+
+    private static void EscribirLineaAlcanceCatUnidades(
+        IXLWorksheet hoja, int fila, string? cat)
+    {
+        var celda = hoja.Cell(fila, 1);
+        celda.Value = $"Centro de acopio: {DescripcionAlcanceCatUnidades(cat)}";
+        celda.Style.Font.Bold = true;
+    }
+
+    private static void EscribirAlcanceCatUnidadesAlInicio(IXLWorksheet hoja, string? cat) =>
+        EscribirLineaAlcanceCatUnidades(hoja, 1, cat);
+
+    private static void EscribirAlcanceCatUnidadesAlFinal(
+        IXLWorksheet hoja, int filaSiguienteVacia, string? cat) =>
+        EscribirLineaAlcanceCatUnidades(hoja, filaSiguienteVacia + 1, cat);
+
     private static void AgregarHojaGananciaCat(
         XLWorkbook libro, IEnumerable<GananciaCatDto> datos, string? cat)
     {
@@ -1446,12 +1479,16 @@ public class ReportesService(AppDbContext db) : IReportesService
     // porque la asimetría del filtro también la afecta, y de una forma que
     // no se ve en la propia hoja: la columna de comunidad SÍ está filtrada
     // por CAT y la de despacho NO. Quien abra el libro con ?cat= puesto
-    // tiene que poder saberlo sin salir de esta pestaña.
+    // tiene que poder saberlo sin salir de esta pestaña — por eso usa su
+    // propia línea de alcance (EscribirAlcanceCatUnidadesAl...) en vez de
+    // la compartida con las tres hojas de ganancias: esa dice "Centro de
+    // acopio: PAT" a secas, cierto para esas hojas enteras pero falso para
+    // dos de las tres columnas de aquí.
     private static void AgregarHojaUnidades(
         XLWorkbook libro, IEnumerable<UnidadesMesDto> datos, string? cat)
     {
         var hoja = libro.Worksheets.Add("Unidades vendidas");
-        EscribirAlcanceCatAlInicio(hoja, cat);
+        EscribirAlcanceCatUnidadesAlInicio(hoja, cat);
         EscribirEncabezadosGanancias(hoja, new[]
         {
             "Mes", "Vendidas en la comunidad", "Despachadas a clientes",
@@ -1481,12 +1518,18 @@ public class ReportesService(AppDbContext db) : IReportesService
             $"({totalComunidad} en la comunidad + {totalDespacho} despachados)";
         hoja.Cell(filaTotal, 1).Style.Font.Bold = true;
 
-        hoja.Cell(filaTotal + 1, 1).Value =
-            "La columna de comunidad respeta el filtro por centro de acopio; " +
-            "la de despacho no, porque un despacho mezcla animales de varias " +
-            "jaulas y por tanto de varios centros.";
-
-        EscribirAlcanceCatAlFinal(hoja, filaTotal + 1, cat);
+        // B1: la frase que antes iba aquí explicando la asimetría ("la
+        // columna de comunidad respeta el filtro... la de despacho no...")
+        // quedó redundante: la propia línea de alcance de abajo (y la de
+        // arriba) ya la nombran en una sola frase cuando hay ?cat= puesto.
+        // Dejar las tres habría sido repetir lo mismo con distintas
+        // palabras justo debajo del número que más importa leer bien.
+        //
+        // N4: se pasa filaTotal + 1 (fila vacía, igual que hacen las tres
+        // hojas de ganancias con su "fila" tras el bucle) para que quede
+        // una fila en blanco entre el total y esta línea, en vez de escribir
+        // pegada a una fila que ya tenía texto.
+        EscribirAlcanceCatUnidadesAlFinal(hoja, filaTotal + 1, cat);
 
         // Al final, cuando ya está todo escrito: si se ajusta antes, las
         // líneas de abajo no se tienen en cuenta para el ancho.

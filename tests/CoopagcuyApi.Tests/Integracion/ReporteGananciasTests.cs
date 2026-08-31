@@ -652,7 +652,7 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
 
         libro.Worksheets.Select(h => h.Name).ShouldBe(HojasEsperadas);
 
-        // Con estos datos sembrados, cada una de las cinco hojas trae al
+        // Con estos datos sembrados, cada una de las seis hojas trae al
         // menos una fila de datos. Should-fix 3: las tres hojas de
         // ganancias ahora llevan el alcance de CAT en la fila 1 y el
         // encabezado en la fila 2, así que su primera fila de datos es la
@@ -771,6 +771,18 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
             textos.ShouldContain(
                 "Toda la cooperativa — este reporte no se filtra por centro de acopio");
         }
+
+        // S2: la sexta hoja NO puede reutilizar "Centro de acopio: PAT" a
+        // secas — sería falso para dos de sus tres columnas (despacho y
+        // total no se filtran, ver AgregarHojaUnidades). Debe declarar la
+        // asimetría en la propia línea, arriba y abajo (mismo pin de
+        // Count()==2 que ya protege el caso sin filtrar).
+        var textosUnidades = libro.Worksheet("Unidades vendidas").Column(1)
+            .CellsUsed().Select(c => c.GetString()).ToList();
+        textosUnidades.Count(t =>
+                t == "Centro de acopio: PAT — solo la columna «Vendidas en la " +
+                    "comunidad»; despachadas y total son de toda la cooperativa")
+            .ShouldBe(2);
     }
 
     [Fact]
