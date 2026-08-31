@@ -1,6 +1,5 @@
 using System.Net;
 using System.Net.Http.Json;
-using CoopagcuyApi.Common;
 using CoopagcuyApi.Tests.Infra;
 using Microsoft.EntityFrameworkCore;
 using Shouldly;
@@ -35,7 +34,7 @@ public class FaenamientoVentaLocalTests(ApiFactory api) : IAsyncLifetime
     private async Task<LoteListo> PrepararLoteConVentaAsync(int vendidos)
     {
         var productora = await Sembrador.ProductoraAsync(
-            api, Cedula, CentroAcopio.PAT);
+            api, Cedula, "PAT");
 
         var cuyes = Enumerable.Range(0, 5).Select(_ => new
         {
@@ -231,7 +230,7 @@ public class FaenamientoVentaLocalTests(ApiFactory api) : IAsyncLifetime
     private async Task<string> PrepararLoteSinMovilizarAsync()
     {
         var productora = await Sembrador.ProductoraAsync(
-            api, Cedula, CentroAcopio.PAT);
+            api, Cedula, "PAT");
 
         var cuyes = Enumerable.Range(0, 3).Select(_ => new
         {

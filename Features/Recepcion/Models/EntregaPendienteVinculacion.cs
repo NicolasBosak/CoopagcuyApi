@@ -1,6 +1,4 @@
-using CoopagcuyApi.Common;
-
-namespace CoopagcuyApi.Features.Recepcion.Models;
+﻿namespace CoopagcuyApi.Features.Recepcion.Models;
 
 public enum EstadoVinculacion
 {
@@ -25,7 +23,7 @@ public class EntregaPendienteVinculacion
     public int Id { get; set; }
 
     public string Cedula { get; set; } = string.Empty;
-    public CentroAcopio CentroAcopio { get; set; }
+    public string CentroAcopio { get; set; } = string.Empty;
 
     public bool EnAyunas { get; set; } = true;
     public string ResponsableRecepcion { get; set; } = string.Empty;

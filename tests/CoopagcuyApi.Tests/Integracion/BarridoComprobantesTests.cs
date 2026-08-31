@@ -129,7 +129,7 @@ public class BarridoComprobantesTests(ApiFactory api) : IAsyncLifetime
         // sin ningún fake: no hace falta que el blob exista de verdad para
         // ejercitar esta rama.
         var productora = await Sembrador.ProductoraAsync(
-            api, CedulaProductora, CentroAcopio.PAT);
+            api, CedulaProductora, "PAT");
 
         int pagoId;
         await using (var db = api.NuevoDbContext())
@@ -178,7 +178,7 @@ public class BarridoComprobantesTests(ApiFactory api) : IAsyncLifetime
     private async Task<int> TicketPagadoAsync()
     {
         var productora = await Sembrador.ProductoraAsync(
-            api, CedulaProductora, CentroAcopio.PAT);
+            api, CedulaProductora, "PAT");
 
         var cuyes = new object[]
         {

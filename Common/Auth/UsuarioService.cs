@@ -1,6 +1,9 @@
 using CoopagcuyApi.Common.Auth.Recuperacion;
 using CoopagcuyApi.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+// ValidarCatActivoAsync (ValidadorCat) vive en CoopagcuyApi.Common, el
+// namespace padre: no se resuelve solo por anidamiento, hace falta el using.
+using CoopagcuyApi.Common;
 
 namespace CoopagcuyApi.Common.Auth;
 
@@ -26,7 +29,7 @@ public class UsuarioService(AppDbContext db) : IUsuarioService
             .Select(u => new UsuarioResponseDto(
                 u.Id, u.NombreCompleto, u.Cedula, u.Email,
                 u.Rol.ToString(),
-                u.CatAsignado != null ? u.CatAsignado.ToString() : null,
+                u.CatAsignado,
                 u.Activo, u.FechaCreacion))
             .ToListAsync();
     }
@@ -40,7 +43,8 @@ public class UsuarioService(AppDbContext db) : IUsuarioService
     public async Task<UsuarioCreadoDto> CrearAsync(CrearUsuarioDto dto)
     {
         ValidarCedula(dto.Cedula);
-        ValidarCatOperador(dto.Rol, dto.CatAsignado);
+        var cat = NormalizarCat(dto.CatAsignado);
+        await ValidarCatOperadorAsync(dto.Rol, cat);
 
         var cedula = dto.Cedula.Trim();
         var existe = await db.Usuarios.AnyAsync(u => u.Cedula == cedula);
@@ -55,7 +59,7 @@ public class UsuarioService(AppDbContext db) : IUsuarioService
             Email = NormalizarEmail(dto.Email),
             Rol = dto.Rol,
             CatAsignado = dto.Rol == RolUsuario.OperadorCAT
-                ? dto.CatAsignado : null
+                ? cat : null
         };
 
         // La contraseña la genera el sistema: el administrador da de alta la
@@ -73,26 +77,37 @@ public class UsuarioService(AppDbContext db) : IUsuarioService
         var usuario = await db.Usuarios.FindAsync(id);
         if (usuario is null) return false;
 
-        ValidarCatOperador(dto.Rol, dto.CatAsignado);
+        var cat = NormalizarCat(dto.CatAsignado);
+        await ValidarCatOperadorAsync(dto.Rol, cat);
 
         usuario.NombreCompleto = dto.NombreCompleto.Trim();
         // La cédula es inmutable; el correo de contacto sí puede cambiar
         usuario.Email = NormalizarEmail(dto.Email);
         usuario.Rol = dto.Rol;
         usuario.CatAsignado = dto.Rol == RolUsuario.OperadorCAT
-            ? dto.CatAsignado : null;
+            ? cat : null;
 
         await db.SaveChangesAsync();
         return true;
     }
 
     // Un Operador de CAT debe tener centro asignado: es lo que limita
-    // dónde puede registrar entregas
-    private static void ValidarCatOperador(RolUsuario rol, CentroAcopio? cat)
+    // dónde puede registrar entregas. Task 6: la validación ya no es de
+    // forma, es contra el catálogo real (ValidadorCat, compartido con
+    // ProductoraService y RecepcionService) — rechaza también un código bien
+    // formado que no existe o que ya fue desactivado.
+    private async Task ValidarCatOperadorAsync(RolUsuario rol, string? cat)
     {
-        if (rol == RolUsuario.OperadorCAT && cat is null)
+        // Para cualquier otro rol el CAT ni siquiera se asigna (ver
+        // CrearAsync/ActualizarAsync), así que da igual qué haya llegado en
+        // el DTO: no hay nada que validar.
+        if (rol != RolUsuario.OperadorCAT) return;
+
+        if (cat is null)
             throw new InvalidOperationException(
                 "Un Operador de CAT debe tener un centro de acopio asignado.");
+
+        await db.ValidarCatActivoAsync(cat);
     }
 
     public async Task<bool> CambiarEstadoAsync(int id, bool activo, int usuarioActualId)
@@ -134,8 +149,14 @@ public class UsuarioService(AppDbContext db) : IUsuarioService
         string.IsNullOrWhiteSpace(email)
             ? null : email.Trim().ToLowerInvariant();
 
+    // El código del CAT se normaliza AQUÍ, en el borde, y no en cada consulta:
+    // Postgres distingue mayúsculas y un "pat" minúsculo dejaría al operador
+    // viendo una bandeja vacía sin ningún error que lo explique.
+    private static string? NormalizarCat(string? cat) =>
+        string.IsNullOrWhiteSpace(cat) ? null : cat.Trim().ToUpperInvariant();
+
     private static UsuarioResponseDto MapToDto(Usuario u) => new(
         u.Id, u.NombreCompleto, u.Cedula, u.Email,
-        u.Rol.ToString(), u.CatAsignado?.ToString(),
+        u.Rol.ToString(), u.CatAsignado,
         u.Activo, u.FechaCreacion);
 }

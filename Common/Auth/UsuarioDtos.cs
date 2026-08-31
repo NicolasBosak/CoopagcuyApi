@@ -1,6 +1,4 @@
-using CoopagcuyApi.Common;
-
-namespace CoopagcuyApi.Common.Auth;
+﻿namespace CoopagcuyApi.Common.Auth;
 
 public class CrearUsuarioDto
 {
@@ -11,7 +9,7 @@ public class CrearUsuarioDto
     public string? Email { get; set; }
     public RolUsuario Rol { get; set; }
     // Obligatorio para OperadorCAT: centro donde puede registrar
-    public CentroAcopio? CatAsignado { get; set; }
+    public string? CatAsignado { get; set; }
 }
 
 public class ActualizarUsuarioDto
@@ -20,7 +18,7 @@ public class ActualizarUsuarioDto
     // Correo de contacto opcional (vacío = quitarlo)
     public string? Email { get; set; }
     public RolUsuario Rol { get; set; }
-    public CentroAcopio? CatAsignado { get; set; }
+    public string? CatAsignado { get; set; }
 }
 
 public record UsuarioResponseDto(

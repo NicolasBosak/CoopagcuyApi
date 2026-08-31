@@ -27,14 +27,14 @@ public class DeclaracionAntibioticosTests(ApiFactory api) : IAsyncLifetime
     private async Task SembrarLoteAsync()
     {
         var productora = await Sembrador.ProductoraAsync(
-            api, CedulaProductora, CentroAcopio.PAT);
+            api, CedulaProductora, "PAT");
 
         await using var db = api.NuevoDbContext();
         db.Lotes.Add(new Lote
         {
             CodigoLote = CodigoLote,
             ProductoraId = productora.Id,
-            CentroAcopio = CentroAcopio.PAT,
+            CentroAcopio = "PAT",
             CantidadAnimales = 5,
             PesoTotalGramos = 5 * 1300m,
             FechaRecepcion = DateTime.UtcNow,

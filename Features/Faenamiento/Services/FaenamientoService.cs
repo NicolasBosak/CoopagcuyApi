@@ -102,7 +102,7 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
                     .ToList();
 
                 return new LoteDisponibleDto(
-                    l.Id, l.CodigoLote, l.CentroAcopio.ToString(),
+                    l.Id, l.CodigoLote, l.CentroAcopio,
                     l.FechaRecepcion, l.CantidadAnimales,
                     disponibles, cuyesDisponibles);
             })
@@ -811,7 +811,7 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
                 FechaVencimiento: FechaUtc.FechaLocal(
                     loteFaenado.FechaFaenamiento.AddDays(5)),
                 ComunidadOrigen: comunidadesLf.Count > 0
-                    ? string.Join(" y ", comunidadesLf) : "Azuay",
+                    ? string.Join(" y ", comunidadesLf) : "origen no registrado",
                 NombreProductora: comunidadesLf.Count > 1
                     ? "Varias productoras" : "Familias productoras COOPAGCUY",
                 UnidadesFaenadas: unidades,
@@ -851,7 +851,7 @@ public class FaenamientoService(AppDbContext db) : IFaenamientoService
 
         var comunidadOrigen = comunidades.Count > 0
             ? string.Join(" y ", comunidades)
-            : faenamiento.Lote.Productora?.Comunidad.Nombre ?? "Azuay";
+            : faenamiento.Lote.Productora?.Comunidad.Nombre ?? "origen no registrado";
 
         return new InkJetCodigoDto(
             CodigoLote: faenamiento.Lote.CodigoLote,

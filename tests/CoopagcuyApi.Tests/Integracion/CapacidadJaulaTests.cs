@@ -41,7 +41,7 @@ public class CapacidadJaulaTests(ApiFactory api) : IAsyncLifetime
     public async Task DieciseisCuyesLlenanUnaJaulaDeQuinceYAbrenOtra()
     {
         var productora = await Sembrador.ProductoraAsync(
-            api, CedulaProductora, CentroAcopio.PAT);
+            api, CedulaProductora, "PAT");
 
         var respuesta = await api.ComoOperadorCat("PAT")
             .PostAsJsonAsync("/api/recepcion/entregas", Entrega(productora.Id, 16));
@@ -50,7 +50,7 @@ public class CapacidadJaulaTests(ApiFactory api) : IAsyncLifetime
 
         await using var db = api.NuevoDbContext();
         var lotes = await db.Lotes
-            .Where(l => l.CentroAcopio == CentroAcopio.PAT)
+            .Where(l => l.CentroAcopio == "PAT")
             .OrderBy(l => l.Id)
             .AsNoTracking()
             .ToListAsync();
@@ -66,7 +66,7 @@ public class CapacidadJaulaTests(ApiFactory api) : IAsyncLifetime
     public async Task UnaJaulaHeredadaDeDieciochoSeCierraYNoAparecerComoAfectada()
     {
         var productora = await Sembrador.ProductoraAsync(
-            api, CedulaProductora, CentroAcopio.PAT);
+            api, CedulaProductora, "PAT");
 
         // Jaula abierta con 18: el estado que dejó la capacidad de 20.
         await using (var db = api.NuevoDbContext())
@@ -75,7 +75,7 @@ public class CapacidadJaulaTests(ApiFactory api) : IAsyncLifetime
             {
                 CodigoLote = "PAT-20260818-001",
                 ProductoraId = productora.Id,
-                CentroAcopio = CentroAcopio.PAT,
+                CentroAcopio = "PAT",
                 CantidadAnimales = 18,
                 PesoTotalGramos = 18 * 1300m,
                 FechaRecepcion = DateTime.UtcNow,

@@ -166,8 +166,7 @@ public class SesionService(
                 t.Usuario.NombreCompleto,
                 t.Usuario.Cedula,
                 Rol = t.Usuario.Rol.ToString(),
-                CatAsignado = t.Usuario.CatAsignado == null
-                    ? null : t.Usuario.CatAsignado.ToString(),
+                CatAsignado = t.Usuario.CatAsignado,
                 t.DispositivoId,
                 t.UserAgent,
                 t.IpCreacion,
@@ -216,7 +215,7 @@ public class SesionService(
             NombreCompleto: usuario.NombreCompleto,
             Cedula: usuario.Cedula,
             Rol: usuario.Rol.ToString(),
-            CatAsignado: usuario.CatAsignado?.ToString(),
+            CatAsignado: usuario.CatAsignado,
             Expira: DateTime.UtcNow.Add(DuracionAccessToken),
             SesionExpira: refreshExpira,
             DebeCambiarPassword: usuario.DebeCambiarPassword);

@@ -29,8 +29,8 @@ public class BandejaPlantaTests(ApiFactory api) : IAsyncLifetime
     {
         // La planta es única y atiende a los tres CAT: acotarla por centro
         // la dejaría sin ver la mitad de lo que tiene que pagar.
-        await PagoSembradoAsync(CentroAcopio.PAT, CedulaPat, 120m);
-        await PagoSembradoAsync(CentroAcopio.NIE, CedulaNie, 90m);
+        await PagoSembradoAsync("PAT", CedulaPat, 120m);
+        await PagoSembradoAsync("NIE", CedulaNie, 90m);
 
         var respuesta = await api.ComoOperadorFaenamiento()
             .GetFromJsonAsync<List<TicketPorPagarDto>>("/api/pagos/por-pagar");
@@ -44,7 +44,7 @@ public class BandejaPlantaTests(ApiFactory api) : IAsyncLifetime
     [Fact]
     public async Task UnTicketYaPagadoDesapareceDeLaBandeja()
     {
-        var pagoId = await PagoSembradoAsync(CentroAcopio.PAT, CedulaPat, 120m);
+        var pagoId = await PagoSembradoAsync("PAT", CedulaPat, 120m);
 
         await using (var db = api.NuevoDbContext())
         {
@@ -87,20 +87,20 @@ public class BandejaPlantaTests(ApiFactory api) : IAsyncLifetime
         // Las productoras se crean UNA vez (la cédula es única) y entregan
         // varias veces: así Pat puede tener entregas en dos jaulas distintas
         // sin violar el índice único de Productoras.Cedula.
-        var productoraPat = await Sembrador.ProductoraAsync(api, CedulaPat, CentroAcopio.PAT, comunidadId: 1);
-        var productoraNie = await Sembrador.ProductoraAsync(api, CedulaNie, CentroAcopio.PAT, comunidadId: 2);
+        var productoraPat = await Sembrador.ProductoraAsync(api, CedulaPat, "PAT", comunidadId: 1);
+        var productoraNie = await Sembrador.ProductoraAsync(api, CedulaNie, "PAT", comunidadId: 2);
 
         // Pat entrega con un cuy marcado: esta es la ÚNICA novedad que debe
         // sobrevivir a los tres filtros.
         var pat = await EntregarAsync(
-            CentroAcopio.PAT, productoraPat.Id, signos: "lesion-visible");
+            "PAT", productoraPat.Id, signos: "lesion-visible");
 
         // Nie entrega en EL MISMO CAT (Patococha) mientras la jaula de Pat
         // sigue abierta (3 + 3 = 6 de 15): cae en LA MISMA jaula, aunque sea
         // una productora distinta. Su novedad no debe aparecer en el ticket
         // de Pat: pin del filtro de ProductoraId.
         var nie = await EntregarAsync(
-            CentroAcopio.PAT, productoraNie.Id, signos: "lesion-nie");
+            "PAT", productoraNie.Id, signos: "lesion-nie");
         nie.LoteId.ShouldBe(pat.LoteId,
             "la prueba solo prueba algo si ambas productoras terminan en la " +
             "misma jaula; si la jaula se dividió, hay que revisar la capacidad usada");
@@ -113,21 +113,21 @@ public class BandejaPlantaTests(ApiFactory api) : IAsyncLifetime
         // esa garantía la da hoy el filtro de ProductoraId, no el chequeo
         // "CuyRegistro != null" (ver PagoService).
         await EntregarAsync(
-            CentroAcopio.PAT, productoraPat.Id, enAyunas: false);
+            "PAT", productoraPat.Id, enAyunas: false);
 
         // Se cierra la jaula manualmente (sin necesidad de llegar a 15) para
         // que la siguiente entrega de Pat abra una jaula NUEVA.
-        await CerrarLoteAsync(CentroAcopio.PAT, pat.CodigoLote);
+        await CerrarLoteAsync("PAT", pat.CodigoLote);
 
         // Tercera entrega de Pat, ya en otra jaula, con otra novedad clínica.
         // No debe aparecer en el ticket de la primera jaula: pin del filtro
         // de LoteId.
         var patOtraJaula = await EntregarAsync(
-            CentroAcopio.PAT, productoraPat.Id, signos: "lesion-otra-jaula");
+            "PAT", productoraPat.Id, signos: "lesion-otra-jaula");
         patOtraJaula.LoteId.ShouldNotBe(pat.LoteId);
 
         // El pago cita la PRIMERA jaula de Pat.
-        var pagoId = await RegistrarPagoAsync(CentroAcopio.PAT, productoraPat.Id, pat.LoteId, 120m);
+        var pagoId = await RegistrarPagoAsync("PAT", productoraPat.Id, pat.LoteId, 120m);
 
         // Ids de las novedades que NO deben aparecer, para poder afirmarlo
         // por Id y no solo por conteo (mensajes de fallo más claros).
@@ -185,10 +185,10 @@ public class BandejaPlantaTests(ApiFactory api) : IAsyncLifetime
 
     /// Entrega + ticket. Devuelve el Id del pago.
     private async Task<int> PagoSembradoAsync(
-        CentroAcopio cat, string cedula, decimal monto, string? signos = null)
+        string cat, string cedula, decimal monto, string? signos = null)
     {
         var productora = await Sembrador.ProductoraAsync(
-            api, cedula, cat, comunidadId: cat == CentroAcopio.PAT ? 1 : 2);
+            api, cedula, cat, comunidadId: cat == "PAT" ? 1 : 2);
 
         var cuyes = new object[]
         {
@@ -250,7 +250,7 @@ public class BandejaPlantaTests(ApiFactory api) : IAsyncLifetime
     /// varias veces en la prueba, y la cédula es única.
     /// </summary>
     private async Task<EntregaSembrada> EntregarAsync(
-        CentroAcopio cat, int productoraId,
+        string cat, int productoraId,
         string? signos = null, bool enAyunas = true)
     {
         var cuyes = new object[]
@@ -286,7 +286,7 @@ public class BandejaPlantaTests(ApiFactory api) : IAsyncLifetime
     /// Cierra manualmente la jaula abierta del CAT indicado, aunque no
     /// llegue a 15 animales: así una prueba no necesita sembrar 15 cuyes
     /// solo para forzar que la siguiente entrega abra una jaula nueva.
-    private async Task CerrarLoteAsync(CentroAcopio cat, string codigoLote)
+    private async Task CerrarLoteAsync(string cat, string codigoLote)
     {
         var respuesta = await api.ComoOperadorCat(cat.ToString())
             .PostAsync($"/api/recepcion/lotes/{codigoLote}/cerrar", null);
@@ -294,7 +294,7 @@ public class BandejaPlantaTests(ApiFactory api) : IAsyncLifetime
     }
 
     private async Task<int> RegistrarPagoAsync(
-        CentroAcopio cat, int productoraId, int loteId, decimal monto)
+        string cat, int productoraId, int loteId, decimal monto)
     {
         var respuesta = await api.ComoOperadorCat(cat.ToString())
             .PostAsJsonAsync("/api/pagos", new

@@ -21,7 +21,7 @@ public static class Sembrador
         ApiFactory api,
         string cedula,
         RolUsuario rol = RolUsuario.OperadorCAT,
-        CentroAcopio? cat = CentroAcopio.PAT,
+        string? cat = "PAT",
         bool activo = true,
         string password = PasswordPorDefecto)
     {
@@ -55,7 +55,7 @@ public static class Sembrador
     public static async Task<Productora> ProductoraAsync(
         ApiFactory api,
         string cedula,
-        CentroAcopio cat = CentroAcopio.PAT,
+        string cat = "PAT",
         int comunidadId = 1,
         bool activa = true)
     {
@@ -90,7 +90,7 @@ public static class Sembrador
         string cedulaProductora)
     {
         var productora = await ProductoraAsync(
-            api, cedulaProductora, CentroAcopio.PAT, comunidadId: 1);
+            api, cedulaProductora, "PAT", comunidadId: 1);
 
         await using var db = api.NuevoDbContext();
 
@@ -98,7 +98,7 @@ public static class Sembrador
         {
             CodigoLote = "PAT-20260818-001",
             ProductoraId = productora.Id,
-            CentroAcopio = CentroAcopio.PAT,
+            CentroAcopio = "PAT",
             CantidadAnimales = 2,
             PesoTotalGramos = 1800,
             FechaRecepcion = DateTime.UtcNow,
@@ -186,6 +186,59 @@ public static class Sembrador
         return despacho;
     }
 
+    /// <summary>
+    /// Entrega capturada sin conexión, todavía en la bandeja de vinculación
+    /// (Estado.Pendiente), apuntando al centro indicado. Es lo mínimo que
+    /// impide desactivar ese centro: hay una entrega real esperando que un
+    /// admin la vincule, y resolverla después de desactivado el CAT chocaría
+    /// con ValidarCatActivoAsync en RegistrarEntregaAsync (Arreglo A de la
+    /// revisión final).
+    /// </summary>
+    public static async Task<EntregaPendienteVinculacion> EntregaPendienteAsync(
+        ApiFactory api, string cat, string cedula = "0104576277")
+    {
+        await using var db = api.NuevoDbContext();
+
+        var pendiente = new EntregaPendienteVinculacion
+        {
+            Cedula = cedula,
+            CentroAcopio = cat,
+            ResponsableRecepcion = "Operadora de prueba",
+            DispositivoId = $"tablet-{Guid.NewGuid():N}",
+            IdCliente = Guid.NewGuid().ToString("N"),
+            FechaCaptura = DateTime.UtcNow,
+            CuyesJson = "[]",
+            Estado = EstadoVinculacion.Pendiente,
+        };
+
+        db.EntregasPendientesVinculacion.Add(pendiente);
+        await db.SaveChangesAsync();
+        return pendiente;
+    }
+
+    /// <summary>
+    /// Jaula abierta en un centro, sin animales. Es lo mínimo que impide
+    /// desactivar ese centro: hay cuyes físicamente esperando en él.
+    /// </summary>
+    public static async Task<Lote> LoteAbiertoAsync(ApiFactory api, string cat)
+    {
+        await using var db = api.NuevoDbContext();
+
+        var lote = new Lote
+        {
+            CodigoLote = $"{cat}-20260101-001",
+            CentroAcopio = cat,
+            FechaRecepcion = new DateTime(2026, 1, 1),
+            CantidadAnimales = 0,
+            PesoTotalGramos = 0,
+            Cerrado = false,
+        };
+
+        db.Lotes.Add(lote);
+        await db.SaveChangesAsync();
+        return lote;
+    }
+
     /// JPEG mínimo válido —SOI + APP0 + EOI— en base64. Sirve como captura de
     /// transferencia en cualquier prueba que tenga que pagar un ticket.
     private static readonly byte[] JpegMinimo =
@@ -205,7 +258,7 @@ public static class Sembrador
     public static async Task<(int PagoId, int NovedadId)> PagoConNovedadAsync(
         ApiFactory api, string cedula, decimal monto)
     {
-        var productora = await ProductoraAsync(api, cedula, CentroAcopio.PAT);
+        var productora = await ProductoraAsync(api, cedula, "PAT");
 
         var cuyes = new object[]
         {
@@ -275,7 +328,7 @@ public static class Sembrador
     public static async Task<(int PagoId, int NovedadId)> PagoConNovedadDeCuyVendidoAsync(
         ApiFactory api, string cedula, decimal monto)
     {
-        var productora = await ProductoraAsync(api, cedula, CentroAcopio.PAT);
+        var productora = await ProductoraAsync(api, cedula, "PAT");
 
         var cuyes = new object[]
         {

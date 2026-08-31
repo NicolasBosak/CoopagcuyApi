@@ -1,5 +1,4 @@
 using System.Net.Http.Json;
-using CoopagcuyApi.Common;
 using CoopagcuyApi.Features.Recepcion.Models;
 using CoopagcuyApi.Tests.Infra;
 using Microsoft.EntityFrameworkCore;
@@ -32,7 +31,7 @@ public class ResolucionPorCedulaTests(ApiFactory api) : IAsyncLifetime
         // La productora se siembra con el nombre "Productora 0104576277". La
         // entrega viaja SOLO con la cédula: es todo lo que el DTO admite.
         var productora = await Sembrador.ProductoraAsync(
-            api, Cedula, CentroAcopio.PAT);
+            api, Cedula, "PAT");
 
         await SincronizarAsync(cedula: Cedula, centro: "PAT");
 
@@ -56,7 +55,7 @@ public class ResolucionPorCedulaTests(ApiFactory api) : IAsyncLifetime
         // la entrega se capturó en PAT. Queda en cuarentena para que un
         // administrador la resuelva. Es lo correcto —el lote es de un centro y
         // la productora de otro— pero no estaba escrito en ningún lado.
-        await Sembrador.ProductoraAsync(api, Cedula, CentroAcopio.NIE,
+        await Sembrador.ProductoraAsync(api, Cedula, "NIE",
             comunidadId: 2);
 
         await SincronizarAsync(cedula: Cedula, centro: "PAT");
@@ -68,7 +67,7 @@ public class ResolucionPorCedulaTests(ApiFactory api) : IAsyncLifetime
 
         pendiente.ShouldNotBeNull();
         pendiente.Estado.ShouldBe(EstadoVinculacion.Pendiente);
-        pendiente.CentroAcopio.ShouldBe(CentroAcopio.PAT);
+        pendiente.CentroAcopio.ShouldBe("PAT");
 
         // Y NO se coló como entrega de la productora de NIE.
         var cuyes = await db.CuyRegistros.CountAsync();

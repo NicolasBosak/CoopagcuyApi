@@ -82,11 +82,11 @@ public class ArranqueBaseDatosTests(ApiFactory api) : IAsyncLifetime
         // al resto de la corrida — quien la cree, que la borre.
         foreach (var (nombre, cat) in new[]
         {
-            ("Patococha", CentroAcopio.PAT),
-            ("Las Nieves", CentroAcopio.NIE),
-            ("Huertas", CentroAcopio.HUE),
-            ("Nabón / El Progreso", CentroAcopio.NAB),
-            ("Pelincay", CentroAcopio.PEL),
+            ("Patococha", "PAT"),
+            ("Las Nieves", "NIE"),
+            ("Huertas", "HUE"),
+            ("Nabón / El Progreso", "NAB"),
+            ("Pelincay", "PEL"),
         })
         {
             comunidades.ShouldContain(c =>
@@ -113,23 +113,25 @@ public class ArranqueBaseDatosTests(ApiFactory api) : IAsyncLifetime
     [Fact]
     public async Task ComoOperadorCat_conCatEnMayusculas_esAceptadoPorElEndpointDeSuCat()
     {
-        // Contrato de ComoOperadorCat: el argumento es el nombre del enum
-        // CentroAcopio en MAYÚSCULAS ("PAT", "NIE", "HUE", "NAB", "PEL" —
-        // Common/Enums.cs). El formato importa porque los dos controladores
-        // que leen el claim "cat" reaccionan distinto a un valor mal
-        // formado (p. ej. en minúsculas):
-        //   - RecepcionController.CatNoAutorizado compara texto exacto
-        //     (catOperador != cat.ToString()), así que un CAT en minúsculas
-        //     SÍ falla, pero con 403 y el mensaje "Tu usuario solo puede
-        //     registrar en el centro pat" en vez de un 401/400 que delate
-        //     que el token está mal formado.
-        //   - ReportesController.Dashboard usa Enum.TryParse<CentroAcopio>,
-        //     que también es sensible a mayúsculas: con un CAT en
-        //     minúsculas el parseo falla, catOperador queda en null y el
-        //     operador ve el dashboard de TODA la cooperativa en vez del de
-        //     su propio centro — una degradación silenciosa, sin error
+        // Contrato de ComoOperadorCat: el argumento es el código del CAT,
+        // tres letras MAYÚSCULAS ("PAT", "NIE", "HUE", "NAB", "PEL"). El
+        // formato importa porque los dos controladores que leen el claim
+        // "cat" reaccionan distinto a un valor mal formado (p. ej. en
+        // minúsculas), y ninguno de los dos lo delata:
+        //   - RecepcionController.CatNoAutorizado compara texto exacto, así
+        //     que un CAT en minúsculas SÍ falla, pero con 403 y el mensaje
+        //     "Tu usuario solo puede registrar en el centro pat" en vez de
+        //     un 401/400 que delate que el token está mal formado.
+        //   - ReportesController.Dashboard pasa el claim tal cual al filtro,
+        //     y Postgres distingue mayúsculas: con un CAT en minúsculas
+        //     ninguna fila casa y el operador ve un dashboard VACÍO en vez
+        //     del de su centro — una degradación silenciosa, sin error
         //     alguno. Aquí se fija el formato correcto para no ejercitar
         //     ninguna de las dos ramas.
+        //
+        // Por eso el código se normaliza a mayúsculas al entrar (ver
+        // UsuarioService.NormalizarCat): un claim mal formado solo puede
+        // venir de un token fabricado a mano, no del alta de usuarios.
         var respuesta = await api.ComoOperadorCat("PAT")
             .PostAsync("/api/recepcion/lotes/PAT-99999999-999/cerrar", null);
 

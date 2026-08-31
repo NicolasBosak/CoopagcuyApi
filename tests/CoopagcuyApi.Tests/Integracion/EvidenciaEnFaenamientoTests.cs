@@ -43,7 +43,7 @@ public class EvidenciaEnFaenamientoTests(ApiFactory api) : IAsyncLifetime
     };
 
     private async Task<int> RegistrarEntregaAsync(
-        CentroAcopio cat, object[] cuyes, bool enAyunas = true)
+        string cat, object[] cuyes, bool enAyunas = true)
     {
         var productora = await Sembrador.ProductoraAsync(api, CedulaProductora, cat);
 
@@ -65,7 +65,7 @@ public class EvidenciaEnFaenamientoTests(ApiFactory api) : IAsyncLifetime
     /// Deja los lotes del centro listos para faenar: cerrados y con la llegada
     /// a planta confirmada, que es lo que exige LotesDisponiblesAsync.
     /// </summary>
-    private async Task PrepararParaFaenamientoAsync(CentroAcopio cat)
+    private async Task PrepararParaFaenamientoAsync(string cat)
     {
         await using var db = api.NuevoDbContext();
 
@@ -101,7 +101,7 @@ public class EvidenciaEnFaenamientoTests(ApiFactory api) : IAsyncLifetime
         for (var i = 1; i < 15; i++) cuyes[i] = Cuy(1300m);
         cuyes[15] = Cuy(1300m, "lesion-del-ultimo", Convert.ToBase64String(JpegMinimo));
 
-        await RegistrarEntregaAsync(CentroAcopio.PAT, cuyes);
+        await RegistrarEntregaAsync("PAT", cuyes);
 
         await using var db = api.NuevoDbContext();
 
@@ -126,7 +126,7 @@ public class EvidenciaEnFaenamientoTests(ApiFactory api) : IAsyncLifetime
     {
         // "Sin ayuno" es de la entrega, no de un animal concreto.
         await RegistrarEntregaAsync(
-            CentroAcopio.PAT, [Cuy(1300m)], enAyunas: false);
+            "PAT", [Cuy(1300m)], enAyunas: false);
 
         await using var db = api.NuevoDbContext();
         var novedad = await db.Novedades.AsNoTracking()
@@ -138,13 +138,13 @@ public class EvidenciaEnFaenamientoTests(ApiFactory api) : IAsyncLifetime
     [Fact]
     public async Task LotesDisponiblesTraeElIdDeLaNovedadSoloEnElCuyConFoto()
     {
-        await RegistrarEntregaAsync(CentroAcopio.PAT,
+        await RegistrarEntregaAsync("PAT",
         [
             Cuy(1300m),
             Cuy(1300m, "lesion-visible", Convert.ToBase64String(JpegMinimo)),
             Cuy(1300m, "sin-foto")
         ]);
-        await PrepararParaFaenamientoAsync(CentroAcopio.PAT);
+        await PrepararParaFaenamientoAsync("PAT");
 
         var respuesta = await api.ComoOperadorFaenamiento()
             .GetAsync("/api/faenamiento/lotes-disponibles");
@@ -164,9 +164,9 @@ public class EvidenciaEnFaenamientoTests(ApiFactory api) : IAsyncLifetime
     [Fact]
     public async Task UnaFotoCaducadaNoApareceEnLotesDisponibles()
     {
-        await RegistrarEntregaAsync(CentroAcopio.PAT,
+        await RegistrarEntregaAsync("PAT",
             [Cuy(1300m, "lesion-vieja", Convert.ToBase64String(JpegMinimo))]);
-        await PrepararParaFaenamientoAsync(CentroAcopio.PAT);
+        await PrepararParaFaenamientoAsync("PAT");
 
         await using (var db = api.NuevoDbContext())
         {
@@ -188,7 +188,7 @@ public class EvidenciaEnFaenamientoTests(ApiFactory api) : IAsyncLifetime
     public async Task ElOperadorDeFaenamientoDescargaLaFotoDeCualquierCentro()
     {
         // La planta recibe jaulas de los cinco centros: no debe filtrarse por CAT.
-        await RegistrarEntregaAsync(CentroAcopio.NIE,
+        await RegistrarEntregaAsync("NIE",
             [Cuy(1300m, "lesion", Convert.ToBase64String(JpegMinimo))]);
 
         int novedadId;
@@ -208,7 +208,7 @@ public class EvidenciaEnFaenamientoTests(ApiFactory api) : IAsyncLifetime
     public async Task ElOperadorDeCatSigueSinVerLaFotoDeOtroCentro()
     {
         // Ampliar los roles no puede aflojar el filtro por centro de acopio.
-        await RegistrarEntregaAsync(CentroAcopio.PAT,
+        await RegistrarEntregaAsync("PAT",
             [Cuy(1300m, "lesion", Convert.ToBase64String(JpegMinimo))]);
 
         int novedadId;

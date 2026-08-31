@@ -144,7 +144,7 @@ public class TicketPagoService(AppDbContext db) : ITicketPagoService
                     col.Item().Text("LOTE").Bold();
                     col.Item().Text(pago.Lote?.CodigoLote ?? "—");
                     col.Item().Text(
-                        $"Centro: {pago.Lote?.CentroAcopio.ToString() ?? "—"}");
+                        $"Centro: {pago.Lote?.CentroAcopio ?? "—"}");
                     col.Item().Text(
                         $"Recibido: {FechaUtc.FechaLocal(pago.Lote?.FechaRecepcion)}");
                     col.Item().Text($"Cuyes aportados: {cuyes.Count}");

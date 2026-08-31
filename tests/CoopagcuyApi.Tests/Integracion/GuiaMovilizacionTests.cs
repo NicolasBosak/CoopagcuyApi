@@ -67,7 +67,7 @@ public class GuiaMovilizacionTests(ApiFactory api) : IAsyncLifetime
         int cantidadAnimales = 1, string sufijo = "001")
     {
         var productora = await Sembrador.ProductoraAsync(
-            api, CedulaProductora, CentroAcopio.PAT, comunidadId: 1);
+            api, CedulaProductora, "PAT", comunidadId: 1);
 
         return await SembrarLoteParaProductoraAsync(
             productora.Id, cantidadAnimales, sufijo);
@@ -88,7 +88,7 @@ public class GuiaMovilizacionTests(ApiFactory api) : IAsyncLifetime
         {
             CodigoLote = $"PAT-20260818-{sufijo}",
             ProductoraId = productoraId,
-            CentroAcopio = CentroAcopio.PAT,
+            CentroAcopio = "PAT",
             CantidadAnimales = cantidadAnimales,
             PesoTotalGramos = 900 * cantidadAnimales,
             FechaRecepcion = DateTime.UtcNow,
@@ -214,7 +214,7 @@ public class GuiaMovilizacionTests(ApiFactory api) : IAsyncLifetime
         // "VENDIDOS EN LA COMUNIDAD" llegó (encabezado + un renglón por
         // animal) sí se puede afirmar que el documento pesa más.
         var productora = await Sembrador.ProductoraAsync(
-            api, CedulaProductora, CentroAcopio.PAT, comunidadId: 1);
+            api, CedulaProductora, "PAT", comunidadId: 1);
 
         var codigoSinVentas = await SembrarLoteParaProductoraAsync(
             productora.Id, cantidadAnimales: 3, sufijo: "001");

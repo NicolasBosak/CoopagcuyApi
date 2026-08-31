@@ -24,7 +24,7 @@ public class CicloPagoTests(ApiFactory api) : IAsyncLifetime
     public async Task UnPagoNuevoNaceEnEstadoPendiente()
     {
         var productora = await Sembrador.ProductoraAsync(
-            api, CedulaProductora, CentroAcopio.PAT);
+            api, CedulaProductora, "PAT");
 
         await using var db = api.NuevoDbContext();
         var pago = new Pago
@@ -53,14 +53,14 @@ public class CicloPagoTests(ApiFactory api) : IAsyncLifetime
         // simultáneas pasarían las dos por la validación y descontarían
         // el mismo defecto dos veces.
         var productora = await Sembrador.ProductoraAsync(
-            api, CedulaProductora, CentroAcopio.PAT);
+            api, CedulaProductora, "PAT");
 
         await using var db = api.NuevoDbContext();
 
         var lote = new CoopagcuyApi.Features.Productoras.Models.Lote
         {
             CodigoLote = $"PAT-{Guid.NewGuid():N}"[..12],
-            CentroAcopio = CentroAcopio.PAT,
+            CentroAcopio = "PAT",
             ProductoraId = productora.Id,
             FechaRecepcion = DateTime.UtcNow,
             CantidadAnimales = 1
@@ -142,7 +142,7 @@ public class CicloPagoTests(ApiFactory api) : IAsyncLifetime
         // La aserción no asume CUÁL de las dos gana: verifica el invariante
         // que nunca puede romperse, sea cual sea el orden real de llegada.
         var productora = await Sembrador.ProductoraAsync(
-            api, CedulaProductora, CentroAcopio.PAT);
+            api, CedulaProductora, "PAT");
 
         var cuyes = new object[]
         {

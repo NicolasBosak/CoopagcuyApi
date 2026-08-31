@@ -32,8 +32,8 @@ public class AlcancePagosTests(ApiFactory api) : IAsyncLifetime
 
         // Una productora de NIE con su propio pago, creado por su operadora.
         var productoraNie = await Sembrador.ProductoraAsync(
-            api, CedulaNie, CentroAcopio.NIE, comunidadId: 2);
-        var pagoNie = await PagoDirectoAsync(productoraNie.Id, CentroAcopio.NIE);
+            api, CedulaNie, "NIE", comunidadId: 2);
+        var pagoNie = await PagoDirectoAsync(productoraNie.Id, "NIE");
 
         var respuesta = await api.ComoOperadorCat("PAT").GetAsync("/api/pagos");
         respuesta.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -49,7 +49,7 @@ public class AlcancePagosTests(ApiFactory api) : IAsyncLifetime
     public async Task NoSePuedeRegistrarUnPagoAUnaProductoraDeOtroCentro()
     {
         var productoraNie = await Sembrador.ProductoraAsync(
-            api, CedulaNie, CentroAcopio.NIE, comunidadId: 2);
+            api, CedulaNie, "NIE", comunidadId: 2);
 
         int loteNie;
         await using (var db = api.NuevoDbContext())
@@ -58,7 +58,7 @@ public class AlcancePagosTests(ApiFactory api) : IAsyncLifetime
             {
                 CodigoLote = "NIE-20260818-001",
                 ProductoraId = productoraNie.Id,
-                CentroAcopio = CentroAcopio.NIE,
+                CentroAcopio = "NIE",
                 CantidadAnimales = 1,
                 PesoTotalGramos = 1300,
                 FechaRecepcion = DateTime.UtcNow,
@@ -90,7 +90,7 @@ public class AlcancePagosTests(ApiFactory api) : IAsyncLifetime
     public async Task LosLotesPendientesDeOtroCentroNoSeConsultan()
     {
         var productoraNie = await Sembrador.ProductoraAsync(
-            api, CedulaNie, CentroAcopio.NIE, comunidadId: 2);
+            api, CedulaNie, "NIE", comunidadId: 2);
 
         // Sin un lote pendiente real, la respuesta sale vacía por
         // construcción y la prueba pasaría aunque el filtro por centro
@@ -104,7 +104,7 @@ public class AlcancePagosTests(ApiFactory api) : IAsyncLifetime
             {
                 CodigoLote = codigoLoteNie,
                 ProductoraId = productoraNie.Id,
-                CentroAcopio = CentroAcopio.NIE,
+                CentroAcopio = "NIE",
                 CantidadAnimales = 1,
                 PesoTotalGramos = 1300,
                 FechaRecepcion = DateTime.UtcNow,
@@ -133,7 +133,7 @@ public class AlcancePagosTests(ApiFactory api) : IAsyncLifetime
     }
 
     /// Pago de una productora, creado por la operadora de su propio centro.
-    private async Task<int> PagoDirectoAsync(int productoraId, CentroAcopio cat)
+    private async Task<int> PagoDirectoAsync(int productoraId, string cat)
     {
         int loteId;
         await using (var db = api.NuevoDbContext())

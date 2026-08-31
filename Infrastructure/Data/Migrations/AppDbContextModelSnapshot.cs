@@ -143,7 +143,8 @@ namespace CoopagcuyApi.Infrastructure.Data.Migrations
                         .HasColumnType("boolean");
 
                     b.Property<string>("CatAsignado")
-                        .HasColumnType("text");
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
 
                     b.Property<string>("Cedula")
                         .IsRequired()
@@ -174,10 +175,1649 @@ namespace CoopagcuyApi.Infrastructure.Data.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("CatAsignado");
+
                     b.HasIndex("Cedula")
                         .IsUnique();
 
                     b.ToTable("Usuarios");
+                });
+
+            modelBuilder.Entity("CoopagcuyApi.Features.Catalogos.Models.Canton", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("Activo")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Nombre")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<int>("ProvinciaId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProvinciaId", "Nombre")
+                        .IsUnique();
+
+                    b.ToTable("Cantones");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            Activo = true,
+                            Nombre = "Cuenca",
+                            ProvinciaId = 1
+                        },
+                        new
+                        {
+                            Id = 2,
+                            Activo = true,
+                            Nombre = "Girón",
+                            ProvinciaId = 1
+                        },
+                        new
+                        {
+                            Id = 3,
+                            Activo = true,
+                            Nombre = "Gualaceo",
+                            ProvinciaId = 1
+                        },
+                        new
+                        {
+                            Id = 4,
+                            Activo = true,
+                            Nombre = "Nabón",
+                            ProvinciaId = 1
+                        },
+                        new
+                        {
+                            Id = 5,
+                            Activo = true,
+                            Nombre = "Paute",
+                            ProvinciaId = 1
+                        },
+                        new
+                        {
+                            Id = 6,
+                            Activo = true,
+                            Nombre = "Pucará",
+                            ProvinciaId = 1
+                        },
+                        new
+                        {
+                            Id = 7,
+                            Activo = true,
+                            Nombre = "San Fernando",
+                            ProvinciaId = 1
+                        },
+                        new
+                        {
+                            Id = 8,
+                            Activo = true,
+                            Nombre = "Santa Isabel",
+                            ProvinciaId = 1
+                        },
+                        new
+                        {
+                            Id = 9,
+                            Activo = true,
+                            Nombre = "Sígsig",
+                            ProvinciaId = 1
+                        },
+                        new
+                        {
+                            Id = 10,
+                            Activo = true,
+                            Nombre = "Oña",
+                            ProvinciaId = 1
+                        },
+                        new
+                        {
+                            Id = 11,
+                            Activo = true,
+                            Nombre = "Chordeleg",
+                            ProvinciaId = 1
+                        },
+                        new
+                        {
+                            Id = 12,
+                            Activo = true,
+                            Nombre = "El Pan",
+                            ProvinciaId = 1
+                        },
+                        new
+                        {
+                            Id = 13,
+                            Activo = true,
+                            Nombre = "Sevilla de Oro",
+                            ProvinciaId = 1
+                        },
+                        new
+                        {
+                            Id = 14,
+                            Activo = true,
+                            Nombre = "Guachapala",
+                            ProvinciaId = 1
+                        },
+                        new
+                        {
+                            Id = 15,
+                            Activo = true,
+                            Nombre = "Camilo Ponce Enríquez",
+                            ProvinciaId = 1
+                        },
+                        new
+                        {
+                            Id = 16,
+                            Activo = true,
+                            Nombre = "Guaranda",
+                            ProvinciaId = 2
+                        },
+                        new
+                        {
+                            Id = 17,
+                            Activo = true,
+                            Nombre = "Chillanes",
+                            ProvinciaId = 2
+                        },
+                        new
+                        {
+                            Id = 18,
+                            Activo = true,
+                            Nombre = "Chimbo",
+                            ProvinciaId = 2
+                        },
+                        new
+                        {
+                            Id = 19,
+                            Activo = true,
+                            Nombre = "Echeandía",
+                            ProvinciaId = 2
+                        },
+                        new
+                        {
+                            Id = 20,
+                            Activo = true,
+                            Nombre = "San Miguel",
+                            ProvinciaId = 2
+                        },
+                        new
+                        {
+                            Id = 21,
+                            Activo = true,
+                            Nombre = "Caluma",
+                            ProvinciaId = 2
+                        },
+                        new
+                        {
+                            Id = 22,
+                            Activo = true,
+                            Nombre = "Las Naves",
+                            ProvinciaId = 2
+                        },
+                        new
+                        {
+                            Id = 23,
+                            Activo = true,
+                            Nombre = "Azogues",
+                            ProvinciaId = 3
+                        },
+                        new
+                        {
+                            Id = 24,
+                            Activo = true,
+                            Nombre = "Biblián",
+                            ProvinciaId = 3
+                        },
+                        new
+                        {
+                            Id = 25,
+                            Activo = true,
+                            Nombre = "Cañar",
+                            ProvinciaId = 3
+                        },
+                        new
+                        {
+                            Id = 26,
+                            Activo = true,
+                            Nombre = "La Troncal",
+                            ProvinciaId = 3
+                        },
+                        new
+                        {
+                            Id = 27,
+                            Activo = true,
+                            Nombre = "El Tambo",
+                            ProvinciaId = 3
+                        },
+                        new
+                        {
+                            Id = 28,
+                            Activo = true,
+                            Nombre = "Déleg",
+                            ProvinciaId = 3
+                        },
+                        new
+                        {
+                            Id = 29,
+                            Activo = true,
+                            Nombre = "Suscal",
+                            ProvinciaId = 3
+                        },
+                        new
+                        {
+                            Id = 30,
+                            Activo = true,
+                            Nombre = "Tulcán",
+                            ProvinciaId = 4
+                        },
+                        new
+                        {
+                            Id = 31,
+                            Activo = true,
+                            Nombre = "Bolívar",
+                            ProvinciaId = 4
+                        },
+                        new
+                        {
+                            Id = 32,
+                            Activo = true,
+                            Nombre = "Espejo",
+                            ProvinciaId = 4
+                        },
+                        new
+                        {
+                            Id = 33,
+                            Activo = true,
+                            Nombre = "Mira",
+                            ProvinciaId = 4
+                        },
+                        new
+                        {
+                            Id = 34,
+                            Activo = true,
+                            Nombre = "Montúfar",
+                            ProvinciaId = 4
+                        },
+                        new
+                        {
+                            Id = 35,
+                            Activo = true,
+                            Nombre = "San Pedro de Huaca",
+                            ProvinciaId = 4
+                        },
+                        new
+                        {
+                            Id = 36,
+                            Activo = true,
+                            Nombre = "Riobamba",
+                            ProvinciaId = 5
+                        },
+                        new
+                        {
+                            Id = 37,
+                            Activo = true,
+                            Nombre = "Alausí",
+                            ProvinciaId = 5
+                        },
+                        new
+                        {
+                            Id = 38,
+                            Activo = true,
+                            Nombre = "Colta",
+                            ProvinciaId = 5
+                        },
+                        new
+                        {
+                            Id = 39,
+                            Activo = true,
+                            Nombre = "Chambo",
+                            ProvinciaId = 5
+                        },
+                        new
+                        {
+                            Id = 40,
+                            Activo = true,
+                            Nombre = "Chunchi",
+                            ProvinciaId = 5
+                        },
+                        new
+                        {
+                            Id = 41,
+                            Activo = true,
+                            Nombre = "Guamote",
+                            ProvinciaId = 5
+                        },
+                        new
+                        {
+                            Id = 42,
+                            Activo = true,
+                            Nombre = "Guano",
+                            ProvinciaId = 5
+                        },
+                        new
+                        {
+                            Id = 43,
+                            Activo = true,
+                            Nombre = "Pallatanga",
+                            ProvinciaId = 5
+                        },
+                        new
+                        {
+                            Id = 44,
+                            Activo = true,
+                            Nombre = "Penipe",
+                            ProvinciaId = 5
+                        },
+                        new
+                        {
+                            Id = 45,
+                            Activo = true,
+                            Nombre = "Cumandá",
+                            ProvinciaId = 5
+                        },
+                        new
+                        {
+                            Id = 46,
+                            Activo = true,
+                            Nombre = "Latacunga",
+                            ProvinciaId = 6
+                        },
+                        new
+                        {
+                            Id = 47,
+                            Activo = true,
+                            Nombre = "La Maná",
+                            ProvinciaId = 6
+                        },
+                        new
+                        {
+                            Id = 48,
+                            Activo = true,
+                            Nombre = "Pangua",
+                            ProvinciaId = 6
+                        },
+                        new
+                        {
+                            Id = 49,
+                            Activo = true,
+                            Nombre = "Pujilí",
+                            ProvinciaId = 6
+                        },
+                        new
+                        {
+                            Id = 50,
+                            Activo = true,
+                            Nombre = "Salcedo",
+                            ProvinciaId = 6
+                        },
+                        new
+                        {
+                            Id = 51,
+                            Activo = true,
+                            Nombre = "Saquisilí",
+                            ProvinciaId = 6
+                        },
+                        new
+                        {
+                            Id = 52,
+                            Activo = true,
+                            Nombre = "Sigchos",
+                            ProvinciaId = 6
+                        },
+                        new
+                        {
+                            Id = 53,
+                            Activo = true,
+                            Nombre = "Machala",
+                            ProvinciaId = 7
+                        },
+                        new
+                        {
+                            Id = 54,
+                            Activo = true,
+                            Nombre = "Arenillas",
+                            ProvinciaId = 7
+                        },
+                        new
+                        {
+                            Id = 55,
+                            Activo = true,
+                            Nombre = "Atahualpa",
+                            ProvinciaId = 7
+                        },
+                        new
+                        {
+                            Id = 56,
+                            Activo = true,
+                            Nombre = "Balsas",
+                            ProvinciaId = 7
+                        },
+                        new
+                        {
+                            Id = 57,
+                            Activo = true,
+                            Nombre = "Chilla",
+                            ProvinciaId = 7
+                        },
+                        new
+                        {
+                            Id = 58,
+                            Activo = true,
+                            Nombre = "El Guabo",
+                            ProvinciaId = 7
+                        },
+                        new
+                        {
+                            Id = 59,
+                            Activo = true,
+                            Nombre = "Huaquillas",
+                            ProvinciaId = 7
+                        },
+                        new
+                        {
+                            Id = 60,
+                            Activo = true,
+                            Nombre = "Marcabelí",
+                            ProvinciaId = 7
+                        },
+                        new
+                        {
+                            Id = 61,
+                            Activo = true,
+                            Nombre = "Pasaje",
+                            ProvinciaId = 7
+                        },
+                        new
+                        {
+                            Id = 62,
+                            Activo = true,
+                            Nombre = "Piñas",
+                            ProvinciaId = 7
+                        },
+                        new
+                        {
+                            Id = 63,
+                            Activo = true,
+                            Nombre = "Portovelo",
+                            ProvinciaId = 7
+                        },
+                        new
+                        {
+                            Id = 64,
+                            Activo = true,
+                            Nombre = "Santa Rosa",
+                            ProvinciaId = 7
+                        },
+                        new
+                        {
+                            Id = 65,
+                            Activo = true,
+                            Nombre = "Zaruma",
+                            ProvinciaId = 7
+                        },
+                        new
+                        {
+                            Id = 66,
+                            Activo = true,
+                            Nombre = "Las Lajas",
+                            ProvinciaId = 7
+                        },
+                        new
+                        {
+                            Id = 67,
+                            Activo = true,
+                            Nombre = "Esmeraldas",
+                            ProvinciaId = 8
+                        },
+                        new
+                        {
+                            Id = 68,
+                            Activo = true,
+                            Nombre = "Eloy Alfaro",
+                            ProvinciaId = 8
+                        },
+                        new
+                        {
+                            Id = 69,
+                            Activo = true,
+                            Nombre = "Muisne",
+                            ProvinciaId = 8
+                        },
+                        new
+                        {
+                            Id = 70,
+                            Activo = true,
+                            Nombre = "Quinindé",
+                            ProvinciaId = 8
+                        },
+                        new
+                        {
+                            Id = 71,
+                            Activo = true,
+                            Nombre = "San Lorenzo",
+                            ProvinciaId = 8
+                        },
+                        new
+                        {
+                            Id = 72,
+                            Activo = true,
+                            Nombre = "Atacames",
+                            ProvinciaId = 8
+                        },
+                        new
+                        {
+                            Id = 73,
+                            Activo = true,
+                            Nombre = "Rioverde",
+                            ProvinciaId = 8
+                        },
+                        new
+                        {
+                            Id = 74,
+                            Activo = true,
+                            Nombre = "San Cristóbal",
+                            ProvinciaId = 9
+                        },
+                        new
+                        {
+                            Id = 75,
+                            Activo = true,
+                            Nombre = "Isabela",
+                            ProvinciaId = 9
+                        },
+                        new
+                        {
+                            Id = 76,
+                            Activo = true,
+                            Nombre = "Santa Cruz",
+                            ProvinciaId = 9
+                        },
+                        new
+                        {
+                            Id = 77,
+                            Activo = true,
+                            Nombre = "Guayaquil",
+                            ProvinciaId = 10
+                        },
+                        new
+                        {
+                            Id = 78,
+                            Activo = true,
+                            Nombre = "Alfredo Baquerizo Moreno",
+                            ProvinciaId = 10
+                        },
+                        new
+                        {
+                            Id = 79,
+                            Activo = true,
+                            Nombre = "Balao",
+                            ProvinciaId = 10
+                        },
+                        new
+                        {
+                            Id = 80,
+                            Activo = true,
+                            Nombre = "Balzar",
+                            ProvinciaId = 10
+                        },
+                        new
+                        {
+                            Id = 81,
+                            Activo = true,
+                            Nombre = "Colimes",
+                            ProvinciaId = 10
+                        },
+                        new
+                        {
+                            Id = 82,
+                            Activo = true,
+                            Nombre = "Daule",
+                            ProvinciaId = 10
+                        },
+                        new
+                        {
+                            Id = 83,
+                            Activo = true,
+                            Nombre = "Durán",
+                            ProvinciaId = 10
+                        },
+                        new
+                        {
+                            Id = 84,
+                            Activo = true,
+                            Nombre = "El Empalme",
+                            ProvinciaId = 10
+                        },
+                        new
+                        {
+                            Id = 85,
+                            Activo = true,
+                            Nombre = "El Triunfo",
+                            ProvinciaId = 10
+                        },
+                        new
+                        {
+                            Id = 86,
+                            Activo = true,
+                            Nombre = "Milagro",
+                            ProvinciaId = 10
+                        },
+                        new
+                        {
+                            Id = 87,
+                            Activo = true,
+                            Nombre = "Naranjal",
+                            ProvinciaId = 10
+                        },
+                        new
+                        {
+                            Id = 88,
+                            Activo = true,
+                            Nombre = "Naranjito",
+                            ProvinciaId = 10
+                        },
+                        new
+                        {
+                            Id = 89,
+                            Activo = true,
+                            Nombre = "Palestina",
+                            ProvinciaId = 10
+                        },
+                        new
+                        {
+                            Id = 90,
+                            Activo = true,
+                            Nombre = "Pedro Carbo",
+                            ProvinciaId = 10
+                        },
+                        new
+                        {
+                            Id = 91,
+                            Activo = true,
+                            Nombre = "Samborondón",
+                            ProvinciaId = 10
+                        },
+                        new
+                        {
+                            Id = 92,
+                            Activo = true,
+                            Nombre = "Santa Lucía",
+                            ProvinciaId = 10
+                        },
+                        new
+                        {
+                            Id = 93,
+                            Activo = true,
+                            Nombre = "Salitre",
+                            ProvinciaId = 10
+                        },
+                        new
+                        {
+                            Id = 94,
+                            Activo = true,
+                            Nombre = "San Jacinto de Yaguachi",
+                            ProvinciaId = 10
+                        },
+                        new
+                        {
+                            Id = 95,
+                            Activo = true,
+                            Nombre = "Playas",
+                            ProvinciaId = 10
+                        },
+                        new
+                        {
+                            Id = 96,
+                            Activo = true,
+                            Nombre = "Simón Bolívar",
+                            ProvinciaId = 10
+                        },
+                        new
+                        {
+                            Id = 97,
+                            Activo = true,
+                            Nombre = "Coronel Marcelino Maridueña",
+                            ProvinciaId = 10
+                        },
+                        new
+                        {
+                            Id = 98,
+                            Activo = true,
+                            Nombre = "Lomas de Sargentillo",
+                            ProvinciaId = 10
+                        },
+                        new
+                        {
+                            Id = 99,
+                            Activo = true,
+                            Nombre = "Nobol",
+                            ProvinciaId = 10
+                        },
+                        new
+                        {
+                            Id = 100,
+                            Activo = true,
+                            Nombre = "General Antonio Elizalde",
+                            ProvinciaId = 10
+                        },
+                        new
+                        {
+                            Id = 101,
+                            Activo = true,
+                            Nombre = "Isidro Ayora",
+                            ProvinciaId = 10
+                        },
+                        new
+                        {
+                            Id = 102,
+                            Activo = true,
+                            Nombre = "Ibarra",
+                            ProvinciaId = 11
+                        },
+                        new
+                        {
+                            Id = 103,
+                            Activo = true,
+                            Nombre = "Antonio Ante",
+                            ProvinciaId = 11
+                        },
+                        new
+                        {
+                            Id = 104,
+                            Activo = true,
+                            Nombre = "Cotacachi",
+                            ProvinciaId = 11
+                        },
+                        new
+                        {
+                            Id = 105,
+                            Activo = true,
+                            Nombre = "Otavalo",
+                            ProvinciaId = 11
+                        },
+                        new
+                        {
+                            Id = 106,
+                            Activo = true,
+                            Nombre = "Pimampiro",
+                            ProvinciaId = 11
+                        },
+                        new
+                        {
+                            Id = 107,
+                            Activo = true,
+                            Nombre = "San Miguel de Urcuquí",
+                            ProvinciaId = 11
+                        },
+                        new
+                        {
+                            Id = 108,
+                            Activo = true,
+                            Nombre = "Loja",
+                            ProvinciaId = 12
+                        },
+                        new
+                        {
+                            Id = 109,
+                            Activo = true,
+                            Nombre = "Calvas",
+                            ProvinciaId = 12
+                        },
+                        new
+                        {
+                            Id = 110,
+                            Activo = true,
+                            Nombre = "Catamayo",
+                            ProvinciaId = 12
+                        },
+                        new
+                        {
+                            Id = 111,
+                            Activo = true,
+                            Nombre = "Celica",
+                            ProvinciaId = 12
+                        },
+                        new
+                        {
+                            Id = 112,
+                            Activo = true,
+                            Nombre = "Chaguarpamba",
+                            ProvinciaId = 12
+                        },
+                        new
+                        {
+                            Id = 113,
+                            Activo = true,
+                            Nombre = "Espíndola",
+                            ProvinciaId = 12
+                        },
+                        new
+                        {
+                            Id = 114,
+                            Activo = true,
+                            Nombre = "Gonzanamá",
+                            ProvinciaId = 12
+                        },
+                        new
+                        {
+                            Id = 115,
+                            Activo = true,
+                            Nombre = "Macará",
+                            ProvinciaId = 12
+                        },
+                        new
+                        {
+                            Id = 116,
+                            Activo = true,
+                            Nombre = "Paltas",
+                            ProvinciaId = 12
+                        },
+                        new
+                        {
+                            Id = 117,
+                            Activo = true,
+                            Nombre = "Puyango",
+                            ProvinciaId = 12
+                        },
+                        new
+                        {
+                            Id = 118,
+                            Activo = true,
+                            Nombre = "Saraguro",
+                            ProvinciaId = 12
+                        },
+                        new
+                        {
+                            Id = 119,
+                            Activo = true,
+                            Nombre = "Sozoranga",
+                            ProvinciaId = 12
+                        },
+                        new
+                        {
+                            Id = 120,
+                            Activo = true,
+                            Nombre = "Zapotillo",
+                            ProvinciaId = 12
+                        },
+                        new
+                        {
+                            Id = 121,
+                            Activo = true,
+                            Nombre = "Pindal",
+                            ProvinciaId = 12
+                        },
+                        new
+                        {
+                            Id = 122,
+                            Activo = true,
+                            Nombre = "Quilanga",
+                            ProvinciaId = 12
+                        },
+                        new
+                        {
+                            Id = 123,
+                            Activo = true,
+                            Nombre = "Olmedo",
+                            ProvinciaId = 12
+                        },
+                        new
+                        {
+                            Id = 124,
+                            Activo = true,
+                            Nombre = "Babahoyo",
+                            ProvinciaId = 13
+                        },
+                        new
+                        {
+                            Id = 125,
+                            Activo = true,
+                            Nombre = "Baba",
+                            ProvinciaId = 13
+                        },
+                        new
+                        {
+                            Id = 126,
+                            Activo = true,
+                            Nombre = "Montalvo",
+                            ProvinciaId = 13
+                        },
+                        new
+                        {
+                            Id = 127,
+                            Activo = true,
+                            Nombre = "Puebloviejo",
+                            ProvinciaId = 13
+                        },
+                        new
+                        {
+                            Id = 128,
+                            Activo = true,
+                            Nombre = "Quevedo",
+                            ProvinciaId = 13
+                        },
+                        new
+                        {
+                            Id = 129,
+                            Activo = true,
+                            Nombre = "Urdaneta",
+                            ProvinciaId = 13
+                        },
+                        new
+                        {
+                            Id = 130,
+                            Activo = true,
+                            Nombre = "Ventanas",
+                            ProvinciaId = 13
+                        },
+                        new
+                        {
+                            Id = 131,
+                            Activo = true,
+                            Nombre = "Vínces",
+                            ProvinciaId = 13
+                        },
+                        new
+                        {
+                            Id = 132,
+                            Activo = true,
+                            Nombre = "Palenque",
+                            ProvinciaId = 13
+                        },
+                        new
+                        {
+                            Id = 133,
+                            Activo = true,
+                            Nombre = "Buena Fe",
+                            ProvinciaId = 13
+                        },
+                        new
+                        {
+                            Id = 134,
+                            Activo = true,
+                            Nombre = "Valencia",
+                            ProvinciaId = 13
+                        },
+                        new
+                        {
+                            Id = 135,
+                            Activo = true,
+                            Nombre = "Mocache",
+                            ProvinciaId = 13
+                        },
+                        new
+                        {
+                            Id = 136,
+                            Activo = true,
+                            Nombre = "Quinsaloma",
+                            ProvinciaId = 13
+                        },
+                        new
+                        {
+                            Id = 137,
+                            Activo = true,
+                            Nombre = "Portoviejo",
+                            ProvinciaId = 14
+                        },
+                        new
+                        {
+                            Id = 138,
+                            Activo = true,
+                            Nombre = "Bolívar",
+                            ProvinciaId = 14
+                        },
+                        new
+                        {
+                            Id = 139,
+                            Activo = true,
+                            Nombre = "Chone",
+                            ProvinciaId = 14
+                        },
+                        new
+                        {
+                            Id = 140,
+                            Activo = true,
+                            Nombre = "El Carmen",
+                            ProvinciaId = 14
+                        },
+                        new
+                        {
+                            Id = 141,
+                            Activo = true,
+                            Nombre = "Flavio Alfaro",
+                            ProvinciaId = 14
+                        },
+                        new
+                        {
+                            Id = 142,
+                            Activo = true,
+                            Nombre = "Jipijapa",
+                            ProvinciaId = 14
+                        },
+                        new
+                        {
+                            Id = 143,
+                            Activo = true,
+                            Nombre = "Junín",
+                            ProvinciaId = 14
+                        },
+                        new
+                        {
+                            Id = 144,
+                            Activo = true,
+                            Nombre = "Manta",
+                            ProvinciaId = 14
+                        },
+                        new
+                        {
+                            Id = 145,
+                            Activo = true,
+                            Nombre = "Montecristi",
+                            ProvinciaId = 14
+                        },
+                        new
+                        {
+                            Id = 146,
+                            Activo = true,
+                            Nombre = "Paján",
+                            ProvinciaId = 14
+                        },
+                        new
+                        {
+                            Id = 147,
+                            Activo = true,
+                            Nombre = "Pichincha",
+                            ProvinciaId = 14
+                        },
+                        new
+                        {
+                            Id = 148,
+                            Activo = true,
+                            Nombre = "Rocafuerte",
+                            ProvinciaId = 14
+                        },
+                        new
+                        {
+                            Id = 149,
+                            Activo = true,
+                            Nombre = "Santa Ana",
+                            ProvinciaId = 14
+                        },
+                        new
+                        {
+                            Id = 150,
+                            Activo = true,
+                            Nombre = "Sucre",
+                            ProvinciaId = 14
+                        },
+                        new
+                        {
+                            Id = 151,
+                            Activo = true,
+                            Nombre = "Tosagua",
+                            ProvinciaId = 14
+                        },
+                        new
+                        {
+                            Id = 152,
+                            Activo = true,
+                            Nombre = "24 de Mayo",
+                            ProvinciaId = 14
+                        },
+                        new
+                        {
+                            Id = 153,
+                            Activo = true,
+                            Nombre = "Pedernales",
+                            ProvinciaId = 14
+                        },
+                        new
+                        {
+                            Id = 154,
+                            Activo = true,
+                            Nombre = "Olmedo",
+                            ProvinciaId = 14
+                        },
+                        new
+                        {
+                            Id = 155,
+                            Activo = true,
+                            Nombre = "Puerto López",
+                            ProvinciaId = 14
+                        },
+                        new
+                        {
+                            Id = 156,
+                            Activo = true,
+                            Nombre = "Jama",
+                            ProvinciaId = 14
+                        },
+                        new
+                        {
+                            Id = 157,
+                            Activo = true,
+                            Nombre = "Jaramijó",
+                            ProvinciaId = 14
+                        },
+                        new
+                        {
+                            Id = 158,
+                            Activo = true,
+                            Nombre = "San Vicente",
+                            ProvinciaId = 14
+                        },
+                        new
+                        {
+                            Id = 159,
+                            Activo = true,
+                            Nombre = "Morona",
+                            ProvinciaId = 15
+                        },
+                        new
+                        {
+                            Id = 160,
+                            Activo = true,
+                            Nombre = "Gualaquiza",
+                            ProvinciaId = 15
+                        },
+                        new
+                        {
+                            Id = 161,
+                            Activo = true,
+                            Nombre = "Limón Indanza",
+                            ProvinciaId = 15
+                        },
+                        new
+                        {
+                            Id = 162,
+                            Activo = true,
+                            Nombre = "Palora",
+                            ProvinciaId = 15
+                        },
+                        new
+                        {
+                            Id = 163,
+                            Activo = true,
+                            Nombre = "Santiago",
+                            ProvinciaId = 15
+                        },
+                        new
+                        {
+                            Id = 164,
+                            Activo = true,
+                            Nombre = "Sucúa",
+                            ProvinciaId = 15
+                        },
+                        new
+                        {
+                            Id = 165,
+                            Activo = true,
+                            Nombre = "Huamboya",
+                            ProvinciaId = 15
+                        },
+                        new
+                        {
+                            Id = 166,
+                            Activo = true,
+                            Nombre = "San Juan Bosco",
+                            ProvinciaId = 15
+                        },
+                        new
+                        {
+                            Id = 167,
+                            Activo = true,
+                            Nombre = "Taisha",
+                            ProvinciaId = 15
+                        },
+                        new
+                        {
+                            Id = 168,
+                            Activo = true,
+                            Nombre = "Logroño",
+                            ProvinciaId = 15
+                        },
+                        new
+                        {
+                            Id = 169,
+                            Activo = true,
+                            Nombre = "Pablo Sexto",
+                            ProvinciaId = 15
+                        },
+                        new
+                        {
+                            Id = 170,
+                            Activo = true,
+                            Nombre = "Tiwintza",
+                            ProvinciaId = 15
+                        },
+                        new
+                        {
+                            Id = 171,
+                            Activo = true,
+                            Nombre = "Tena",
+                            ProvinciaId = 16
+                        },
+                        new
+                        {
+                            Id = 172,
+                            Activo = true,
+                            Nombre = "Archidona",
+                            ProvinciaId = 16
+                        },
+                        new
+                        {
+                            Id = 173,
+                            Activo = true,
+                            Nombre = "El Chaco",
+                            ProvinciaId = 16
+                        },
+                        new
+                        {
+                            Id = 174,
+                            Activo = true,
+                            Nombre = "Quijos",
+                            ProvinciaId = 16
+                        },
+                        new
+                        {
+                            Id = 175,
+                            Activo = true,
+                            Nombre = "Carlos Julio Arosemena Tola",
+                            ProvinciaId = 16
+                        },
+                        new
+                        {
+                            Id = 176,
+                            Activo = true,
+                            Nombre = "Orellana",
+                            ProvinciaId = 17
+                        },
+                        new
+                        {
+                            Id = 177,
+                            Activo = true,
+                            Nombre = "Aguarico",
+                            ProvinciaId = 17
+                        },
+                        new
+                        {
+                            Id = 178,
+                            Activo = true,
+                            Nombre = "La Joya de los Sachas",
+                            ProvinciaId = 17
+                        },
+                        new
+                        {
+                            Id = 179,
+                            Activo = true,
+                            Nombre = "Loreto",
+                            ProvinciaId = 17
+                        },
+                        new
+                        {
+                            Id = 180,
+                            Activo = true,
+                            Nombre = "Pastaza",
+                            ProvinciaId = 18
+                        },
+                        new
+                        {
+                            Id = 181,
+                            Activo = true,
+                            Nombre = "Mera",
+                            ProvinciaId = 18
+                        },
+                        new
+                        {
+                            Id = 182,
+                            Activo = true,
+                            Nombre = "Santa Clara",
+                            ProvinciaId = 18
+                        },
+                        new
+                        {
+                            Id = 183,
+                            Activo = true,
+                            Nombre = "Arajuno",
+                            ProvinciaId = 18
+                        },
+                        new
+                        {
+                            Id = 184,
+                            Activo = true,
+                            Nombre = "Quito",
+                            ProvinciaId = 19
+                        },
+                        new
+                        {
+                            Id = 185,
+                            Activo = true,
+                            Nombre = "Cayambe",
+                            ProvinciaId = 19
+                        },
+                        new
+                        {
+                            Id = 186,
+                            Activo = true,
+                            Nombre = "Mejía",
+                            ProvinciaId = 19
+                        },
+                        new
+                        {
+                            Id = 187,
+                            Activo = true,
+                            Nombre = "Pedro Moncayo",
+                            ProvinciaId = 19
+                        },
+                        new
+                        {
+                            Id = 188,
+                            Activo = true,
+                            Nombre = "Rumiñahui",
+                            ProvinciaId = 19
+                        },
+                        new
+                        {
+                            Id = 189,
+                            Activo = true,
+                            Nombre = "San Miguel de los Bancos",
+                            ProvinciaId = 19
+                        },
+                        new
+                        {
+                            Id = 190,
+                            Activo = true,
+                            Nombre = "Pedro Vicente Maldonado",
+                            ProvinciaId = 19
+                        },
+                        new
+                        {
+                            Id = 191,
+                            Activo = true,
+                            Nombre = "Puerto Quito",
+                            ProvinciaId = 19
+                        },
+                        new
+                        {
+                            Id = 192,
+                            Activo = true,
+                            Nombre = "Santa Elena",
+                            ProvinciaId = 20
+                        },
+                        new
+                        {
+                            Id = 193,
+                            Activo = true,
+                            Nombre = "La Libertad",
+                            ProvinciaId = 20
+                        },
+                        new
+                        {
+                            Id = 194,
+                            Activo = true,
+                            Nombre = "Salinas",
+                            ProvinciaId = 20
+                        },
+                        new
+                        {
+                            Id = 195,
+                            Activo = true,
+                            Nombre = "Santo Domingo",
+                            ProvinciaId = 21
+                        },
+                        new
+                        {
+                            Id = 196,
+                            Activo = true,
+                            Nombre = "La Concordia",
+                            ProvinciaId = 21
+                        },
+                        new
+                        {
+                            Id = 197,
+                            Activo = true,
+                            Nombre = "Lago Agrio",
+                            ProvinciaId = 22
+                        },
+                        new
+                        {
+                            Id = 198,
+                            Activo = true,
+                            Nombre = "Gonzalo Pizarro",
+                            ProvinciaId = 22
+                        },
+                        new
+                        {
+                            Id = 199,
+                            Activo = true,
+                            Nombre = "Putumayo",
+                            ProvinciaId = 22
+                        },
+                        new
+                        {
+                            Id = 200,
+                            Activo = true,
+                            Nombre = "Shushufindi",
+                            ProvinciaId = 22
+                        },
+                        new
+                        {
+                            Id = 201,
+                            Activo = true,
+                            Nombre = "Sucumbíos",
+                            ProvinciaId = 22
+                        },
+                        new
+                        {
+                            Id = 202,
+                            Activo = true,
+                            Nombre = "Cascales",
+                            ProvinciaId = 22
+                        },
+                        new
+                        {
+                            Id = 203,
+                            Activo = true,
+                            Nombre = "Cuyabeno",
+                            ProvinciaId = 22
+                        },
+                        new
+                        {
+                            Id = 204,
+                            Activo = true,
+                            Nombre = "Ambato",
+                            ProvinciaId = 23
+                        },
+                        new
+                        {
+                            Id = 205,
+                            Activo = true,
+                            Nombre = "Baños de Agua Santa",
+                            ProvinciaId = 23
+                        },
+                        new
+                        {
+                            Id = 206,
+                            Activo = true,
+                            Nombre = "Cevallos",
+                            ProvinciaId = 23
+                        },
+                        new
+                        {
+                            Id = 207,
+                            Activo = true,
+                            Nombre = "Mocha",
+                            ProvinciaId = 23
+                        },
+                        new
+                        {
+                            Id = 208,
+                            Activo = true,
+                            Nombre = "Patate",
+                            ProvinciaId = 23
+                        },
+                        new
+                        {
+                            Id = 209,
+                            Activo = true,
+                            Nombre = "Quero",
+                            ProvinciaId = 23
+                        },
+                        new
+                        {
+                            Id = 210,
+                            Activo = true,
+                            Nombre = "San Pedro de Pelileo",
+                            ProvinciaId = 23
+                        },
+                        new
+                        {
+                            Id = 211,
+                            Activo = true,
+                            Nombre = "Santiago de Píllaro",
+                            ProvinciaId = 23
+                        },
+                        new
+                        {
+                            Id = 212,
+                            Activo = true,
+                            Nombre = "Tisaleo",
+                            ProvinciaId = 23
+                        },
+                        new
+                        {
+                            Id = 213,
+                            Activo = true,
+                            Nombre = "Zamora",
+                            ProvinciaId = 24
+                        },
+                        new
+                        {
+                            Id = 214,
+                            Activo = true,
+                            Nombre = "Chinchipe",
+                            ProvinciaId = 24
+                        },
+                        new
+                        {
+                            Id = 215,
+                            Activo = true,
+                            Nombre = "Nangaritza",
+                            ProvinciaId = 24
+                        },
+                        new
+                        {
+                            Id = 216,
+                            Activo = true,
+                            Nombre = "Yacuambi",
+                            ProvinciaId = 24
+                        },
+                        new
+                        {
+                            Id = 217,
+                            Activo = true,
+                            Nombre = "Yantzaza",
+                            ProvinciaId = 24
+                        },
+                        new
+                        {
+                            Id = 218,
+                            Activo = true,
+                            Nombre = "El Pangui",
+                            ProvinciaId = 24
+                        },
+                        new
+                        {
+                            Id = 219,
+                            Activo = true,
+                            Nombre = "Centinela del Cóndor",
+                            ProvinciaId = 24
+                        },
+                        new
+                        {
+                            Id = 220,
+                            Activo = true,
+                            Nombre = "Palanda",
+                            ProvinciaId = 24
+                        },
+                        new
+                        {
+                            Id = 221,
+                            Activo = true,
+                            Nombre = "Paquisha",
+                            ProvinciaId = 24
+                        });
+                });
+
+            modelBuilder.Entity("CoopagcuyApi.Features.Catalogos.Models.CentroAcopio", b =>
+                {
+                    b.Property<string>("Codigo")
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<bool>("Activo")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("CantonId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Nombre")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.HasKey("Codigo");
+
+                    b.HasIndex("CantonId");
+
+                    b.ToTable("CentrosAcopio");
+
+                    b.HasData(
+                        new
+                        {
+                            Codigo = "PAT",
+                            Activo = true,
+                            CantonId = 6,
+                            Nombre = "Patococha"
+                        },
+                        new
+                        {
+                            Codigo = "NIE",
+                            Activo = true,
+                            CantonId = 6,
+                            Nombre = "Las Nieves"
+                        },
+                        new
+                        {
+                            Codigo = "HUE",
+                            Activo = true,
+                            CantonId = 8,
+                            Nombre = "Huertas"
+                        },
+                        new
+                        {
+                            Codigo = "NAB",
+                            Activo = true,
+                            CantonId = 4,
+                            Nombre = "Nabón / El Progreso"
+                        },
+                        new
+                        {
+                            Codigo = "PEL",
+                            Activo = true,
+                            CantonId = 6,
+                            Nombre = "Pelincay"
+                        });
                 });
 
             modelBuilder.Entity("CoopagcuyApi.Features.Catalogos.Models.Comunidad", b =>
@@ -191,14 +1831,27 @@ namespace CoopagcuyApi.Infrastructure.Data.Migrations
                     b.Property<bool>("Activa")
                         .HasColumnType("boolean");
 
-                    b.Property<string>("Canton")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
+                    b.Property<int?>("AltitudMaxM")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("AltitudMinM")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("CantonId")
+                        .HasColumnType("integer");
 
                     b.Property<string>("CatReferencia")
                         .IsRequired()
-                        .HasColumnType("text");
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<decimal?>("Latitud")
+                        .HasPrecision(9, 6)
+                        .HasColumnType("numeric(9,6)");
+
+                    b.Property<decimal?>("Longitud")
+                        .HasPrecision(9, 6)
+                        .HasColumnType("numeric(9,6)");
 
                     b.Property<string>("Nombre")
                         .IsRequired()
@@ -207,7 +1860,9 @@ namespace CoopagcuyApi.Infrastructure.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Nombre")
+                    b.HasIndex("CatReferencia");
+
+                    b.HasIndex("CantonId", "Nombre")
                         .IsUnique();
 
                     b.ToTable("Comunidades");
@@ -217,41 +1872,227 @@ namespace CoopagcuyApi.Infrastructure.Data.Migrations
                         {
                             Id = 1,
                             Activa = true,
-                            Canton = "Pucará",
+                            AltitudMaxM = 3190,
+                            AltitudMinM = 3190,
+                            CantonId = 6,
                             CatReferencia = "PAT",
+                            Latitud = -3.225944m,
+                            Longitud = -79.504472m,
                             Nombre = "Patococha"
                         },
                         new
                         {
                             Id = 2,
                             Activa = true,
-                            Canton = "Nabón",
+                            AltitudMaxM = 3370,
+                            AltitudMinM = 3200,
+                            CantonId = 6,
                             CatReferencia = "NIE",
+                            Latitud = -3.083667m,
+                            Longitud = -79.451222m,
                             Nombre = "Las Nieves"
                         },
                         new
                         {
                             Id = 3,
                             Activa = true,
-                            Canton = "Santa Isabel",
+                            AltitudMaxM = 2900,
+                            AltitudMinM = 2600,
+                            CantonId = 8,
                             CatReferencia = "HUE",
+                            Latitud = -3.135528m,
+                            Longitud = -79.395972m,
                             Nombre = "Huertas"
                         },
                         new
                         {
                             Id = 4,
                             Activa = true,
-                            Canton = "Nabón",
+                            AltitudMaxM = 2800,
+                            AltitudMinM = 2600,
+                            CantonId = 4,
                             CatReferencia = "NAB",
+                            Latitud = -3.340833m,
+                            Longitud = -79.204806m,
                             Nombre = "Nabón / El Progreso"
                         },
                         new
                         {
                             Id = 5,
                             Activa = true,
-                            Canton = "Pucará",
+                            CantonId = 6,
                             CatReferencia = "PEL",
                             Nombre = "Pelincay"
+                        });
+                });
+
+            modelBuilder.Entity("CoopagcuyApi.Features.Catalogos.Models.Provincia", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("Activa")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Nombre")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Nombre")
+                        .IsUnique();
+
+                    b.ToTable("Provincias");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            Activa = true,
+                            Nombre = "Azuay"
+                        },
+                        new
+                        {
+                            Id = 2,
+                            Activa = true,
+                            Nombre = "Bolívar"
+                        },
+                        new
+                        {
+                            Id = 3,
+                            Activa = true,
+                            Nombre = "Cañar"
+                        },
+                        new
+                        {
+                            Id = 4,
+                            Activa = true,
+                            Nombre = "Carchi"
+                        },
+                        new
+                        {
+                            Id = 5,
+                            Activa = true,
+                            Nombre = "Chimborazo"
+                        },
+                        new
+                        {
+                            Id = 6,
+                            Activa = true,
+                            Nombre = "Cotopaxi"
+                        },
+                        new
+                        {
+                            Id = 7,
+                            Activa = true,
+                            Nombre = "El Oro"
+                        },
+                        new
+                        {
+                            Id = 8,
+                            Activa = true,
+                            Nombre = "Esmeraldas"
+                        },
+                        new
+                        {
+                            Id = 9,
+                            Activa = true,
+                            Nombre = "Galápagos"
+                        },
+                        new
+                        {
+                            Id = 10,
+                            Activa = true,
+                            Nombre = "Guayas"
+                        },
+                        new
+                        {
+                            Id = 11,
+                            Activa = true,
+                            Nombre = "Imbabura"
+                        },
+                        new
+                        {
+                            Id = 12,
+                            Activa = true,
+                            Nombre = "Loja"
+                        },
+                        new
+                        {
+                            Id = 13,
+                            Activa = true,
+                            Nombre = "Los Ríos"
+                        },
+                        new
+                        {
+                            Id = 14,
+                            Activa = true,
+                            Nombre = "Manabí"
+                        },
+                        new
+                        {
+                            Id = 15,
+                            Activa = true,
+                            Nombre = "Morona Santiago"
+                        },
+                        new
+                        {
+                            Id = 16,
+                            Activa = true,
+                            Nombre = "Napo"
+                        },
+                        new
+                        {
+                            Id = 17,
+                            Activa = true,
+                            Nombre = "Orellana"
+                        },
+                        new
+                        {
+                            Id = 18,
+                            Activa = true,
+                            Nombre = "Pastaza"
+                        },
+                        new
+                        {
+                            Id = 19,
+                            Activa = true,
+                            Nombre = "Pichincha"
+                        },
+                        new
+                        {
+                            Id = 20,
+                            Activa = true,
+                            Nombre = "Santa Elena"
+                        },
+                        new
+                        {
+                            Id = 21,
+                            Activa = true,
+                            Nombre = "Santo Domingo de los Tsáchilas"
+                        },
+                        new
+                        {
+                            Id = 22,
+                            Activa = true,
+                            Nombre = "Sucumbíos"
+                        },
+                        new
+                        {
+                            Id = 23,
+                            Activa = true,
+                            Nombre = "Tungurahua"
+                        },
+                        new
+                        {
+                            Id = 24,
+                            Activa = true,
+                            Nombre = "Zamora Chinchipe"
                         });
                 });
 
@@ -726,7 +2567,8 @@ namespace CoopagcuyApi.Infrastructure.Data.Migrations
 
                     b.Property<string>("CentroAcopio")
                         .IsRequired()
-                        .HasColumnType("text");
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
 
                     b.Property<bool>("Cerrado")
                         .HasColumnType("boolean");
@@ -793,7 +2635,8 @@ namespace CoopagcuyApi.Infrastructure.Data.Migrations
 
                     b.Property<string>("CatAsignado")
                         .IsRequired()
-                        .HasColumnType("text");
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
 
                     b.Property<string>("Cedula")
                         .IsRequired()
@@ -815,6 +2658,8 @@ namespace CoopagcuyApi.Infrastructure.Data.Migrations
                         .HasColumnType("text");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("CatAsignado");
 
                     b.HasIndex("Cedula")
                         .IsUnique();
@@ -979,7 +2824,8 @@ namespace CoopagcuyApi.Infrastructure.Data.Migrations
 
                     b.Property<string>("CentroAcopio")
                         .IsRequired()
-                        .HasColumnType("text");
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
 
                     b.Property<string>("CuyesJson")
                         .IsRequired()
@@ -1027,6 +2873,8 @@ namespace CoopagcuyApi.Infrastructure.Data.Migrations
                         .HasColumnType("text");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("CentroAcopio");
 
                     b.HasIndex("DispositivoId", "IdCliente")
                         .IsUnique();
@@ -1213,6 +3061,53 @@ namespace CoopagcuyApi.Infrastructure.Data.Migrations
                     b.Navigation("Usuario");
                 });
 
+            modelBuilder.Entity("CoopagcuyApi.Common.Auth.Usuario", b =>
+                {
+                    b.HasOne("CoopagcuyApi.Features.Catalogos.Models.CentroAcopio", null)
+                        .WithMany()
+                        .HasForeignKey("CatAsignado")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("CoopagcuyApi.Features.Catalogos.Models.Canton", b =>
+                {
+                    b.HasOne("CoopagcuyApi.Features.Catalogos.Models.Provincia", "Provincia")
+                        .WithMany("Cantones")
+                        .HasForeignKey("ProvinciaId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Provincia");
+                });
+
+            modelBuilder.Entity("CoopagcuyApi.Features.Catalogos.Models.CentroAcopio", b =>
+                {
+                    b.HasOne("CoopagcuyApi.Features.Catalogos.Models.Canton", "Canton")
+                        .WithMany()
+                        .HasForeignKey("CantonId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Canton");
+                });
+
+            modelBuilder.Entity("CoopagcuyApi.Features.Catalogos.Models.Comunidad", b =>
+                {
+                    b.HasOne("CoopagcuyApi.Features.Catalogos.Models.Canton", "Canton")
+                        .WithMany()
+                        .HasForeignKey("CantonId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CoopagcuyApi.Features.Catalogos.Models.CentroAcopio", null)
+                        .WithMany()
+                        .HasForeignKey("CatReferencia")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Canton");
+                });
+
             modelBuilder.Entity("CoopagcuyApi.Features.Faenamiento.Models.CuyFaenamiento", b =>
                 {
                     b.HasOne("CoopagcuyApi.Features.Faenamiento.Models.RegistroFaenamiento", "Registro")
@@ -1353,6 +3248,12 @@ namespace CoopagcuyApi.Infrastructure.Data.Migrations
 
             modelBuilder.Entity("CoopagcuyApi.Features.Productoras.Models.Lote", b =>
                 {
+                    b.HasOne("CoopagcuyApi.Features.Catalogos.Models.CentroAcopio", null)
+                        .WithMany()
+                        .HasForeignKey("CentroAcopio")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("CoopagcuyApi.Features.Productoras.Models.Productora", "Productora")
                         .WithMany("Lotes")
                         .HasForeignKey("ProductoraId");
@@ -1362,6 +3263,12 @@ namespace CoopagcuyApi.Infrastructure.Data.Migrations
 
             modelBuilder.Entity("CoopagcuyApi.Features.Productoras.Models.Productora", b =>
                 {
+                    b.HasOne("CoopagcuyApi.Features.Catalogos.Models.CentroAcopio", null)
+                        .WithMany()
+                        .HasForeignKey("CatAsignado")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("CoopagcuyApi.Features.Catalogos.Models.Comunidad", "Comunidad")
                         .WithMany()
                         .HasForeignKey("ComunidadId")
@@ -1421,6 +3328,15 @@ namespace CoopagcuyApi.Infrastructure.Data.Migrations
                     b.Navigation("VentaLocalPago");
                 });
 
+            modelBuilder.Entity("CoopagcuyApi.Features.Recepcion.Models.EntregaPendienteVinculacion", b =>
+                {
+                    b.HasOne("CoopagcuyApi.Features.Catalogos.Models.CentroAcopio", null)
+                        .WithMany()
+                        .HasForeignKey("CentroAcopio")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("CoopagcuyApi.Features.Recepcion.Models.Movilizacion", b =>
                 {
                     b.HasOne("CoopagcuyApi.Features.Productoras.Models.Lote", "Lote")
@@ -1448,6 +3364,11 @@ namespace CoopagcuyApi.Infrastructure.Data.Migrations
                     b.Navigation("CuyRegistro");
 
                     b.Navigation("Lote");
+                });
+
+            modelBuilder.Entity("CoopagcuyApi.Features.Catalogos.Models.Provincia", b =>
+                {
+                    b.Navigation("Cantones");
                 });
 
             modelBuilder.Entity("CoopagcuyApi.Features.Faenamiento.Models.Despacho", b =>

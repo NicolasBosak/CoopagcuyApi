@@ -1,4 +1,3 @@
-using CoopagcuyApi.Common;
 using CoopagcuyApi.Common.Auth;
 using CoopagcuyApi.Common.Exceptions;
 using CoopagcuyApi.Features.Pagos.DTOs;
@@ -22,8 +21,9 @@ namespace CoopagcuyApi.Features.Pagos.Controllers;
 public class PagosController(IPagoService service, ITicketPagoService tickets) : ControllerBase
 {
     // CAT al que está acotado el operador (null = admin, sin restricción)
-    private CentroAcopio? FiltroCat() =>
-        Enum.TryParse<CentroAcopio>(User.CatRestringido(), out var c) ? c : null;
+    // El claim ya trae el código del CAT como texto: antes se parseaba a
+    // enum solo para volver a compararlo, y ahora no hay adónde volver.
+    private string? FiltroCat() => User.CatRestringido();
 
     [HttpPost]
     [Authorize(Roles = "OperadorCAT,AdminCooperativa")]
@@ -90,7 +90,7 @@ public class PagosController(IPagoService service, ITicketPagoService tickets) :
     public async Task<IActionResult> Ticket(int id)
     {
         var filtro = FiltroCat();
-        if (filtro is CentroAcopio cat)
+        if (filtro is string cat)
         {
             var suyo = await service.EsDeCentroAsync(id, cat);
             // 404 y no 403: confirmar que existe ya sería filtrar el dato

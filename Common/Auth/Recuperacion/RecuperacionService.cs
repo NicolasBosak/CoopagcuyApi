@@ -69,7 +69,7 @@ public class RecuperacionService(
                 s.Usuario.NombreCompleto,
                 s.Usuario.Cedula,
                 s.Usuario.Rol.ToString(),
-                s.Usuario.CatAsignado == null ? null : s.Usuario.CatAsignado.ToString(),
+                s.Usuario.CatAsignado,
                 s.Usuario.Activo,
                 s.Estado.ToString(),
                 s.Origen.ToString(),

@@ -87,7 +87,7 @@ public class VerificacionPagoTests(ApiFactory api) : IAsyncLifetime
     private async Task<int> TicketSinPagarAsync()
     {
         var productora = await Sembrador.ProductoraAsync(
-            api, CedulaProductora, CentroAcopio.PAT);
+            api, CedulaProductora, "PAT");
 
         var cuyes = new object[]
         {
