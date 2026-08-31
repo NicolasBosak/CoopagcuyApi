@@ -986,7 +986,7 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
     {
         // El vecino sin datos de la prueba anterior: un período vacío (sin
         // sembrar nada). Es el caso legítimo más cercano al libro completo
-        // —cinco hojas con estilo y encabezado, cero filas de datos— y el
+        // —seis hojas con estilo y encabezado, cero filas de datos— y el
         // que de verdad compite con el umbral de tamaño de la otra prueba,
         // no el libro degenerado de una sola hoja de la Mutación 1.
         var hoy = (DateTime.UtcNow + FechaUtc.DesfasePiloto).ToString("yyyy-MM-dd");

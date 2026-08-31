@@ -54,7 +54,7 @@ public interface IReportesService
     // ver el comentario de UnidadesMesDto para por qué aquí sumar SÍ es
     // válido, a diferencia del resto de este reporte.
     Task<IEnumerable<UnidadesMesDto>> UnidadesPorMesAsync(FiltroPeriodoDto filtro);
-    // Las cinco vistas de arriba, en un solo libro, cada una en su propia
+    // Las seis vistas de arriba, en un solo libro, cada una en su propia
     // hoja: nunca en la misma celda, porque las dos mitades del reporte
     // (ganancias de productoras y margen de la reventa) no se suman.
     Task<byte[]> ExportarExcelGananciasAsync(FiltroPeriodoDto filtro);
@@ -1183,9 +1183,11 @@ public class ReportesService(AppDbContext db) : IReportesService
 
     // ── Exportar Excel del reporte de ganancias — RF-505 ───────────────
     //
-    // Cinco hojas, sin ninguna celda que sume las dos cifras que NUNCA se
+    // Seis hojas, sin ninguna celda que sume las dos cifras que NUNCA se
     // suman: lo que ganaron las productoras (las tres primeras hojas) y el
-    // margen de la reventa (las dos últimas). Un pago a una productora es
+    // margen de la reventa (la cuarta y la quinta). La sexta —unidades
+    // vendidas— SÍ suma, pero animales, no dinero: un cuy vendido en la
+    // comunidad no puede acabar despachado, así que no hay doble conteo. Un pago a una productora es
     // ingreso para ella y costo para la cooperativa — la misma fila leída
     // desde dos lados, y cada lado se queda en su propia hoja.
     //
@@ -1194,7 +1196,7 @@ public class ReportesService(AppDbContext db) : IReportesService
     // comentario en DatosDeMargenAsync): un despacho reúne animales de
     // varias CAT. Las tres primeras hojas sí lo respetan. Quien abra este
     // libro con ?cat= puesto puede extrañarse de que las dos últimas hojas
-    // no se hayan acotado igual — por eso cada una de las cinco hojas
+    // no se hayan acotado igual — por eso cada una de las seis hojas
     // declara su propio alcance de CAT en una línea debajo de la tabla
     // (EscribirAlcanceCat para las tres primeras, la advertencia fija en
     // AgregarHojaMargen para las dos últimas), y el nombre del archivo

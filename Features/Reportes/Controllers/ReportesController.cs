@@ -408,7 +408,7 @@ public class ReportesController(IReportesService service) : ControllerBase
     }
 
     /// <summary>
-    /// Exporta el reporte de ganancias a Excel — RF-505. Cinco hojas: las
+    /// Exporta el reporte de ganancias a Excel — RF-505. Seis hojas: las
     /// tres primeras (por CAT, por productora, por mes) sí respetan
     /// ?cat=; las dos de margen (por mes, por cliente) no, porque un
     /// despacho reúne animales de varias CAT (ver el comentario en
