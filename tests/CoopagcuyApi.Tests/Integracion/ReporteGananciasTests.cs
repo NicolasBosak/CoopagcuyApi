@@ -609,7 +609,7 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
     private static readonly string[] HojasEsperadas =
     [
         "Ganancias por CAT", "Ganancias por productora", "Ganancias por mes",
-        "Margen por mes", "Margen por cliente"
+        "Margen por mes", "Margen por cliente", "Unidades vendidas"
     ];
 
     private static readonly string[] HojasDeMargen = ["Margen por mes", "Margen por cliente"];
@@ -709,6 +709,19 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
 
             textos.ShouldContain("Centro de acopio: Todos los centros de acopio");
         }
+
+        // La sexta hoja "Unidades vendidas": trae línea de alcance de CAT,
+        // encabezado en fila 2 (como las de ganancias), datos en fila 3 en
+        // adelante, línea de total y línea de nota sobre la asimetría,
+        // seguida de alcance de CAT al final.
+        var hojaUnidades = libro.Worksheet("Unidades vendidas");
+        hojaUnidades.Cell(1, 1).GetString()
+            .ShouldContain("Centro de acopio: Todos los centros de acopio");
+        hojaUnidades.Cell(3, 1).IsEmpty().ShouldBeFalse();
+        var textosUnidades = hojaUnidades.Column(1)
+            .CellsUsed().Select(c => c.GetString()).ToList();
+        textosUnidades.ShouldContain(
+            "Total de animales vendidos en el período: 2 (0 en la comunidad + 2 despachados)");
     }
 
     [Fact]

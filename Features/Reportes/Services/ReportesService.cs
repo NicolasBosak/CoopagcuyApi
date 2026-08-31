@@ -1194,6 +1194,7 @@ public class ReportesService(AppDbContext db) : IReportesService
         var porMes = await GananciasPorMesAsync(filtro);
         var margenPorMes = await MargenPorMesAsync(filtro);
         var margenPorCliente = await MargenPorClienteAsync(filtro);
+        var unidades = await UnidadesPorMesAsync(filtro);
 
         using var libro = new XLWorkbook();
 
@@ -1202,6 +1203,7 @@ public class ReportesService(AppDbContext db) : IReportesService
         AgregarHojaGananciaMes(libro, porMes, filtro.CentroAcopio);
         AgregarHojaMargen(libro, "Margen por mes", margenPorMes);
         AgregarHojaMargen(libro, "Margen por cliente", margenPorCliente);
+        AgregarHojaUnidades(libro, unidades, filtro.CentroAcopio);
 
         using var stream = new MemoryStream();
         libro.SaveAs(stream);
@@ -1437,6 +1439,57 @@ public class ReportesService(AppDbContext db) : IReportesService
         // que la columna nunca se dimensionaba para ese texto (el más largo
         // de la hoja). Mismo orden que ya llevan las tres hojas de
         // ganancias arriba.
+        hoja.Columns().AdjustToContents();
+    }
+
+    // Sexta hoja. Lleva su línea de alcance como las tres de ganancias
+    // porque la asimetría del filtro también la afecta, y de una forma que
+    // no se ve en la propia hoja: la columna de comunidad SÍ está filtrada
+    // por CAT y la de despacho NO. Quien abra el libro con ?cat= puesto
+    // tiene que poder saberlo sin salir de esta pestaña.
+    private static void AgregarHojaUnidades(
+        XLWorkbook libro, IEnumerable<UnidadesMesDto> datos, string? cat)
+    {
+        var hoja = libro.Worksheets.Add("Unidades vendidas");
+        EscribirAlcanceCatAlInicio(hoja, cat);
+        EscribirEncabezadosGanancias(hoja, new[]
+        {
+            "Mes", "Vendidas en la comunidad", "Despachadas a clientes",
+            "Total de animales"
+        }, fila: 2);
+
+        int fila = 3;
+        var totalComunidad = 0;
+        var totalDespacho = 0;
+        foreach (var r in datos)
+        {
+            hoja.Cell(fila, 1).Value = r.Agrupacion;
+            hoja.Cell(fila, 2).Value = r.VendidasComunidad;
+            hoja.Cell(fila, 3).Value = r.DespachadasClientes;
+            hoja.Cell(fila, 4).Value = r.Total;
+            totalComunidad += r.VendidasComunidad;
+            totalDespacho += r.DespachadasClientes;
+            fila++;
+        }
+
+        // El rótulo dice ANIMALES a propósito: en el resto del libro nada se
+        // suma, y sin esa palabra esta línea podría leerse como permiso para
+        // sumar también las cifras de dinero de las otras hojas.
+        var filaTotal = fila + 1;
+        hoja.Cell(filaTotal, 1).Value =
+            $"Total de animales vendidos en el período: {totalComunidad + totalDespacho} " +
+            $"({totalComunidad} en la comunidad + {totalDespacho} despachados)";
+        hoja.Cell(filaTotal, 1).Style.Font.Bold = true;
+
+        hoja.Cell(filaTotal + 1, 1).Value =
+            "La columna de comunidad respeta el filtro por centro de acopio; " +
+            "la de despacho no, porque un despacho mezcla animales de varias " +
+            "jaulas y por tanto de varios centros.";
+
+        EscribirAlcanceCatAlFinal(hoja, filaTotal + 1, cat);
+
+        // Al final, cuando ya está todo escrito: si se ajusta antes, las
+        // líneas de abajo no se tienen en cuenta para el ancho.
         hoja.Columns().AdjustToContents();
     }
 
