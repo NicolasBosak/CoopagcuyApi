@@ -1087,6 +1087,18 @@ public class ReportesService(AppDbContext db) : IReportesService
         //
         // SÍ filtra por CAT: el animal tiene productora y la productora su
         // centro asignado.
+        //
+        // N2: el "!= EstadoPago.Pendiente" de abajo repite a mano el mismo
+        // criterio que ya vive en PagosDelPeriodo (arriba, línea ~669) —no
+        // se compone con ese método porque aquí se parte de CuyRegistros,
+        // no de Pagos, y componer significaría un Any(...) subquery contra
+        // PagosDelPeriodo por cada fila. La guarda es hoy inalcanzable (un
+        // pago de venta local nace en estado Recibido), así que duplicar es
+        // defendible, pero si el criterio de PagosDelPeriodo se ampliara
+        // algún día (p. ej. un futuro estado Anulado) las columnas de
+        // dinero dejarían de contar esos pagos mientras esta columna de
+        // unidades los seguiría contando, sin que ninguna prueba lo note.
+        // Si tocas uno, revisa el otro.
         IQueryable<CuyRegistro> comunidad = db.CuyRegistros
             .Where(c => c.VentaLocalPagoId != null
                 && c.VentaLocalPago!.FechaPago >= desdeUtc
