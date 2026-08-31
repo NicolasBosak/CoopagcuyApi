@@ -50,7 +50,11 @@ public interface IReportesService
     // suma con las ganancias de productoras de arriba.
     Task<IEnumerable<MargenDto>> MargenPorMesAsync(FiltroPeriodoDto filtro);
     Task<IEnumerable<MargenDto>> MargenPorClienteAsync(FiltroPeriodoDto filtro);
-    // Las cinco vistas de arriba, en un solo libro, cada una en su propia
+    // Unidades de cuyes vendidas por las dos vías, por mes local del piloto:
+    // ver el comentario de UnidadesMesDto para por qué aquí sumar SÍ es
+    // válido, a diferencia del resto de este reporte.
+    Task<IEnumerable<UnidadesMesDto>> UnidadesPorMesAsync(FiltroPeriodoDto filtro);
+    // Las seis vistas de arriba, en un solo libro, cada una en su propia
     // hoja: nunca en la misma celda, porque las dos mitades del reporte
     // (ganancias de productoras y margen de la reventa) no se suman.
     Task<byte[]> ExportarExcelGananciasAsync(FiltroPeriodoDto filtro);
@@ -1066,11 +1070,124 @@ public class ReportesService(AppDbContext db) : IReportesService
             .ToList();
     }
 
+    // ── Unidades vendidas ────────────────────────────────────────────────
+    //
+    // Es la única excepción del reporte donde sumar SÍ es válido: ver el
+    // comentario de UnidadesMesDto.
+
+    public async Task<IEnumerable<UnidadesMesDto>> UnidadesPorMesAsync(
+        FiltroPeriodoDto filtro)
+    {
+        var (desdeUtc, hastaUtc) = RangoUtc(filtro);
+
+        // ── Vendidas en la comunidad ──────────────────────────────────
+        // Se fechan por el PAGO de la venta local, no por la entrega del
+        // animal: la venta ocurre cuando se cobra. Es el mismo criterio que
+        // usan las tres vistas de ganancias, que también van por FechaPago.
+        //
+        // SÍ filtra por CAT: el animal tiene productora y la productora su
+        // centro asignado.
+        //
+        // N2: el "!= EstadoPago.Pendiente" de abajo repite a mano el mismo
+        // criterio que ya vive en PagosDelPeriodo (arriba, línea ~669) —no
+        // se compone con ese método porque aquí se parte de CuyRegistros,
+        // no de Pagos, y componer significaría un Any(...) subquery contra
+        // PagosDelPeriodo por cada fila. La guarda es hoy inalcanzable (un
+        // pago de venta local nace en estado Recibido), así que duplicar es
+        // defendible, pero si el criterio de PagosDelPeriodo se ampliara
+        // algún día (p. ej. un futuro estado Anulado) las columnas de
+        // dinero dejarían de contar esos pagos mientras esta columna de
+        // unidades los seguiría contando, sin que ninguna prueba lo note.
+        // Si tocas uno, revisa el otro.
+        IQueryable<CuyRegistro> comunidad = db.CuyRegistros
+            .Where(c => c.VentaLocalPagoId != null
+                && c.VentaLocalPago!.FechaPago >= desdeUtc
+                && c.VentaLocalPago.FechaPago < hastaUtc
+                && c.VentaLocalPago.Estado != EstadoPago.Pendiente);
+
+        if (filtro.CentroAcopio is not null)
+            comunidad = comunidad.Where(
+                c => c.Productora!.CatAsignado == filtro.CentroAcopio);
+
+        // Solo la fecha: es lo único que hace falta para agrupar, y una fila
+        // por animal vendido es exactamente el conteo que se busca.
+        var fechasComunidad = await comunidad
+            .Select(c => c.VentaLocalPago!.FechaPago)
+            .ToListAsync();
+
+        // ── Despachadas a clientes ────────────────────────────────────
+        // NO filtra por CAT, y es deliberado: un despacho mezcla animales de
+        // varias jaulas y por tanto de varios CAT, así que filtrarlo o
+        // duplicaría las unidades de un despacho mixto o las atribuiría a un
+        // centro que solo puso una parte. Misma decisión, y mismo motivo, que
+        // dejó las dos vistas de margen sin filtro de CAT.
+        var despachos = await db.Despachos
+            .Where(d => d.FechaDespacho >= desdeUtc && d.FechaDespacho < hastaUtc)
+            .Select(d => new { d.Id, d.FechaDespacho, d.CantidadUnidades })
+            .ToListAsync();
+
+        // Mismo helper que el margen y que ListarDespachosAsync: el criterio
+        // de qué cuenta como devuelto vive en un solo sitio y no puede
+        // desincronizarse. Acota solo por DespachoId, no por FechaDevolucion
+        // —a propósito, igual que en DatosDeMargenAsync—: una devolución de
+        // marzo baja las unidades de enero al reejecutar ese reporte, en vez
+        // de quedar varada en un mes al que no pertenece.
+        var despachoIds = despachos.Select(d => d.Id).ToList();
+        var devueltas = await Devolucion.UnidadesPorDespachoAsync(
+            db.Devoluciones.Where(v => v.DespachoId != null
+                && despachoIds.Contains(v.DespachoId.Value)));
+
+        // ── Agrupación por el mes LOCAL ───────────────────────────────
+        // FechaUtc.ALocal no se traduce a SQL, así que las dos consultas de
+        // arriba materializan antes de agrupar. El volumen del piloto lo
+        // permite de sobra: no cambiar esto por un GroupBy en base de datos,
+        // que rompería la frontera del mes en silencio —un despacho de las
+        // 20:00 del 31 de agosto pertenece a agosto, no a septiembre.
+        static string Mes(DateTime utc)
+        {
+            var local = FechaUtc.ALocal(utc);
+            return $"{local.Year:D4}-{local.Month:D2}";
+        }
+
+        var porMes = new SortedDictionary<string, (int Comunidad, int Despacho)>(
+            StringComparer.Ordinal);
+
+        foreach (var fecha in fechasComunidad)
+        {
+            var mes = Mes(fecha);
+            var acumulado = porMes.GetValueOrDefault(mes);
+            porMes[mes] = (acumulado.Comunidad + 1, acumulado.Despacho);
+        }
+
+        foreach (var d in despachos)
+        {
+            var mes = Mes(d.FechaDespacho);
+            var acumulado = porMes.GetValueOrDefault(mes);
+            // Math.Max por si una devolución corrupta superara lo despachado:
+            // se muestra 0, no un negativo. Misma guarda que ConstruirMargen.
+            var netas = Math.Max(
+                0, d.CantidadUnidades - devueltas.GetValueOrDefault(d.Id));
+            porMes[mes] = (acumulado.Comunidad, acumulado.Despacho + netas);
+        }
+
+        return porMes
+            .Select(kv => new UnidadesMesDto(
+                Agrupacion: kv.Key,
+                VendidasComunidad: kv.Value.Comunidad,
+                DespachadasClientes: kv.Value.Despacho,
+                // Sumar aquí SÍ es válido: un cuy vendido en la comunidad no
+                // puede acabar despachado, así que no hay doble conteo.
+                Total: kv.Value.Comunidad + kv.Value.Despacho))
+            .ToList();
+    }
+
     // ── Exportar Excel del reporte de ganancias — RF-505 ───────────────
     //
-    // Cinco hojas, sin ninguna celda que sume las dos cifras que NUNCA se
+    // Seis hojas, sin ninguna celda que sume las dos cifras que NUNCA se
     // suman: lo que ganaron las productoras (las tres primeras hojas) y el
-    // margen de la reventa (las dos últimas). Un pago a una productora es
+    // margen de la reventa (la cuarta y la quinta). La sexta —unidades
+    // vendidas— SÍ suma, pero animales, no dinero: un cuy vendido en la
+    // comunidad no puede acabar despachado, así que no hay doble conteo. Un pago a una productora es
     // ingreso para ella y costo para la cooperativa — la misma fila leída
     // desde dos lados, y cada lado se queda en su propia hoja.
     //
@@ -1079,10 +1196,12 @@ public class ReportesService(AppDbContext db) : IReportesService
     // comentario en DatosDeMargenAsync): un despacho reúne animales de
     // varias CAT. Las tres primeras hojas sí lo respetan. Quien abra este
     // libro con ?cat= puesto puede extrañarse de que las dos últimas hojas
-    // no se hayan acotado igual — por eso cada una de las cinco hojas
+    // no se hayan acotado igual — por eso cada una de las seis hojas
     // declara su propio alcance de CAT en una línea debajo de la tabla
     // (EscribirAlcanceCat para las tres primeras, la advertencia fija en
-    // AgregarHojaMargen para las dos últimas), y el nombre del archivo
+    // AgregarHojaMargen para la cuarta y la quinta, y
+    // EscribirAlcanceCatUnidades para la sexta, que es la única medio
+    // filtrada: su columna de comunidad sí respeta ?cat= y la de despacho no), y el nombre del archivo
     // incluye la CAT cuando el pedido vino filtrado (ReportesController).
     public async Task<byte[]> ExportarExcelGananciasAsync(FiltroPeriodoDto filtro)
     {
@@ -1091,6 +1210,7 @@ public class ReportesService(AppDbContext db) : IReportesService
         var porMes = await GananciasPorMesAsync(filtro);
         var margenPorMes = await MargenPorMesAsync(filtro);
         var margenPorCliente = await MargenPorClienteAsync(filtro);
+        var unidades = await UnidadesPorMesAsync(filtro);
 
         using var libro = new XLWorkbook();
 
@@ -1099,6 +1219,7 @@ public class ReportesService(AppDbContext db) : IReportesService
         AgregarHojaGananciaMes(libro, porMes, filtro.CentroAcopio);
         AgregarHojaMargen(libro, "Margen por mes", margenPorMes);
         AgregarHojaMargen(libro, "Margen por cliente", margenPorCliente);
+        AgregarHojaUnidades(libro, unidades, filtro.CentroAcopio);
 
         using var stream = new MemoryStream();
         libro.SaveAs(stream);
@@ -1161,6 +1282,39 @@ public class ReportesService(AppDbContext db) : IReportesService
     private static void EscribirAlcanceCatAlFinal(
         IXLWorksheet hoja, int filaSiguienteVacia, string? cat) =>
         EscribirLineaAlcanceCat(hoja, filaSiguienteVacia + 1, cat);
+
+    // B1: variante SOLO para "Unidades vendidas". Las tres hojas de arriba
+    // están enteramente filtradas por CAT, así que "Centro de acopio: PAT"
+    // es cierto de la hoja completa. En Unidades no lo es: la columna
+    // comunidad SÍ respeta ?cat=, pero despacho y el total NO (un despacho
+    // mezcla animales de varias jaulas y por tanto de varios centros — ver
+    // AgregarHojaMargen). Reutilizar el texto compartido dejaría la misma
+    // frase significando dos cosas distintas en el mismo libro, y el lugar
+    // donde más importa (el total en negrita, leído primero) quedaría
+    // atribuido por error a una sola CAT. Sin ?cat= no hay asimetría que
+    // declarar — las dos columnas son "todos los centros" por igual — así
+    // que ese caso reutiliza la misma redacción que las demás hojas (y el
+    // pin de prueba que la cuenta dos veces sigue funcionando sin cambios).
+    private static string DescripcionAlcanceCatUnidades(string? cat) =>
+        cat is null
+            ? "Todos los centros de acopio"
+            : $"{cat} — solo la columna «Vendidas en la comunidad»; " +
+              "despachadas y total son de toda la cooperativa";
+
+    private static void EscribirLineaAlcanceCatUnidades(
+        IXLWorksheet hoja, int fila, string? cat)
+    {
+        var celda = hoja.Cell(fila, 1);
+        celda.Value = $"Centro de acopio: {DescripcionAlcanceCatUnidades(cat)}";
+        celda.Style.Font.Bold = true;
+    }
+
+    private static void EscribirAlcanceCatUnidadesAlInicio(IXLWorksheet hoja, string? cat) =>
+        EscribirLineaAlcanceCatUnidades(hoja, 1, cat);
+
+    private static void EscribirAlcanceCatUnidadesAlFinal(
+        IXLWorksheet hoja, int filaSiguienteVacia, string? cat) =>
+        EscribirLineaAlcanceCatUnidades(hoja, filaSiguienteVacia + 1, cat);
 
     private static void AgregarHojaGananciaCat(
         XLWorkbook libro, IEnumerable<GananciaCatDto> datos, string? cat)
@@ -1334,6 +1488,67 @@ public class ReportesService(AppDbContext db) : IReportesService
         // que la columna nunca se dimensionaba para ese texto (el más largo
         // de la hoja). Mismo orden que ya llevan las tres hojas de
         // ganancias arriba.
+        hoja.Columns().AdjustToContents();
+    }
+
+    // Sexta hoja. Lleva su línea de alcance como las tres de ganancias
+    // porque la asimetría del filtro también la afecta, y de una forma que
+    // no se ve en la propia hoja: la columna de comunidad SÍ está filtrada
+    // por CAT y la de despacho NO. Quien abra el libro con ?cat= puesto
+    // tiene que poder saberlo sin salir de esta pestaña — por eso usa su
+    // propia línea de alcance (EscribirAlcanceCatUnidadesAl...) en vez de
+    // la compartida con las tres hojas de ganancias: esa dice "Centro de
+    // acopio: PAT" a secas, cierto para esas hojas enteras pero falso para
+    // dos de las tres columnas de aquí.
+    private static void AgregarHojaUnidades(
+        XLWorkbook libro, IEnumerable<UnidadesMesDto> datos, string? cat)
+    {
+        var hoja = libro.Worksheets.Add("Unidades vendidas");
+        EscribirAlcanceCatUnidadesAlInicio(hoja, cat);
+        EscribirEncabezadosGanancias(hoja, new[]
+        {
+            "Mes", "Vendidas en la comunidad", "Despachadas a clientes",
+            "Total de animales"
+        }, fila: 2);
+
+        int fila = 3;
+        var totalComunidad = 0;
+        var totalDespacho = 0;
+        foreach (var r in datos)
+        {
+            hoja.Cell(fila, 1).Value = r.Agrupacion;
+            hoja.Cell(fila, 2).Value = r.VendidasComunidad;
+            hoja.Cell(fila, 3).Value = r.DespachadasClientes;
+            hoja.Cell(fila, 4).Value = r.Total;
+            totalComunidad += r.VendidasComunidad;
+            totalDespacho += r.DespachadasClientes;
+            fila++;
+        }
+
+        // El rótulo dice ANIMALES a propósito: en el resto del libro nada se
+        // suma, y sin esa palabra esta línea podría leerse como permiso para
+        // sumar también las cifras de dinero de las otras hojas.
+        var filaTotal = fila + 1;
+        hoja.Cell(filaTotal, 1).Value =
+            $"Total de animales vendidos en el período: {totalComunidad + totalDespacho} " +
+            $"({totalComunidad} en la comunidad + {totalDespacho} despachados)";
+        hoja.Cell(filaTotal, 1).Style.Font.Bold = true;
+
+        // B1: la frase que antes iba aquí explicando la asimetría ("la
+        // columna de comunidad respeta el filtro... la de despacho no...")
+        // quedó redundante: la propia línea de alcance de abajo (y la de
+        // arriba) ya la nombran en una sola frase cuando hay ?cat= puesto.
+        // Dejar las tres habría sido repetir lo mismo con distintas
+        // palabras justo debajo del número que más importa leer bien.
+        //
+        // N4: se pasa filaTotal + 1 (fila vacía, igual que hacen las tres
+        // hojas de ganancias con su "fila" tras el bucle) para que quede
+        // una fila en blanco entre el total y esta línea, en vez de escribir
+        // pegada a una fila que ya tenía texto.
+        EscribirAlcanceCatUnidadesAlFinal(hoja, filaTotal + 1, cat);
+
+        // Al final, cuando ya está todo escrito: si se ajusta antes, las
+        // líneas de abajo no se tienen en cuenta para el ancho.
         hoja.Columns().AdjustToContents();
     }
 

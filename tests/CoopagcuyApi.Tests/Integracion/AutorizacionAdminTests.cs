@@ -195,12 +195,17 @@ public class AutorizacionAdminTests(ApiFactory api) : IAsyncLifetime
     // S2: antes solo el Excel estaba cubierto — los otros cinco endpoints
     // del reporte de ganancias (los tres de "lo que ganaron las
     // productoras" y los dos de margen) no tenían NINGUNA prueba de rol.
-    // Los seis [Authorize] de hoy son correctos, pero sin esta red alguien
-    // que "restaure" el reporte a los dos administradores originales (la
-    // petición inicial nombraba solo a esos dos) rompería la pestaña del
-    // OperadorFaenamiento con los 322 tests en verde, y alguien que
+    // Los seis [Authorize] de esa vez eran correctos, pero sin esta red
+    // alguien que "restaure" el reporte a los dos administradores
+    // originales (la petición inicial nombraba solo a esos dos) rompería la
+    // pestaña del OperadorFaenamiento con los tests en verde, y alguien que
     // agregara OperadorCAT expondría clientes y márgenes de todas las CAT,
     // también con todo en verde.
+    //
+    // /api/reportes/unidades/mes se sumó después con el mismo trío de roles
+    // exacto (AdminCooperativa, AdminTecnico, OperadorFaenamiento), así que
+    // comparte esta misma lista en vez de duplicarla: son siete endpoints
+    // ahora, no seis.
 
     [Theory]
     [InlineData("/api/reportes/exportar/excel/ganancias")]
@@ -209,7 +214,8 @@ public class AutorizacionAdminTests(ApiFactory api) : IAsyncLifetime
     [InlineData("/api/reportes/ganancias/mes")]
     [InlineData("/api/reportes/margen/mes")]
     [InlineData("/api/reportes/margen/cliente")]
-    public async Task OperadorCAT_pierdeLosSeisEndpointsDeGanancias(string ruta)
+    [InlineData("/api/reportes/unidades/mes")]
+    public async Task OperadorCAT_pierdeLosSieteEndpointsDeGananciasYUnidades(string ruta)
     {
         var respuesta = await api.ComoOperadorCat("PAT")
             .GetAsync($"{ruta}?desde=2026-08-01&hasta=2026-08-18");
@@ -219,8 +225,10 @@ public class AutorizacionAdminTests(ApiFactory api) : IAsyncLifetime
 
     // Control del rol que el spec agregó a propósito ("Es más de lo que
     // pedía la petición original"): si alguna vez alguien recorta el
-    // [Authorize] de estos seis endpoints a solo los dos administradores,
-    // esta prueba (no solo la de arriba) lo nota.
+    // [Authorize] de estos siete endpoints a solo los dos administradores,
+    // esta prueba (no solo la de arriba) lo nota. OperadorFaenamiento recibe
+    // 200 en unidades/mes igual que en los seis de ganancias, no solo se
+    // comprueba que OperadorCAT reciba 403.
     [Theory]
     [InlineData("/api/reportes/exportar/excel/ganancias")]
     [InlineData("/api/reportes/ganancias/productoras")]
@@ -228,7 +236,8 @@ public class AutorizacionAdminTests(ApiFactory api) : IAsyncLifetime
     [InlineData("/api/reportes/ganancias/mes")]
     [InlineData("/api/reportes/margen/mes")]
     [InlineData("/api/reportes/margen/cliente")]
-    public async Task OperadorFaenamiento_accedeALosSeisEndpointsDeGanancias(string ruta)
+    [InlineData("/api/reportes/unidades/mes")]
+    public async Task OperadorFaenamiento_accedeALosSieteEndpointsDeGananciasYUnidades(string ruta)
     {
         var respuesta = await api.ComoOperadorFaenamiento()
             .GetAsync($"{ruta}?desde=2026-08-01&hasta=2026-08-18");

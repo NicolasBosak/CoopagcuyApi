@@ -175,6 +175,25 @@ public class ReportesController(IReportesService service) : ControllerBase
     }
 
     /// <summary>
+    /// Unidades de cuyes vendidas por las dos vías, por mes local del piloto.
+    ///
+    /// El filtro por CAT acota SOLO la columna de comunidad. La de despacho
+    /// no se filtra: un despacho mezcla animales de varias jaulas y por tanto
+    /// de varios CAT (mismo motivo que en las vistas de margen).
+    /// </summary>
+    [HttpGet("unidades/mes")]
+    [Authorize(Roles = "AdminCooperativa,AdminTecnico,OperadorFaenamiento")]
+    public async Task<IActionResult> UnidadesPorMes(
+        [FromQuery] DateTime desde,
+        [FromQuery] DateTime hasta,
+        [FromQuery] string? cat)
+    {
+        var resultado = await service.UnidadesPorMesAsync(
+            new FiltroPeriodoDto(desde, hasta, cat));
+        return Ok(resultado);
+    }
+
+    /// <summary>
     /// Reporte individual por cuy: estado de cada animal registrado.
     /// </summary>
     [HttpGet("cuyes")]
@@ -389,7 +408,7 @@ public class ReportesController(IReportesService service) : ControllerBase
     }
 
     /// <summary>
-    /// Exporta el reporte de ganancias a Excel — RF-505. Cinco hojas: las
+    /// Exporta el reporte de ganancias a Excel — RF-505. Seis hojas: las
     /// tres primeras (por CAT, por productora, por mes) sí respetan
     /// ?cat=; las dos de margen (por mes, por cliente) no, porque un
     /// despacho reúne animales de varias CAT (ver el comentario en
