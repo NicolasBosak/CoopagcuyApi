@@ -1,6 +1,5 @@
 using System.Net;
 using System.Net.Http.Json;
-using CoopagcuyApi.Common;
 using CoopagcuyApi.Tests.Infra;
 using Microsoft.EntityFrameworkCore;
 using Shouldly;
@@ -202,7 +201,7 @@ public class LlegadaEnMalEstadoTests(ApiFactory api) : IAsyncLifetime
         string[] condiciones)
     {
         var productora = await Sembrador.ProductoraAsync(
-            api, Cedula, CentroAcopio.PAT);
+            api, Cedula, "PAT");
 
         var cuyes = Enumerable.Range(0, 3).Select(_ => new
         {

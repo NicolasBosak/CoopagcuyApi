@@ -281,7 +281,7 @@ public class VentaLocalTests(ApiFactory api) : IAsyncLifetime
         // justo uno de los que tiene sentido colocar en la comunidad.
         // Prohibirlo obligaría a la CAT a sacarlo del sistema.
         var productora = await Sembrador.ProductoraAsync(
-            api, CedulaA, CentroAcopio.PAT);
+            api, CedulaA, "PAT");
 
         // 900 g está por debajo del mínimo: el CAT lo marca Rechazado.
         var entrega = await api.ComoOperadorCat("PAT")
@@ -352,7 +352,7 @@ public class VentaLocalTests(ApiFactory api) : IAsyncLifetime
         string cedula, int cantidad)
     {
         var productora = await Sembrador.ProductoraAsync(
-            api, cedula, CentroAcopio.PAT);
+            api, cedula, "PAT");
 
         var ids = await EntregarAsync(productora.Id, cantidad);
 
@@ -370,7 +370,7 @@ public class VentaLocalTests(ApiFactory api) : IAsyncLifetime
         int loteId, string cedula, int cantidad)
     {
         var productora = await Sembrador.ProductoraAsync(
-            api, cedula, CentroAcopio.PAT);
+            api, cedula, "PAT");
 
         var ids = await EntregarAsync(productora.Id, cantidad);
         return new CuyesDe(productora.Id, ids);

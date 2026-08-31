@@ -1,6 +1,5 @@
 using System.Net;
 using System.Net.Http.Json;
-using CoopagcuyApi.Common;
 using CoopagcuyApi.Tests.Infra;
 using Microsoft.EntityFrameworkCore;
 using Shouldly;
@@ -161,7 +160,7 @@ public class AlcanceProductorasTests(ApiFactory api) : IAsyncLifetime
     public async Task OperadorCat_editaProductoraDeSuCentro()
     {
         var productora = await Sembrador.ProductoraAsync(
-            api, CedulaUno, CentroAcopio.PAT, comunidadId: 1);
+            api, CedulaUno, "PAT", comunidadId: 1);
 
         var respuesta = await api.ComoOperadorCat("PAT")
             .PutAsJsonAsync($"/api/productoras/{productora.Id}", new
@@ -180,7 +179,7 @@ public class AlcanceProductorasTests(ApiFactory api) : IAsyncLifetime
     public async Task OperadorCat_noEditaProductoraDeOtroCentro()
     {
         var productora = await Sembrador.ProductoraAsync(
-            api, CedulaUno, CentroAcopio.NIE, comunidadId: 2);
+            api, CedulaUno, "NIE", comunidadId: 2);
 
         var respuesta = await api.ComoOperadorCat("PAT")
             .PutAsJsonAsync($"/api/productoras/{productora.Id}", new
@@ -208,7 +207,7 @@ public class AlcanceProductorasTests(ApiFactory api) : IAsyncLifetime
         // resultado, no el código de estado: entra siendo de PAT y sigue
         // siendo de PAT, por mucho que el cuerpo pida "NIE".
         var productora = await Sembrador.ProductoraAsync(
-            api, CedulaUno, CentroAcopio.PAT, comunidadId: 1);
+            api, CedulaUno, "PAT", comunidadId: 1);
 
         var respuesta = await api.ComoOperadorCat("PAT")
             .PutAsJsonAsync($"/api/productoras/{productora.Id}", new
@@ -226,7 +225,7 @@ public class AlcanceProductorasTests(ApiFactory api) : IAsyncLifetime
         var actualizada = await db.Productoras.AsNoTracking()
             .FirstAsync(p => p.Id == productora.Id);
 
-        actualizada.CatAsignado.ShouldBe(CentroAcopio.PAT);   // no se movió
+        actualizada.CatAsignado.ShouldBe("PAT");   // no se movió
         actualizada.ComunidadId.ShouldBe(2);                  // sí cambió de comunidad
     }
 
@@ -234,7 +233,7 @@ public class AlcanceProductorasTests(ApiFactory api) : IAsyncLifetime
     public async Task OperadorCat_desactivaYReactivaProductoraDeSuCentro()
     {
         var productora = await Sembrador.ProductoraAsync(
-            api, CedulaUno, CentroAcopio.PAT, comunidadId: 1);
+            api, CedulaUno, "PAT", comunidadId: 1);
         var cliente = api.ComoOperadorCat("PAT");
 
         var baja = await cliente.PatchAsJsonAsync(
@@ -250,7 +249,7 @@ public class AlcanceProductorasTests(ApiFactory api) : IAsyncLifetime
     public async Task OperadorCat_noCambiaElEstadoDeOtroCentro()
     {
         var productora = await Sembrador.ProductoraAsync(
-            api, CedulaUno, CentroAcopio.NIE, comunidadId: 2);
+            api, CedulaUno, "NIE", comunidadId: 2);
 
         var respuesta = await api.ComoOperadorCat("PAT").PatchAsJsonAsync(
             $"/api/productoras/{productora.Id}/estado", new { activa = false });
@@ -263,9 +262,9 @@ public class AlcanceProductorasTests(ApiFactory api) : IAsyncLifetime
     {
         // Sin las inactivas a la vista no hay forma de reactivar ninguna.
         await Sembrador.ProductoraAsync(
-            api, CedulaUno, CentroAcopio.PAT, comunidadId: 1, activa: false);
+            api, CedulaUno, "PAT", comunidadId: 1, activa: false);
         await Sembrador.ProductoraAsync(
-            api, CedulaDos, CentroAcopio.NIE, comunidadId: 2, activa: false);
+            api, CedulaDos, "NIE", comunidadId: 2, activa: false);
 
         var respuesta = await api.ComoOperadorCat("PAT")
             .GetAsync("/api/productoras?incluirInactivas=true");
@@ -284,7 +283,7 @@ public class AlcanceProductorasTests(ApiFactory api) : IAsyncLifetime
     {
         // Es información de auditoría: sigue siendo de administradores.
         var productora = await Sembrador.ProductoraAsync(
-            api, CedulaUno, CentroAcopio.PAT, comunidadId: 1);
+            api, CedulaUno, "PAT", comunidadId: 1);
 
         var respuesta = await api.ComoOperadorCat("PAT")
             .GetAsync($"/api/productoras/{productora.Id}/historial");

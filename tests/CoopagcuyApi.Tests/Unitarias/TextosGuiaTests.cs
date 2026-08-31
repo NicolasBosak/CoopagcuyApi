@@ -37,13 +37,12 @@ public class TextosGuiaTests
         NombreCompleto = "Nicolas Productor",
         Cedula = "0104576277",
         ComunidadId = 1,
-        CatAsignado = CentroAcopio.PAT,
+        CatAsignado = "PAT",
         Comunidad = new Comunidad
         {
             Id = 1,
             Nombre = comunidad,
-            Canton = "Pucará",
-            CatReferencia = CentroAcopio.PAT
+            CatReferencia = "PAT"
         }
     };
 

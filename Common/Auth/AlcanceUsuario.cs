@@ -1,5 +1,4 @@
 using System.Security.Claims;
-using CoopagcuyApi.Common;
 
 namespace CoopagcuyApi.Common.Auth;
 

@@ -1,6 +1,8 @@
+using System.Text.RegularExpressions;
 using CoopagcuyApi.Common;
 using CoopagcuyApi.Features.Catalogos.DTOs;
 using CoopagcuyApi.Features.Catalogos.Models;
+using CoopagcuyApi.Features.Recepcion.Models;
 using CoopagcuyApi.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -12,57 +14,60 @@ public interface ICatalogosService
     Task<ComunidadResponseDto> CrearComunidadAsync(GuardarComunidadDto dto);
     Task<bool> ActualizarComunidadAsync(int id, GuardarComunidadDto dto);
     Task<bool> CambiarEstadoComunidadAsync(int id, bool activa);
-    IEnumerable<CentroAcopioDto> ListarCentrosAcopio();
+
+    Task<IEnumerable<CentroAcopioDto>> ListarCentrosAcopioAsync(bool incluirInactivos);
+    Task<CentroAcopioDto> CrearCentroAcopioAsync(CrearCentroAcopioDto dto);
+    Task<bool> ActualizarCentroAcopioAsync(string codigo, ActualizarCentroAcopioDto dto);
+    Task<bool> CambiarEstadoCentroAcopioAsync(string codigo, bool activo);
 }
 
-public class CatalogosService(AppDbContext db) : ICatalogosService
+public partial class CatalogosService(AppDbContext db) : ICatalogosService
 {
-    private static readonly Dictionary<CentroAcopio, string> NombresCat = new()
-    {
-        [CentroAcopio.PAT] = "Patococha",
-        [CentroAcopio.NIE] = "Las Nieves",
-        [CentroAcopio.HUE] = "Huertas",
-        [CentroAcopio.NAB] = "Nabón / El Progreso",
-        [CentroAcopio.PEL] = "Pelincay"
-    };
+    // Tres letras A–Z, ni una más. El código prefija el identificador de cada
+    // jaula (PAT-20260615-001): con ancho variable se romperían las etiquetas
+    // ink-jet y cualquier lectura por posición.
+    [GeneratedRegex("^[A-Z]{3}$")]
+    private static partial Regex CodigoCat();
+
+    // ── Comunidades ──────────────────────────────────────────────────
 
     public async Task<IEnumerable<ComunidadResponseDto>> ListarComunidadesAsync(
         bool incluirInactivas)
     {
         var query = db.Comunidades.AsQueryable();
-        if (!incluirInactivas)
-            query = query.Where(c => c.Activa);
+        if (!incluirInactivas) query = query.Where(c => c.Activa);
 
         return await query
             .OrderBy(c => c.Nombre)
             .Select(c => new ComunidadResponseDto(
-                c.Id, c.Nombre, c.Canton, c.CatReferencia.ToString(), c.Activa))
+                c.Id, c.Nombre, c.CantonId, c.Canton.Nombre,
+                c.Canton.Provincia.Nombre, c.CatReferencia, c.Activa,
+                c.Latitud, c.Longitud, c.AltitudMinM, c.AltitudMaxM))
             .ToListAsync();
     }
 
     public async Task<ComunidadResponseDto> CrearComunidadAsync(GuardarComunidadDto dto)
     {
         var nombre = dto.Nombre.Trim();
-        var existe = await db.Comunidades
-            .AnyAsync(c => c.Nombre.ToLower() == nombre.ToLower());
+        var cat = dto.CatReferencia.Trim().ToUpperInvariant();
 
-        if (existe)
-            throw new InvalidOperationException(
-                $"Ya existe una comunidad con el nombre '{nombre}'.");
+        await ValidarComunidadAsync(nombre, dto.CantonId, cat, idExcluido: null);
 
         var comunidad = new Comunidad
         {
             Nombre = nombre,
-            Canton = dto.Canton.Trim(),
-            CatReferencia = dto.CatReferencia
+            CantonId = dto.CantonId,
+            CatReferencia = cat,
+            Latitud = dto.Latitud,
+            Longitud = dto.Longitud,
+            AltitudMinM = dto.AltitudMinM,
+            AltitudMaxM = dto.AltitudMaxM,
         };
 
         db.Comunidades.Add(comunidad);
         await db.SaveChangesAsync();
 
-        return new ComunidadResponseDto(
-            comunidad.Id, comunidad.Nombre, comunidad.Canton,
-            comunidad.CatReferencia.ToString(), comunidad.Activa);
+        return await LeerComunidadAsync(comunidad.Id);
     }
 
     public async Task<bool> ActualizarComunidadAsync(int id, GuardarComunidadDto dto)
@@ -70,9 +75,18 @@ public class CatalogosService(AppDbContext db) : ICatalogosService
         var comunidad = await db.Comunidades.FindAsync(id);
         if (comunidad is null) return false;
 
-        comunidad.Nombre = dto.Nombre.Trim();
-        comunidad.Canton = dto.Canton.Trim();
-        comunidad.CatReferencia = dto.CatReferencia;
+        var nombre = dto.Nombre.Trim();
+        var cat = dto.CatReferencia.Trim().ToUpperInvariant();
+
+        await ValidarComunidadAsync(nombre, dto.CantonId, cat, idExcluido: id);
+
+        comunidad.Nombre = nombre;
+        comunidad.CantonId = dto.CantonId;
+        comunidad.CatReferencia = cat;
+        comunidad.Latitud = dto.Latitud;
+        comunidad.Longitud = dto.Longitud;
+        comunidad.AltitudMinM = dto.AltitudMinM;
+        comunidad.AltitudMaxM = dto.AltitudMaxM;
 
         await db.SaveChangesAsync();
         return true;
@@ -88,6 +102,163 @@ public class CatalogosService(AppDbContext db) : ICatalogosService
         return true;
     }
 
-    public IEnumerable<CentroAcopioDto> ListarCentrosAcopio() =>
-        NombresCat.Select(kv => new CentroAcopioDto(kv.Key.ToString(), kv.Value));
+    // El nombre es único DENTRO del cantón, no en todo el sistema: "San José"
+    // existe en varias provincias del Ecuador.
+    //
+    // NO se valida que el CAT sea del mismo cantón ni de la misma provincia:
+    // una comunidad entrega donde le queda más cerca, y hay comunidades a las
+    // que les queda más cerca un centro de la provincia de al lado.
+    private async Task ValidarComunidadAsync(
+        string nombre, int cantonId, string cat, int? idExcluido)
+    {
+        if (nombre.Length == 0)
+            throw new InvalidOperationException("El nombre de la comunidad es obligatorio.");
+
+        if (!await db.Cantones.AnyAsync(c => c.Id == cantonId && c.Activo))
+            throw new InvalidOperationException("El cantón indicado no existe o está inactivo.");
+
+        // Task 6: misma comprobación que usan Usuario/Productora/Recepción,
+        // vía la pieza compartida (Common/ValidadorCat.cs) en vez de una
+        // copia local — este archivo era la única de las cuatro que no se
+        // había migrado.
+        await db.ValidarCatActivoAsync(cat);
+
+        var repetida = await db.Comunidades.AnyAsync(c =>
+            c.CantonId == cantonId
+            && c.Nombre.ToLower() == nombre.ToLower()
+            && (idExcluido == null || c.Id != idExcluido));
+
+        if (repetida)
+            throw new InvalidOperationException(
+                $"Ya existe la comunidad '{nombre}' en ese cantón.");
+    }
+
+    private Task<ComunidadResponseDto> LeerComunidadAsync(int id) =>
+        db.Comunidades
+            .Where(c => c.Id == id)
+            .Select(c => new ComunidadResponseDto(
+                c.Id, c.Nombre, c.CantonId, c.Canton.Nombre,
+                c.Canton.Provincia.Nombre, c.CatReferencia, c.Activa,
+                c.Latitud, c.Longitud, c.AltitudMinM, c.AltitudMaxM))
+            .SingleAsync();
+
+    // ── Centros de acopio ────────────────────────────────────────────
+
+    public async Task<IEnumerable<CentroAcopioDto>> ListarCentrosAcopioAsync(
+        bool incluirInactivos)
+    {
+        var query = db.CentrosAcopio.AsQueryable();
+        if (!incluirInactivos) query = query.Where(c => c.Activo);
+
+        return await query
+            .OrderBy(c => c.Nombre)
+            .Select(c => new CentroAcopioDto(
+                c.Codigo, c.Nombre, c.CantonId, c.Canton.Nombre,
+                c.Canton.Provincia.Nombre, c.Activo))
+            .ToListAsync();
+    }
+
+    public async Task<CentroAcopioDto> CrearCentroAcopioAsync(CrearCentroAcopioDto dto)
+    {
+        var codigo = dto.Codigo.Trim().ToUpperInvariant();
+        var nombre = dto.Nombre.Trim();
+
+        if (!CodigoCat().IsMatch(codigo))
+            throw new InvalidOperationException(
+                "El código del centro debe ser exactamente tres letras (por ejemplo, PAT).");
+
+        if (nombre.Length == 0)
+            throw new InvalidOperationException("El nombre del centro es obligatorio.");
+
+        if (await db.CentrosAcopio.AnyAsync(c => c.Codigo == codigo))
+            throw new InvalidOperationException(
+                $"Ya existe un centro de acopio con el código '{codigo}'.");
+
+        if (!await db.Cantones.AnyAsync(c => c.Id == dto.CantonId && c.Activo))
+            throw new InvalidOperationException("El cantón indicado no existe o está inactivo.");
+
+        db.CentrosAcopio.Add(new CentroAcopio
+        {
+            Codigo = codigo,
+            Nombre = nombre,
+            CantonId = dto.CantonId,
+        });
+        await db.SaveChangesAsync();
+
+        return await LeerCentroAsync(codigo);
+    }
+
+    // El código no se toca: no está en el DTO y aquí tampoco se lee.
+    public async Task<bool> ActualizarCentroAcopioAsync(
+        string codigo, ActualizarCentroAcopioDto dto)
+    {
+        var centro = await db.CentrosAcopio.FindAsync(codigo.Trim().ToUpperInvariant());
+        if (centro is null) return false;
+
+        var nombre = dto.Nombre.Trim();
+        if (nombre.Length == 0)
+            throw new InvalidOperationException("El nombre del centro es obligatorio.");
+
+        if (!await db.Cantones.AnyAsync(c => c.Id == dto.CantonId && c.Activo))
+            throw new InvalidOperationException("El cantón indicado no existe o está inactivo.");
+
+        centro.Nombre = nombre;
+        centro.CantonId = dto.CantonId;
+        await db.SaveChangesAsync();
+        return true;
+    }
+
+    public async Task<bool> CambiarEstadoCentroAcopioAsync(string codigo, bool activo)
+    {
+        var clave = codigo.Trim().ToUpperInvariant();
+        var centro = await db.CentrosAcopio.FindAsync(clave);
+        if (centro is null) return false;
+
+        if (!activo)
+        {
+            // Una jaula abierta son cuyes esperando físicamente en ese centro.
+            var jaulasAbiertas = await db.Lotes
+                .CountAsync(l => l.CentroAcopio == clave && !l.Cerrado);
+
+            if (jaulasAbiertas > 0)
+                throw new InvalidOperationException(
+                    $"No se puede desactivar '{centro.Nombre}': tiene {jaulasAbiertas} " +
+                    "jaula(s) abierta(s). Ciérralas primero.");
+
+            var productorasVivas = await db.Productoras
+                .CountAsync(p => p.CatAsignado == clave && p.Activa);
+
+            if (productorasVivas > 0)
+                throw new InvalidOperationException(
+                    $"No se puede desactivar '{centro.Nombre}': todavía entregan " +
+                    $"{productorasVivas} productora(s) activa(s). Reasígnalas primero.");
+
+            // Una entrega pendiente de vinculación reconstruye su registro
+            // llamando a RegistrarEntregaAsync, que desde la Task 6 exige un
+            // CAT activo (ValidarCatActivoAsync). Sin esta cuenta, un CAT se
+            // podía desactivar con entregas capturadas offline todavía en la
+            // bandeja: a partir de ahí la vinculación fallaría con 409 para
+            // siempre y la única salida sería descartar una entrega que sí
+            // ocurrió físicamente.
+            var entregasPendientes = await db.EntregasPendientesVinculacion
+                .CountAsync(v => v.CentroAcopio == clave && v.Estado == EstadoVinculacion.Pendiente);
+
+            if (entregasPendientes > 0)
+                throw new InvalidOperationException(
+                    $"No se puede desactivar '{centro.Nombre}': tiene {entregasPendientes} " +
+                    "entrega(s) pendiente(s) de vinculación. Resuélvelas primero.");
+        }
+
+        centro.Activo = activo;
+        await db.SaveChangesAsync();
+        return true;
+    }
+
+    private Task<CentroAcopioDto> LeerCentroAsync(string codigo) =>
+        db.CentrosAcopio
+            .Where(c => c.Codigo == codigo)
+            .Select(c => new CentroAcopioDto(
+                c.Codigo, c.Nombre, c.CantonId, c.Canton.Nombre,
+                c.Canton.Provincia.Nombre, c.Activo))
+            .SingleAsync();
 }

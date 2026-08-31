@@ -1,6 +1,4 @@
-﻿using CoopagcuyApi.Common;
-
-namespace CoopagcuyApi.Features.Recepcion.DTOs;
+﻿namespace CoopagcuyApi.Features.Recepcion.DTOs;
 
 public class CuyRegistroDto
 {
@@ -39,7 +37,7 @@ public record CuyRegistroResponseDto(
 
 public class RegistrarEntregaDto
 {
-    public CentroAcopio CentroAcopio { get; set; }
+    public string CentroAcopio { get; set; } = string.Empty;
     public int ProductoraId { get; set; }
     // Captura offline sin catálogo: cuando el dispositivo no tiene el Id de
     // la productora, envía su cédula y el servidor la resuelve al sincronizar.

@@ -246,7 +246,7 @@ public class MovilizacionService(AppDbContext db) : IMovilizacionService
         Id: m.Id,
         LoteId: m.LoteId,
         CodigoLote: lote.CodigoLote,
-        CentroAcopio: lote.CentroAcopio.ToString(),
+        CentroAcopio: lote.CentroAcopio,
         NombreProductora: lote.Productora?.NombreCompleto ?? string.Empty,
         FechaDespacho: m.FechaDespacho,
         Conductor: m.Conductor,

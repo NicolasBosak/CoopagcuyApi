@@ -1,4 +1,3 @@
-using CoopagcuyApi.Common;
 using CoopagcuyApi.Features.Catalogos.Models;
 
 namespace CoopagcuyApi.Features.Productoras.Models;
@@ -16,7 +15,7 @@ public class Productora
     public int ComunidadId { get; set; }
     public Comunidad Comunidad { get; set; } = null!;
 
-    public CentroAcopio CatAsignado { get; set; }
+    public string CatAsignado { get; set; } = string.Empty;
     public string? Telefono { get; set; }
     public bool Activa { get; set; } = true;
     public DateTime FechaRegistro { get; set; } = DateTime.UtcNow;

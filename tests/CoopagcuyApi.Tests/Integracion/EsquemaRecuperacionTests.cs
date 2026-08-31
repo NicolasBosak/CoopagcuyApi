@@ -31,7 +31,7 @@ public class EsquemaRecuperacionTests(ApiFactory api) : IAsyncLifetime
             Cedula = "0102030405",
             PasswordHash = "hash-irrelevante",
             Rol = RolUsuario.OperadorCAT,
-            CatAsignado = CentroAcopio.PAT
+            CatAsignado = "PAT"
         };
         db.Usuarios.Add(usuario);
         await db.SaveChangesAsync();
@@ -63,7 +63,7 @@ public class EsquemaRecuperacionTests(ApiFactory api) : IAsyncLifetime
             Cedula = "0102030405",
             PasswordHash = "hash-irrelevante",
             Rol = RolUsuario.OperadorCAT,
-            CatAsignado = CentroAcopio.PAT
+            CatAsignado = "PAT"
         };
         db.Usuarios.Add(usuario);
         await db.SaveChangesAsync();
@@ -97,7 +97,7 @@ public class EsquemaRecuperacionTests(ApiFactory api) : IAsyncLifetime
             Cedula = "0102030405",
             PasswordHash = "hash-irrelevante",
             Rol = RolUsuario.OperadorCAT,
-            CatAsignado = CentroAcopio.PAT
+            CatAsignado = "PAT"
         };
         db.Usuarios.Add(usuario);
         await db.SaveChangesAsync();

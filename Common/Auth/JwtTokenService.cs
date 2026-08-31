@@ -32,7 +32,7 @@ public class JwtTokenService(IConfiguration configuration) : IJwtTokenService
         // El CAT asignado viaja en el token para restringir al operador
         // a registrar solo en su propio centro de acopio
         if (usuario.CatAsignado is not null)
-            claims.Add(new Claim("cat", usuario.CatAsignado.ToString()!));
+            claims.Add(new Claim("cat", usuario.CatAsignado));
 
         var token = new JwtSecurityToken(
             issuer: configuration["Jwt:Issuer"],

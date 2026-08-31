@@ -23,6 +23,14 @@ public class ProductoraService(AppDbContext db) : IProductoraService
     public async Task<ProductoraResponseDto> CrearAsync(CrearProductoraDto dto)
     {
         var cedula = dto.Cedula.Trim();
+        dto.CatAsignado = NormalizarCat(dto.CatAsignado);
+
+        // Task 6: la validación ya no es de forma, es contra el catálogo
+        // real (ValidadorCat, compartido con UsuarioService y
+        // RecepcionService). A diferencia de Usuario, aquí el CAT es
+        // obligatorio siempre —una productora no puede quedar sin centro—,
+        // así que se comprueba incondicionalmente.
+        await db.ValidarCatActivoAsync(dto.CatAsignado);
 
         // La cédula se valida aquí y no solo en el validador del controlador,
         // igual que en UsuarioService. El validador cubre el endpoint actual,
@@ -38,7 +46,11 @@ public class ProductoraService(AppDbContext db) : IProductoraService
             throw new InvalidOperationException(
                 $"Ya existe una productora registrada con la cédula {cedula}.");
 
-        var comunidad = await db.Comunidades.FindAsync(dto.ComunidadId)
+        // Con Include, no FindAsync: MapToDto necesita el cantón cargado y
+        // FindAsync no admite Include.
+        var comunidad = await db.Comunidades
+            .Include(c => c.Canton)
+            .FirstOrDefaultAsync(c => c.Id == dto.ComunidadId)
             ?? throw new InvalidOperationException(
                 $"La comunidad con Id {dto.ComunidadId} no existe.");
 
@@ -69,16 +81,23 @@ public class ProductoraService(AppDbContext db) : IProductoraService
         if (!string.IsNullOrEmpty(comunidad))
             query = query.Where(p => p.Comunidad.Nombre.Contains(comunidad));
 
-        if (!string.IsNullOrEmpty(cat) && Enum.TryParse<Common.CentroAcopio>(cat, out var catEnum))
-            query = query.Where(p => p.CatAsignado == catEnum);
+        // Arreglo Task 4: el filtro de lectura se normaliza aquí, en la
+        // entrada del servicio, igual que CrearAsync/ActualizarAsync
+        // normalizan la escritura. Postgres compara CatAsignado
+        // distinguiendo mayúsculas, y un ?cat=pat sin normalizar dejaría al
+        // operador viendo una lista vacía sin ningún error que lo explique.
+        // Un cat nulo o vacío sigue significando "sin filtro".
+        var catNormalizado = NormalizarCat(cat);
+        if (!string.IsNullOrEmpty(catNormalizado))
+            query = query.Where(p => p.CatAsignado == catNormalizado);
 
         // Incluye el conteo de cuyes retornados desde la planta,
         // para que el CAT sepa qué productora presenta devoluciones
         return await query
             .Select(p => new ProductoraResponseDto(
                 p.Id, p.NombreCompleto, p.Cedula, p.ComunidadId,
-                p.Comunidad.Nombre, p.Comunidad.Canton,
-                p.CatAsignado.ToString(), p.Telefono,
+                p.Comunidad.Nombre, p.Comunidad.Canton.Nombre,
+                p.CatAsignado, p.Telefono,
                 p.Activa, p.FechaRegistro,
                 db.RetornosProductora.Count(r => r.ProductoraId == p.Id)))
             .ToListAsync();
@@ -88,6 +107,7 @@ public class ProductoraService(AppDbContext db) : IProductoraService
     {
         var p = await db.Productoras
             .Include(p => p.Comunidad)
+            .ThenInclude(c => c.Canton)
             .FirstOrDefaultAsync(p => p.Id == id);
         return p is null ? null : MapToDto(p);
     }
@@ -104,11 +124,20 @@ public class ProductoraService(AppDbContext db) : IProductoraService
             ?? throw new InvalidOperationException(
                 $"La comunidad con Id {dto.ComunidadId} no existe.");
 
+        // Antes de comparar contra lo guardado: si no, el historial
+        // registraría un cambio de "PAT" a "pat" que no es tal.
+        dto.CatAsignado = NormalizarCat(dto.CatAsignado);
+
+        // Task 6, antes de tocar el historial: si el CAT no existe o está
+        // inactivo no debe quedar ni un registro de cambio a medias. Ver el
+        // comentario equivalente en CrearAsync.
+        await db.ValidarCatActivoAsync(dto.CatAsignado);
+
         RegistrarCambio(id, "NombreCompleto", productora.NombreCompleto, dto.NombreCompleto, modificadoPor);
         // El historial guarda el nombre, no el Id: quien lo lee necesita
         // entenderlo sin resolver claves contra el catálogo
         RegistrarCambio(id, "Comunidad", productora.Comunidad.Nombre, nuevaComunidad.Nombre, modificadoPor);
-        RegistrarCambio(id, "CatAsignado", productora.CatAsignado.ToString(), dto.CatAsignado.ToString(), modificadoPor);
+        RegistrarCambio(id, "CatAsignado", productora.CatAsignado, dto.CatAsignado, modificadoPor);
         RegistrarCambio(id, "Telefono", productora.Telefono, dto.Telefono, modificadoPor);
 
         productora.NombreCompleto = dto.NombreCompleto;
@@ -159,11 +188,19 @@ public class ProductoraService(AppDbContext db) : IProductoraService
         });
     }
 
-    // Requiere Comunidad cargada (Include o asignada al crear)
+    // El código del CAT se normaliza AQUÍ, en el borde, y no en cada
+    // consulta: Postgres distingue mayúsculas y una productora guardada
+    // con "pat" dejaría al operador de PAT viendo una bandeja vacía sin
+    // ningún error que lo explique.
+    private static string NormalizarCat(string? cat) =>
+        (cat ?? string.Empty).Trim().ToUpperInvariant();
+
+    // Requiere Comunidad y Comunidad.Canton cargados (Include/ThenInclude o
+    // asignados al crear)
     private static ProductoraResponseDto MapToDto(Productora p) => new(
         p.Id, p.NombreCompleto, p.Cedula, p.ComunidadId,
-        p.Comunidad.Nombre, p.Comunidad.Canton,
-        p.CatAsignado.ToString(), p.Telefono,
+        p.Comunidad.Nombre, p.Comunidad.Canton.Nombre,
+        p.CatAsignado, p.Telefono,
         p.Activa, p.FechaRegistro
     );
 }

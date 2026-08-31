@@ -145,7 +145,7 @@ public class EvidenciaClinicaTests(ApiFactory api) : IAsyncLifetime
     private async Task<int> RegistrarConFotoAsync(string? fotoBase64)
     {
         var productora = await Sembrador.ProductoraAsync(
-            api, CedulaProductora, CoopagcuyApi.Common.CentroAcopio.PAT);
+            api, CedulaProductora, "PAT");
 
         var cuerpo = new
         {
@@ -257,7 +257,7 @@ public class EvidenciaClinicaTests(ApiFactory api) : IAsyncLifetime
     public async Task UnaFotoDeMasDeDosMegasSeRechaza()
     {
         var productora = await Sembrador.ProductoraAsync(
-            api, CedulaProductora, CoopagcuyApi.Common.CentroAcopio.PAT);
+            api, CedulaProductora, "PAT");
 
         var demasiado = Convert.ToBase64String(new byte[2 * 1024 * 1024 + 1]);
 
@@ -318,7 +318,7 @@ public class EvidenciaClinicaTests(ApiFactory api) : IAsyncLifetime
         // única aserción que distingue el código arreglado del roto es el
         // conteo de blobs, no el conteo de filas.
         var productora = await Sembrador.ProductoraAsync(
-            api, CedulaProductora, CoopagcuyApi.Common.CentroAcopio.PAT);
+            api, CedulaProductora, "PAT");
 
         var blobsAntes = await ContarBlobsEvidenciasAsync();
 
@@ -373,7 +373,7 @@ public class EvidenciaClinicaTests(ApiFactory api) : IAsyncLifetime
         // entrega se divide en dos lotes. Cada foto debe quedar anclada a
         // la novedad del animal correcto, no a la del otro lote.
         var productora = await Sembrador.ProductoraAsync(
-            api, CedulaProductora, CoopagcuyApi.Common.CentroAcopio.PAT);
+            api, CedulaProductora, "PAT");
 
         const int capacidad = CoopagcuyApi.Common.ReglasRecepcion.CapacidadJaula;
         var cuyes = new List<object>();
@@ -432,7 +432,7 @@ public class EvidenciaClinicaTests(ApiFactory api) : IAsyncLifetime
     public async Task UnaFotoEnUnCuySinSignosClinicosNoSubeNiSeAncla()
     {
         var productora = await Sembrador.ProductoraAsync(
-            api, CedulaProductora, CoopagcuyApi.Common.CentroAcopio.PAT);
+            api, CedulaProductora, "PAT");
 
         var blobsAntes = await ContarBlobsEvidenciasAsync();
 

@@ -1,5 +1,4 @@
-﻿using CoopagcuyApi.Common;
-using CoopagcuyApi.Common.Auth;
+﻿using CoopagcuyApi.Common.Auth;
 using CoopagcuyApi.Common.Auth.Recuperacion;
 using CoopagcuyApi.Features.Catalogos.Models;
 using CoopagcuyApi.Features.Faenamiento.Models;
@@ -7,6 +6,7 @@ using CoopagcuyApi.Features.Pagos.Models;
 using CoopagcuyApi.Features.Productoras.Models;
 using CoopagcuyApi.Features.QR.Models;
 using CoopagcuyApi.Features.Recepcion.Models;
+using CoopagcuyApi.Infrastructure.Data.Seed;
 using Microsoft.EntityFrameworkCore;
 
 namespace CoopagcuyApi.Infrastructure.Data;
@@ -37,6 +37,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         Set<EntregaPendienteVinculacion>();
     public DbSet<SolicitudRestablecerPassword> SolicitudesRestablecerPassword =>
         Set<SolicitudRestablecerPassword>();
+    public DbSet<Provincia> Provincias => Set<Provincia>();
+    public DbSet<Canton> Cantones => Set<Canton>();
+    public DbSet<CentroAcopio> CentrosAcopio => Set<CentroAcopio>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -49,7 +52,14 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasIndex(p => p.Cedula).IsUnique();
             e.Property(p => p.NombreCompleto).HasMaxLength(150).IsRequired();
             e.Property(p => p.Cedula).HasMaxLength(13).IsRequired();
-            e.Property(p => p.CatAsignado).HasConversion<string>();
+            e.Property(p => p.CatAsignado).HasMaxLength(3);
+
+            // Sin propiedad de navegación: el código ya viaja solo por todo el
+            // sistema y una navegación obligaría a un Include en cada consulta
+            // a cambio de nada.
+            e.HasOne<CentroAcopio>().WithMany()
+                .HasForeignKey(p => p.CatAsignado)
+                .OnDelete(DeleteBehavior.Restrict);
 
             // Restrict: una comunidad con productoras registradas no puede
             // borrarse. La baja se hace con Activa = false en el catálogo.
@@ -76,10 +86,15 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(l => l.CodigoLote).HasMaxLength(20).IsRequired();
             e.Property(l => l.PesoTotalGramos).HasPrecision(10, 2);
             e.Property(l => l.Estado).HasConversion<string>();
-            e.Property(l => l.CentroAcopio).HasConversion<string>();
+            e.Property(l => l.CentroAcopio).HasMaxLength(3);
             e.HasOne(l => l.Productora)
              .WithMany(p => p.Lotes)
              .HasForeignKey(l => l.ProductoraId);
+
+            // Sin propiedad de navegación: ver el comentario en Productora.
+            e.HasOne<CentroAcopio>().WithMany()
+                .HasForeignKey(l => l.CentroAcopio)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         // Novedad
@@ -189,7 +204,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(u => u.Cedula).HasMaxLength(10).IsRequired();
             e.Property(u => u.Email).HasMaxLength(200);
             e.Property(u => u.Rol).HasConversion<string>();
-            e.Property(u => u.CatAsignado).HasConversion<string>();
+            e.Property(u => u.CatAsignado).HasMaxLength(3);
+
+            // Nullable: solo el OperadorCAT tiene centro asignado. Sin
+            // propiedad de navegación, igual que en Productora y Lote.
+            e.HasOne<CentroAcopio>().WithMany()
+                .HasForeignKey(u => u.CatAsignado)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         // Devolución — RF-307: nace de un despacho; Lote y sesión quedan
@@ -409,13 +430,18 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             // veces: idempotencia del sync también para las pendientes.
             e.HasIndex(v => new { v.DispositivoId, v.IdCliente }).IsUnique();
             e.Property(v => v.Cedula).HasMaxLength(10).IsRequired();
-            e.Property(v => v.CentroAcopio).HasConversion<string>();
+            e.Property(v => v.CentroAcopio).HasMaxLength(3);
             e.Property(v => v.ResponsableRecepcion).HasMaxLength(150).IsRequired();
             e.Property(v => v.Observaciones).HasMaxLength(500);
             e.Property(v => v.DispositivoId).HasMaxLength(100).IsRequired();
             e.Property(v => v.IdCliente).HasMaxLength(100).IsRequired();
             e.Property(v => v.CuyesJson).IsRequired();
             e.Property(v => v.Estado).HasConversion<string>();
+
+            // Sin propiedad de navegación: ver el comentario en Productora.
+            e.HasOne<CentroAcopio>().WithMany()
+                .HasForeignKey(v => v.CentroAcopio)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         // Solicitud de restablecimiento de contraseña: bandeja que atiende un
@@ -454,22 +480,99 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .HasDatabaseName("IX_SolicitudesRestablecerPassword_Pendiente");
         });
 
+        // Provincia — catálogo geográfico de primer nivel
+        modelBuilder.Entity<Provincia>(e =>
+        {
+            e.HasKey(p => p.Id);
+            e.HasIndex(p => p.Nombre).IsUnique();
+            e.Property(p => p.Nombre).HasMaxLength(80).IsRequired();
+
+            e.HasData(GeografiaEcuador.Provincias);
+        });
+
+        // Cantón — cuelga de una provincia. El nombre solo es único DENTRO de su
+        // provincia: hay cantones homónimos en el Ecuador ("Bolívar" está en Carchi
+        // y en Manabí, "Olmedo" en Loja y en Manabí).
+        modelBuilder.Entity<Canton>(e =>
+        {
+            e.HasKey(c => c.Id);
+            e.HasIndex(c => new { c.ProvinciaId, c.Nombre }).IsUnique();
+            e.Property(c => c.Nombre).HasMaxLength(80).IsRequired();
+
+            e.HasOne(c => c.Provincia)
+                .WithMany(p => p.Cantones)
+                .HasForeignKey(c => c.ProvinciaId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            e.HasData(GeografiaEcuador.Cantones);
+        });
+
+        // Centro de acopio — catálogo gestionable. La clave es el código de tres
+        // letras: ver el comentario de la entidad para el porqué.
+        modelBuilder.Entity<CentroAcopio>(e =>
+        {
+            e.HasKey(c => c.Codigo);
+            e.Property(c => c.Codigo).HasMaxLength(3).IsRequired();
+            e.Property(c => c.Nombre).HasMaxLength(100).IsRequired();
+
+            e.HasOne(c => c.Canton)
+                .WithMany()
+                .HasForeignKey(c => c.CantonId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Los cinco del piloto, con su código intacto y el cantón donde están
+            // físicamente. Los CantonId salen de GeografiaEcuador (Azuay):
+            // 4 Nabón, 6 Pucará, 8 Santa Isabel.
+            //
+            // NIE = 6 (Pucará), corregido en una migración posterior a la
+            // siembra inicial: el documento de la cooperativa sitúa la
+            // comunidad "Las Nieves" en Pucará (así quedó sembrada la
+            // comunidad, CantonId 6, más abajo), pero el centro de acopio del
+            // mismo nombre se sembró apuntando a Nabón (CantonId 4) por error
+            // — la corrección se propagó a la comunidad y no al centro.
+            e.HasData(
+                new CentroAcopio { Codigo = "PAT", Nombre = "Patococha", CantonId = 6 },
+                new CentroAcopio { Codigo = "NIE", Nombre = "Las Nieves", CantonId = 6 },
+                new CentroAcopio { Codigo = "HUE", Nombre = "Huertas", CantonId = 8 },
+                new CentroAcopio { Codigo = "NAB", Nombre = "Nabón / El Progreso", CantonId = 4 },
+                new CentroAcopio { Codigo = "PEL", Nombre = "Pelincay", CantonId = 6 }
+            );
+        });
+
         // Comunidad — catálogo gestionable RF-102 / RF-506
         modelBuilder.Entity<Comunidad>(e =>
         {
             e.HasKey(c => c.Id);
-            e.HasIndex(c => c.Nombre).IsUnique();
+            // Único POR CANTÓN, no global: "San José" existe en varias provincias
+            // del Ecuador y un índice global bloquearía el alta de la segunda.
+            e.HasIndex(c => new { c.CantonId, c.Nombre }).IsUnique();
             e.Property(c => c.Nombre).HasMaxLength(100).IsRequired();
-            e.Property(c => c.Canton).HasMaxLength(100).IsRequired();
-            e.Property(c => c.CatReferencia).HasConversion<string>();
+            e.Property(c => c.CatReferencia).HasMaxLength(3);
+            e.Property(c => c.Latitud).HasPrecision(9, 6);
+            e.Property(c => c.Longitud).HasPrecision(9, 6);
 
-            // Comunidades relevadas en el diagnóstico PRODUCTO1
+            e.HasOne(c => c.Canton)
+                .WithMany()
+                .HasForeignKey(c => c.CantonId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Sin propiedad de navegación: ver el comentario en Productora.
+            e.HasOne<CentroAcopio>().WithMany()
+                .HasForeignKey(c => c.CatReferencia)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Comunidades relevadas en el diagnóstico PRODUCTO1. Los CantonId son
+            // los de GeografiaEcuador: 4 Nabón, 6 Pucará, 8 Santa Isabel (Azuay).
+            // Las coordenadas venían del front (coordenadas.ts) y suben aquí.
             e.HasData(
-                new Comunidad { Id = 1, Nombre = "Patococha", Canton = "Pucará", CatReferencia = CentroAcopio.PAT },
-                new Comunidad { Id = 2, Nombre = "Las Nieves", Canton = "Nabón", CatReferencia = CentroAcopio.NIE },
-                new Comunidad { Id = 3, Nombre = "Huertas", Canton = "Santa Isabel", CatReferencia = CentroAcopio.HUE },
-                new Comunidad { Id = 4, Nombre = "Nabón / El Progreso", Canton = "Nabón", CatReferencia = CentroAcopio.NAB },
-                new Comunidad { Id = 5, Nombre = "Pelincay", Canton = "Pucará", CatReferencia = CentroAcopio.PEL }
+                new Comunidad { Id = 1, Nombre = "Patococha",           CantonId = 6, CatReferencia = "PAT", Latitud = -3.225944m, Longitud = -79.504472m, AltitudMinM = 3190, AltitudMaxM = 3190 },
+                new Comunidad { Id = 2, Nombre = "Las Nieves",          CantonId = 6, CatReferencia = "NIE", Latitud = -3.083667m, Longitud = -79.451222m, AltitudMinM = 3200, AltitudMaxM = 3370 },
+                new Comunidad { Id = 3, Nombre = "Huertas",             CantonId = 8, CatReferencia = "HUE", Latitud = -3.135528m, Longitud = -79.395972m, AltitudMinM = 2600, AltitudMaxM = 2900 },
+                new Comunidad { Id = 4, Nombre = "Nabón / El Progreso", CantonId = 4, CatReferencia = "NAB", Latitud = -3.340833m, Longitud = -79.204806m, AltitudMinM = 2600, AltitudMaxM = 2800 },
+                // Pelincay va SIN coordenadas a propósito: nadie ha ido a tomarlas.
+                // Inventar una aproximada en la única pantalla que ve el consumidor
+                // cuesta más que declarar el hueco — el mapa la nombra sin pin.
+                new Comunidad { Id = 5, Nombre = "Pelincay",            CantonId = 6, CatReferencia = "PEL" }
             );
         });
     }
