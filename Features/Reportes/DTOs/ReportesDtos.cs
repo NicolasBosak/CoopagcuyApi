@@ -227,6 +227,28 @@ public record MargenDto(
     int UnidadesDevueltas
 );
 
+// ── Unidades vendidas ─────────────────────────────────────────────────
+//
+// Las dos vías por las que se vende un cuy, separadas. Un cuy va por UNA
+// de las dos y nunca por las dos: el sistema impide que un animal vendido
+// en la comunidad acabe despachado —lo comprueban la movilización, el
+// selector de lotes pendientes de pago, el botón "A planta" y el
+// faenamiento—, así que aquí NO hay doble conteo y Total es un número
+// real.
+//
+// Es la única excepción de este reporte: las cifras de dinero nunca se
+// suman entre sí, porque un pago a una productora es ingreso para ella y
+// costo para la cooperativa. Estas son animales, y sí se suman.
+//
+// DespachadasClientes va NETA de devoluciones, igual que MargenDto.Ingreso:
+// si fuera bruta, las dos cifras se contradirían sobre el mismo despacho.
+public record UnidadesMesDto(
+    string Agrupacion,
+    int VendidasComunidad,
+    int DespachadasClientes,
+    int Total
+);
+
 // ── Filtros compartidos ───────────────────────────────────────────────
 
 // El ?cat= se normaliza en este único borde por donde entran los ~20
