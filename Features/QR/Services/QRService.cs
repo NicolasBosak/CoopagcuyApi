@@ -126,8 +126,16 @@ public class QRService(
                     .ThenInclude(p => p!.Comunidad)
                     .ThenInclude(c => c.Canton)
                     .ThenInclude(c => c.Provincia)
+                // La productora de CADA CUY necesita la misma cadena
+                // Comunidad→Cantón→Provincia que la del lote: una jaula
+                // mixta trae animales de una productora que no es
+                // `Lote.Productora`, y sin este include su Comunidad llega
+                // en null (nunca se cargó), no porque no exista.
                 .Include(lf => lf.Sesiones).ThenInclude(f => f.Lote)
                     .ThenInclude(l => l.Cuyes).ThenInclude(c => c.Productora)
+                    .ThenInclude(p => p!.Comunidad)
+                    .ThenInclude(c => c.Canton)
+                    .ThenInclude(c => c.Provincia)
                 .AsNoTracking()
                 .AsSplitQuery()
                 .FirstOrDefaultAsync(lf => lf.Codigo == codigo);
@@ -148,7 +156,13 @@ public class QRService(
                 .Include(l => l.Productora).ThenInclude(p => p!.Comunidad)
                     .ThenInclude(c => c.Canton)
                     .ThenInclude(c => c.Provincia)
+                // Mismo motivo que en la rama del lote faenado: la
+                // productora de cada cuy necesita su propia cadena
+                // Comunidad→Cantón→Provincia, no solo la del lote.
                 .Include(l => l.Cuyes).ThenInclude(c => c.Productora)
+                    .ThenInclude(p => p!.Comunidad)
+                    .ThenInclude(c => c.Canton)
+                    .ThenInclude(c => c.Provincia)
                 .Include(l => l.Faenamientos).ThenInclude(f => f.Cuyes)
                 .Include(l => l.CodigoQR)
                 .AsNoTracking()
@@ -216,11 +230,18 @@ public class QRService(
         var pesoCanalTotal = animales.Sum(a => a.Faenado.PesoCanalGramos ?? 0);
         var promedio = unidadesTotales > 0 ? pesoCanalTotal / unidadesTotales : 0;
 
-        // La provincia sale de la comunidad de la productora del LOTE (nunca
-        // del CAT): una comunidad entrega donde le queda más cerca, aunque
-        // sea en otra provincia, así que el CAT no es dato fiable de origen.
-        var provincias = sesiones
-            .Select(s => s.Lote.Productora?.Comunidad.Canton.Provincia.Nombre)
+        // La provincia sale de la comunidad de CADA ANIMAL (nunca del CAT):
+        // una comunidad entrega donde le queda más cerca, aunque sea en otra
+        // provincia, así que el CAT no es dato fiable de origen. Se deriva de
+        // `animales` —la misma lista por animal que arma comunidadesAporte,
+        // con su mismo respaldo a la productora del lote— y no de `sesiones`
+        // directo: una jaula acumula entregas de varias productoras, y
+        // resolver por lote (la "primera que entregó", según el comentario
+        // de Lote.cs) le atribuiría una sola provincia a una jaula mixta.
+        // GuiaMovilizacionService y FaenamientoService.InkJetCodigoDto ya
+        // resuelven por animal; aquí quedaba la única desviación.
+        var provincias = animales
+            .Select(a => a.Comunidad?.Canton.Provincia.Nombre)
             .Where(p => !string.IsNullOrEmpty(p))
             .Select(p => p!)
             .Distinct()
@@ -238,7 +259,17 @@ public class QRService(
         else if (promedio >= 880)
             parametros.Add($"✓ Peso canal aceptable ({promedio:F0}g)");
         parametros.Add("✓ Alimentación a base de forraje vegetal");
-        parametros.Add($"✓ Crianza familiar — {provinciaOrigen}, Ecuador");
+        // Arreglo C de la revisión final: `provinciaOrigen` ya cae a
+        // "Ecuador" cuando ningún animal tiene comunidad conocida (lote
+        // antiguo con ProductoraId nulo). Sustituirlo aquí, en una frase que
+        // YA termina en "Ecuador", producía "Crianza familiar — Ecuador,
+        // Ecuador" en la ficha que ve el consumidor final. Se decide omitir
+        // el topónimo entero en ese caso —"Crianza familiar" solo, sin
+        // guion colgante— en vez de inventar una redacción distinta solo
+        // para el caso sin provincia.
+        parametros.Add(provincias.Count > 0
+            ? $"✓ Crianza familiar — {provinciaOrigen}, Ecuador"
+            : "✓ Crianza familiar");
 
         var lotesOrigen = sesiones.Select(s => s.LoteId).Distinct().ToList();
         var faeIds = sesiones
@@ -250,8 +281,9 @@ public class QRService(
             .OrderBy(l => l.FechaRecepcion)
             .FirstOrDefault();
 
-        var cantones = sesiones
-            .Select(s => s.Lote.Productora?.Comunidad.Canton.Nombre)
+        // Mismo motivo que en `provincias`: por animal, no por lote.
+        var cantones = animales
+            .Select(a => a.Comunidad?.Canton.Nombre)
             .Where(c => !string.IsNullOrEmpty(c))
             .Select(c => c!)
             .Distinct()

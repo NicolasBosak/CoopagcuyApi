@@ -209,6 +209,34 @@ public class ApiCentrosAcopioTests(ApiFactory api) : IAsyncLifetime
         cuerpo.ShouldContain("productora(s) activa(s)");
     }
 
+    // Arreglo A de la revisión final: sin esta guarda, un CAT con entregas
+    // capturadas offline todavía en la bandeja de vinculación se podía
+    // desactivar. A partir de ahí, ResolverVinculacionAsync reconstruye la
+    // entrega y llama a RegistrarEntregaAsync, que exige un CAT activo
+    // (ValidarCatActivoAsync desde la Task 6): la vinculación quedaría
+    // atascada en 409 para siempre, sin más salida que Descartar una entrega
+    // que sí ocurrió físicamente.
+    [Fact]
+    public async Task UnCentro_conEntregaPendienteDeVinculacion_noSeDesactiva()
+    {
+        // EntregasPendientesVinculacion SÍ se trunca entre pruebas (no está
+        // en TablesToIgnore): la fila sembrada aquí desaparece sola en la
+        // siguiente limpieza. La desactivación se rechaza (409), así que
+        // NIE.Activo tampoco cambia.
+        await Sembrador.EntregaPendienteAsync(api, "NIE");
+
+        var respuesta = await api.ComoAdmin()
+            .PatchAsJsonAsync("/api/catalogos/centros-acopio/NIE/estado",
+                new { activo = false });
+
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+
+        // Mismo motivo que en las dos guardas anteriores: el mensaje es lo
+        // único que distingue ésta (entregas pendientes) de las otras dos.
+        var cuerpo = await respuesta.Content.ReadAsStringAsync();
+        cuerpo.ShouldContain("entrega(s) pendiente(s) de vinculación");
+    }
+
     [Fact]
     public async Task UnCentroReciénCreado_seDesactivaSinProblema()
     {

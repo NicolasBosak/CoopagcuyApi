@@ -139,8 +139,15 @@ public class ReportesService(AppDbContext db) : IReportesService
             AnimalesConNovedad: conNovedad,
             AnimalesRechazados: rechazados,
             LotesConQR: await db.CodigosQR.CountAsync(q => q.Activo),
+            // Mismo criterio de "sin filtro" que usa la consulta de Lotes de
+            // arriba (IsNullOrEmpty, no == null): un claim "cat" vacío debe
+            // significar "sin acotar" en las dos consultas del mismo
+            // dashboard, no en una sí y en la otra no. Con `== null`, un
+            // claim vacío dejaba los lotes sin filtrar pero ponía el conteo
+            // de productoras en cero — el peor de los tres resultados
+            // posibles (alcance mixto dentro del mismo panel).
             TotalProductoras: await db.Productoras.CountAsync(p =>
-                p.Activa && (cat == null || p.CatAsignado == cat)),
+                p.Activa && (string.IsNullOrEmpty(cat) || p.CatAsignado == cat)),
             TotalFaenamientos: await db.Faenamientos.CountAsync(),
             FechaCorte: hastaUtc,
             RetornosDesdePlanta: retornos,

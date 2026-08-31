@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using CoopagcuyApi.Common;
 using CoopagcuyApi.Features.Catalogos.DTOs;
 using CoopagcuyApi.Features.Catalogos.Models;
+using CoopagcuyApi.Features.Recepcion.Models;
 using CoopagcuyApi.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -231,6 +232,21 @@ public partial class CatalogosService(AppDbContext db) : ICatalogosService
                 throw new InvalidOperationException(
                     $"No se puede desactivar '{centro.Nombre}': todavía entregan " +
                     $"{productorasVivas} productora(s) activa(s). Reasígnalas primero.");
+
+            // Una entrega pendiente de vinculación reconstruye su registro
+            // llamando a RegistrarEntregaAsync, que desde la Task 6 exige un
+            // CAT activo (ValidarCatActivoAsync). Sin esta cuenta, un CAT se
+            // podía desactivar con entregas capturadas offline todavía en la
+            // bandeja: a partir de ahí la vinculación fallaría con 409 para
+            // siempre y la única salida sería descartar una entrega que sí
+            // ocurrió físicamente.
+            var entregasPendientes = await db.EntregasPendientesVinculacion
+                .CountAsync(v => v.CentroAcopio == clave && v.Estado == EstadoVinculacion.Pendiente);
+
+            if (entregasPendientes > 0)
+                throw new InvalidOperationException(
+                    $"No se puede desactivar '{centro.Nombre}': tiene {entregasPendientes} " +
+                    "entrega(s) pendiente(s) de vinculación. Resuélvelas primero.");
         }
 
         centro.Activo = activo;

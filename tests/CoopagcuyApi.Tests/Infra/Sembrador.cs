@@ -187,6 +187,36 @@ public static class Sembrador
     }
 
     /// <summary>
+    /// Entrega capturada sin conexión, todavía en la bandeja de vinculación
+    /// (Estado.Pendiente), apuntando al centro indicado. Es lo mínimo que
+    /// impide desactivar ese centro: hay una entrega real esperando que un
+    /// admin la vincule, y resolverla después de desactivado el CAT chocaría
+    /// con ValidarCatActivoAsync en RegistrarEntregaAsync (Arreglo A de la
+    /// revisión final).
+    /// </summary>
+    public static async Task<EntregaPendienteVinculacion> EntregaPendienteAsync(
+        ApiFactory api, string cat, string cedula = "0104576277")
+    {
+        await using var db = api.NuevoDbContext();
+
+        var pendiente = new EntregaPendienteVinculacion
+        {
+            Cedula = cedula,
+            CentroAcopio = cat,
+            ResponsableRecepcion = "Operadora de prueba",
+            DispositivoId = $"tablet-{Guid.NewGuid():N}",
+            IdCliente = Guid.NewGuid().ToString("N"),
+            FechaCaptura = DateTime.UtcNow,
+            CuyesJson = "[]",
+            Estado = EstadoVinculacion.Pendiente,
+        };
+
+        db.EntregasPendientesVinculacion.Add(pendiente);
+        await db.SaveChangesAsync();
+        return pendiente;
+    }
+
+    /// <summary>
     /// Jaula abierta en un centro, sin animales. Es lo mínimo que impide
     /// desactivar ese centro: hay cuyes físicamente esperando en él.
     /// </summary>
