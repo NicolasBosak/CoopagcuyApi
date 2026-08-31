@@ -596,15 +596,15 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
 
     // ── Excel del reporte de ganancias ─────────────────────────────────
     //
-    // Un libro con las cinco vistas: por CAT, por productora, por mes,
-    // margen por mes y margen por cliente. El tamaño por sí solo no puede
-    // distinguir un libro que perdió una hoja, o las dos advertencias de
-    // AgregarHojaMargen, de uno correcto: esas omisiones cuestan unos
-    // cientos de bytes contra un umbral con miles de margen. Por eso, además
-    // del tamaño, la prueba abre el binario con ClosedXML y afirma la
-    // estructura que sí le importa al reporte: las cinco hojas por nombre,
-    // que cada una trae datos, y que las dos hojas de margen traen sus dos
-    // advertencias con la cifra correcta debajo de la tabla.
+    // Un libro con las seis vistas: por CAT, por productora, por mes,
+    // margen por mes, margen por cliente y unidades vendidas. El tamaño por
+    // sí solo no puede distinguir un libro que perdió una hoja, o las dos
+    // advertencias de AgregarHojaMargen, de uno correcto: esas omisiones
+    // cuestan unos cientos de bytes contra un umbral con miles de margen.
+    // Por eso, además del tamaño, la prueba abre el binario con ClosedXML y
+    // afirma la estructura que sí le importa al reporte: las seis hojas por
+    // nombre, que cada una trae datos, y que las dos hojas de margen traen
+    // sus dos advertencias con la cifra correcta debajo de la tabla.
 
     private static readonly string[] HojasEsperadas =
     [
@@ -615,7 +615,7 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
     private static readonly string[] HojasDeMargen = ["Margen por mes", "Margen por cliente"];
 
     [Fact]
-    public async Task ElExcelDeGananciasSeDescargaConLasCincoHojas()
+    public async Task ElExcelDeGananciasSeDescargaConLasSeisHojas()
     {
         // Datos para las tres vistas de ganancias (SembrarPagosAsync) y
         // para las dos de margen (lote + despacho): sin esto el libro se
@@ -638,13 +638,14 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
         var bytes = await respuesta.Content.ReadAsByteArrayAsync();
         // Umbral fijado tras medir los dos casos reales (no adivinado):
         // un libro vacío (una sola hoja, sin datos, como el que produce la
-        // Mutación 1) pesa 6118 bytes; este libro con cinco hojas y datos
-        // pesa 10145. El umbral queda en el punto medio, con margen de
-        // sobra a ambos lados (~1900 bytes) frente a la variación normal
-        // del formato zip/xlsx. Este número por sí solo NO distingue un
-        // libro que perdió una hoja o sus advertencias (unos cientos de
-        // bytes) de uno correcto: para eso están las aserciones
-        // estructurales de abajo.
+        // Mutación 1) pesa 6118 bytes; este libro con seis hojas y datos
+        // pesa 11482 (remedido tras sumar la hoja de unidades vendidas).
+        // El umbral no es el punto medio exacto, pero deja margen de sobra
+        // a ambos lados (1882 bytes por debajo, 3482 por encima) frente a
+        // la variación normal del formato zip/xlsx. Este número por sí
+        // solo NO distingue un libro que perdió una hoja o sus advertencias
+        // (unos cientos de bytes) de uno correcto: para eso están las
+        // aserciones estructurales de abajo.
         bytes.Length.ShouldBeGreaterThan(8000);
 
         using var libro = new XLWorkbook(new MemoryStream(bytes));
@@ -710,10 +711,12 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
             textos.ShouldContain("Centro de acopio: Todos los centros de acopio");
         }
 
-        // La sexta hoja "Unidades vendidas": trae línea de alcance de CAT,
-        // encabezado en fila 2 (como las de ganancias), datos en fila 3 en
-        // adelante, línea de total y línea de nota sobre la asimetría,
-        // seguida de alcance de CAT al final.
+        // La sexta hoja "Unidades vendidas": la fila 1 lleva la línea de
+        // alcance de CAT, la fila 3 trae datos, y la columna 1 contiene la
+        // línea de total con la cifra. Además, esa misma línea de alcance
+        // debe aparecer DOS veces en la columna 1 (inicio y final) — si
+        // solo apareciera una vez, la de abajo (EscribirAlcanceCatAlFinal)
+        // habría desaparecido sin que ninguna otra aserción lo notara.
         var hojaUnidades = libro.Worksheet("Unidades vendidas");
         hojaUnidades.Cell(1, 1).GetString()
             .ShouldContain("Centro de acopio: Todos los centros de acopio");
@@ -722,6 +725,9 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
             .CellsUsed().Select(c => c.GetString()).ToList();
         textosUnidades.ShouldContain(
             "Total de animales vendidos en el período: 2 (0 en la comunidad + 2 despachados)");
+        textosUnidades.Count(t =>
+                t == "Centro de acopio: Todos los centros de acopio")
+            .ShouldBe(2);
     }
 
     [Fact]
