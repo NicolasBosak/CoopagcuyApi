@@ -50,6 +50,10 @@ public interface IReportesService
     // suma con las ganancias de productoras de arriba.
     Task<IEnumerable<MargenDto>> MargenPorMesAsync(FiltroPeriodoDto filtro);
     Task<IEnumerable<MargenDto>> MargenPorClienteAsync(FiltroPeriodoDto filtro);
+    // Unidades de cuyes vendidas por las dos vías, por mes local del piloto:
+    // ver el comentario de UnidadesMesDto para por qué aquí sumar SÍ es
+    // válido, a diferencia del resto de este reporte.
+    Task<IEnumerable<UnidadesMesDto>> UnidadesPorMesAsync(FiltroPeriodoDto filtro);
     // Las cinco vistas de arriba, en un solo libro, cada una en su propia
     // hoja: nunca en la misma celda, porque las dos mitades del reporte
     // (ganancias de productoras y margen de la reventa) no se suman.
@@ -1063,6 +1067,105 @@ public class ReportesService(AppDbContext db) : IReportesService
                     etiqueta, g, animalesPorDespacho, pagos, unidadesDevueltas);
             })
             .OrderByDescending(m => m.Ingreso)
+            .ToList();
+    }
+
+    // ── Unidades vendidas ────────────────────────────────────────────────
+    //
+    // Es la única excepción del reporte donde sumar SÍ es válido: ver el
+    // comentario de UnidadesMesDto.
+
+    public async Task<IEnumerable<UnidadesMesDto>> UnidadesPorMesAsync(
+        FiltroPeriodoDto filtro)
+    {
+        var (desdeUtc, hastaUtc) = RangoUtc(filtro);
+
+        // ── Vendidas en la comunidad ──────────────────────────────────
+        // Se fechan por el PAGO de la venta local, no por la entrega del
+        // animal: la venta ocurre cuando se cobra. Es el mismo criterio que
+        // usan las tres vistas de ganancias, que también van por FechaPago.
+        //
+        // SÍ filtra por CAT: el animal tiene productora y la productora su
+        // centro asignado.
+        IQueryable<CuyRegistro> comunidad = db.CuyRegistros
+            .Where(c => c.VentaLocalPagoId != null
+                && c.VentaLocalPago!.FechaPago >= desdeUtc
+                && c.VentaLocalPago.FechaPago < hastaUtc
+                && c.VentaLocalPago.Estado != EstadoPago.Pendiente);
+
+        if (filtro.CentroAcopio is not null)
+            comunidad = comunidad.Where(
+                c => c.Productora!.CatAsignado == filtro.CentroAcopio);
+
+        // Solo la fecha: es lo único que hace falta para agrupar, y una fila
+        // por animal vendido es exactamente el conteo que se busca.
+        var fechasComunidad = await comunidad
+            .Select(c => c.VentaLocalPago!.FechaPago)
+            .ToListAsync();
+
+        // ── Despachadas a clientes ────────────────────────────────────
+        // NO filtra por CAT, y es deliberado: un despacho mezcla animales de
+        // varias jaulas y por tanto de varios CAT, así que filtrarlo o
+        // duplicaría las unidades de un despacho mixto o las atribuiría a un
+        // centro que solo puso una parte. Misma decisión, y mismo motivo, que
+        // dejó las dos vistas de margen sin filtro de CAT.
+        var despachos = await db.Despachos
+            .Where(d => d.FechaDespacho >= desdeUtc && d.FechaDespacho < hastaUtc)
+            .Select(d => new { d.Id, d.FechaDespacho, d.CantidadUnidades })
+            .ToListAsync();
+
+        // Mismo helper que el margen y que ListarDespachosAsync: el criterio
+        // de qué cuenta como devuelto vive en un solo sitio y no puede
+        // desincronizarse. Acota solo por DespachoId, no por FechaDevolucion
+        // —a propósito, igual que en DatosDeMargenAsync—: una devolución de
+        // marzo baja las unidades de enero al reejecutar ese reporte, en vez
+        // de quedar varada en un mes al que no pertenece.
+        var despachoIds = despachos.Select(d => d.Id).ToList();
+        var devueltas = await Devolucion.UnidadesPorDespachoAsync(
+            db.Devoluciones.Where(v => v.DespachoId != null
+                && despachoIds.Contains(v.DespachoId.Value)));
+
+        // ── Agrupación por el mes LOCAL ───────────────────────────────
+        // FechaUtc.ALocal no se traduce a SQL, así que las dos consultas de
+        // arriba materializan antes de agrupar. El volumen del piloto lo
+        // permite de sobra: no cambiar esto por un GroupBy en base de datos,
+        // que rompería la frontera del mes en silencio —un despacho de las
+        // 20:00 del 31 de agosto pertenece a agosto, no a septiembre.
+        static string Mes(DateTime utc)
+        {
+            var local = FechaUtc.ALocal(utc);
+            return $"{local.Year:D4}-{local.Month:D2}";
+        }
+
+        var porMes = new SortedDictionary<string, (int Comunidad, int Despacho)>(
+            StringComparer.Ordinal);
+
+        foreach (var fecha in fechasComunidad)
+        {
+            var mes = Mes(fecha);
+            var acumulado = porMes.GetValueOrDefault(mes);
+            porMes[mes] = (acumulado.Comunidad + 1, acumulado.Despacho);
+        }
+
+        foreach (var d in despachos)
+        {
+            var mes = Mes(d.FechaDespacho);
+            var acumulado = porMes.GetValueOrDefault(mes);
+            // Math.Max por si una devolución corrupta superara lo despachado:
+            // se muestra 0, no un negativo. Misma guarda que ConstruirMargen.
+            var netas = Math.Max(
+                0, d.CantidadUnidades - devueltas.GetValueOrDefault(d.Id));
+            porMes[mes] = (acumulado.Comunidad, acumulado.Despacho + netas);
+        }
+
+        return porMes
+            .Select(kv => new UnidadesMesDto(
+                Agrupacion: kv.Key,
+                VendidasComunidad: kv.Value.Comunidad,
+                DespachadasClientes: kv.Value.Despacho,
+                // Sumar aquí SÍ es válido: un cuy vendido en la comunidad no
+                // puede acabar despachado, así que no hay doble conteo.
+                Total: kv.Value.Comunidad + kv.Value.Despacho))
             .ToList();
     }
 

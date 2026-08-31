@@ -40,6 +40,12 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
     private const string CedulaMargenEtiqueta = "0104576335";
     private const string CedulaMargenOrden = "0104576343";
 
+    // Productoras propias de las pruebas de unidades vendidas, para no
+    // compartir productora ni lote con las pruebas de arriba.
+    private const string CedulaUnidades = "0104576350";
+    private const string CedulaSecundaria = "0104576368";
+    private const string CedulaTerciaria = "0104576376";
+
     // Fecha explícita —no por diferencia contra UtcNow— para ejercitar la
     // frontera del mes: las 02:00 UTC del 1 de septiembre son las 21:00 del
     // 31 de agosto en el CAT (UTC-5).
@@ -995,6 +1001,160 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
         }
     }
 
+    // ── Unidades vendidas por las dos vías ────────────────────────────
+    //
+    // El resto de este reporte NUNCA suma dinero: un pago a una productora
+    // es ingreso para ella y costo para la cooperativa, la misma fila leída
+    // desde dos lados. Las unidades son la excepción: un cuy vendido en la
+    // comunidad no puede acabar despachado (la movilización, el selector de
+    // lotes pendientes de pago, el botón "A planta" y el faenamiento lo
+    // impiden), así que aquí sumar SÍ es válido.
+
+    private record UnidadesFila(
+        string Agrupacion, int VendidasComunidad, int DespachadasClientes, int Total);
+
+    /// Llama al endpoint de unidades por mes. `cat` nulo = sin filtro.
+    /// `desde`/`hasta` nulos = solo "hoy" (suficiente para todo lo que se
+    /// siembra con DateTime.UtcNow); la prueba de frontera de mes pasa un
+    /// rango explícito y amplio porque su despacho se fecha con un instante
+    /// fijo (FinDeMesUtc), no con "hoy".
+    private async Task<UnidadesFila[]> UnidadesPorMesAsync(
+        string? cat = null, string? desde = null, string? hasta = null)
+    {
+        var hoy = FechaUtc.ALocal(DateTime.UtcNow).ToString("yyyy-MM-dd");
+        var sufijo = cat is null ? "" : $"&cat={cat}";
+        var respuesta = await api.ComoAdmin()
+            .GetAsync($"/api/reportes/unidades/mes?desde={desde ?? hoy}&hasta={hasta ?? hoy}{sufijo}");
+        respuesta.StatusCode.ShouldBe(HttpStatusCode.OK);
+        return (await respuesta.Content
+            .ReadFromJsonAsync<UnidadesFila[]>())!;
+    }
+
+    [Fact]
+    public async Task CuentaLosCuyesVendidosEnLaComunidad()
+    {
+        // 3 cuyes vendidos en la comunidad, y 2 del mismo lote que NO se
+        // vendieron: si el conteo no mirara VentaLocalPagoId saldrían 5.
+        await SembrarVentaLocalAsync(vendidos: 3, sinVender: 2);
+
+        var filas = await UnidadesPorMesAsync();
+
+        filas.Single().VendidasComunidad.ShouldBe(3);
+    }
+
+    [Fact]
+    public async Task CuentaLasUnidadesDespachadas()
+    {
+        // Un despacho de 8 unidades, sin devoluciones.
+        var (_, lote) = await SembrarLoteAsync(CedulaUnidades, cantidadAnimales: 8);
+        await SembrarDespachoAsync(lote, [1, 2, 3, 4, 5, 6, 7, 8],
+            precioUnitario: 5m, cliente: "Cliente de prueba");
+
+        var filas = await UnidadesPorMesAsync();
+
+        filas.Single().DespachadasClientes.ShouldBe(8);
+    }
+
+    [Fact]
+    public async Task LasUnidadesDespachadasVanNetasDeDevoluciones()
+    {
+        // 8 despachadas, 3 devueltas -> 5. Bruto daría 8: los dos números
+        // se distinguen sin ambigüedad.
+        //
+        // Neto y no bruto porque el Ingreso del margen ya es neto: si aquí
+        // fueran brutas, las dos cifras se contradirían sobre el MISMO
+        // despacho.
+        var (_, lote) = await SembrarLoteAsync(CedulaUnidades, cantidadAnimales: 8);
+        var despachoId = await SembrarDespachoAsync(lote, [1, 2, 3, 4, 5, 6, 7, 8],
+            precioUnitario: 5m, cliente: "Cliente de prueba");
+        await SembrarDevolucionAsync(despachoId, cantidadUnidades: 3,
+            cliente: "Cliente de prueba");
+
+        var filas = await UnidadesPorMesAsync();
+
+        filas.Single().DespachadasClientes.ShouldBe(5);
+    }
+
+    [Fact]
+    public async Task ElTotalEsLaSumaDeLasDosVias()
+    {
+        // Aquí sumar SÍ es válido: un cuy vendido en la comunidad nunca
+        // llega a la planta, así que no hay doble conteo. 3 + 5 = 8, y los
+        // tres números son distintos entre sí.
+        await SembrarVentaLocalAsync(vendidos: 3, sinVender: 2);
+        var (_, lote) = await SembrarLoteAsync(CedulaSecundaria, cantidadAnimales: 8);
+        var despachoId = await SembrarDespachoAsync(lote, [1, 2, 3, 4, 5, 6, 7, 8],
+            precioUnitario: 5m, cliente: "Cliente de prueba");
+        await SembrarDevolucionAsync(despachoId, cantidadUnidades: 3,
+            cliente: "Cliente de prueba");
+
+        var fila = (await UnidadesPorMesAsync()).Single();
+
+        fila.VendidasComunidad.ShouldBe(3);
+        fila.DespachadasClientes.ShouldBe(5);
+        fila.Total.ShouldBe(8);
+    }
+
+    [Fact]
+    public async Task UnDespachoDeLasVeinteHorasCaeEnSuPropioMes()
+    {
+        // Las 02:00 UTC del día 1 son las 21:00 del último día del mes
+        // anterior en el CAT. Agrupar por el mes UTC lo mandaría al mes
+        // siguiente: es el mismo fallo que se reportó como "los despachos
+        // nuevos no aparecen en Salida".
+        //
+        // Mismo instante fijo (FinDeMesUtc) que usa SembrarPagoDeFinDeMesAsync
+        // y el mismo rango amplio y fijo que PorMesAsync usa para la prueba
+        // equivalente de ganancias: construir la fecha por diferencia contra
+        // DateTime.UtcNow dejaba una prueba equivalente del Proyecto C
+        // fallando treinta minutos de cada día (05:00-05:30 UTC, medianoche
+        // en Guayaquil).
+        var mesAnterior = await SembrarDespachoDeFinDeMesAsync(unidades: 4);
+
+        var filas = await UnidadesPorMesAsync(desde: "2026-08-01", hasta: "2026-09-30");
+
+        filas.Length.ShouldBe(1);
+        filas[0].Agrupacion.ShouldBe(mesAnterior);
+        filas[0].DespachadasClientes.ShouldBe(4);
+    }
+
+    [Fact]
+    public async Task ElFiltroDeCatAcotaLaComunidadPeroNoElDespacho()
+    {
+        // La venta local SÍ filtra por CAT (el animal tiene productora, y la
+        // productora su centro). El despacho NO: mezcla animales de varias
+        // jaulas y por tanto de varios CAT.
+        //
+        // PAT vende 3 en comunidad, NIE vende 2. Filtrando por PAT: 3, no 5.
+        // El despacho de 8-3=5 unidades no se toca.
+        await SembrarVentaLocalAsync(vendidos: 3, sinVender: 0, cat: "PAT");
+        await SembrarVentaLocalAsync(vendidos: 2, sinVender: 0, cat: "NIE",
+            cedula: CedulaSecundaria);
+        var (_, lote) = await SembrarLoteAsync(CedulaTerciaria, cantidadAnimales: 8);
+        var despachoId = await SembrarDespachoAsync(lote, [1, 2, 3, 4, 5, 6, 7, 8],
+            precioUnitario: 5m, cliente: "Cliente de prueba");
+        await SembrarDevolucionAsync(despachoId, cantidadUnidades: 3,
+            cliente: "Cliente de prueba");
+
+        var fila = (await UnidadesPorMesAsync(cat: "PAT")).Single();
+
+        fila.VendidasComunidad.ShouldBe(3);
+        fila.DespachadasClientes.ShouldBe(5);
+    }
+
+    [Fact]
+    public async Task UnaVentaLocalDeOtroMesNoCuenta()
+    {
+        // La venta se fecha por el PAGO, no por la entrega: la venta ocurre
+        // cuando se cobra.
+        await SembrarVentaLocalAsync(vendidos: 3, sinVender: 0);
+        await SembrarVentaLocalDeOtroMesAsync(vendidos: 4);
+
+        var filas = await UnidadesPorMesAsync();
+
+        filas.Single().VendidasComunidad.ShouldBe(3);
+    }
+
     // ── Sembradores ─────────────────────────────────────────────────────
     // Los Pago se escriben directo a la base: es más estable que montar todo
     // el flujo de venta local / pago de planta / verificación solo para
@@ -1252,8 +1412,12 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
         await db.SaveChangesAsync();
     }
 
+    /// fechaPago es opcional (por defecto DateTime.UtcNow), simétrico con
+    /// cómo SembrarDespachoAsync ya acepta fechaDespacho = null: lo necesita
+    /// SembrarVentaLocalDeOtroMesAsync para fechar el pago fuera del período
+    /// consultado, sin tener que hacer un UPDATE aparte.
     private async Task<int> SembrarPagoVentaLocalAsync(
-        int productoraId, int loteId, decimal montoPagado)
+        int productoraId, int loteId, decimal montoPagado, DateTime? fechaPago = null)
     {
         await using var db = api.NuevoDbContext();
         var pago = new Pago
@@ -1262,7 +1426,7 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
             LoteId = loteId,
             MontoUsd = montoPagado,
             MontoPagadoUsd = montoPagado,
-            FechaPago = DateTime.UtcNow,
+            FechaPago = fechaPago ?? DateTime.UtcNow,
             MetodoPago = "Efectivo",
             Estado = EstadoPago.Recibido,
             EsVentaLocal = true,
@@ -1283,6 +1447,68 @@ public class ReporteGananciasTests(ApiFactory api) : IAsyncLifetime
         foreach (var registro in registros)
             registro.VentaLocalPagoId = pagoVentaLocalId;
         await db.SaveChangesAsync();
+    }
+
+    // ── Sembradores de unidades vendidas ───────────────────────────────
+    // Componen los sembradores de arriba: no hay flujo nuevo que montar,
+    // solo falta marcar qué cuyes se vendieron en la comunidad (ningún
+    // sembrador existente lo hacía) y fechar despachos/pagos en instantes
+    // explícitos para ejercitar la frontera del mes.
+
+    /// Marca los `cantidad` primeros cuyes del lote como vendidos en ese
+    /// pago. Los demás quedan sin marcar: son los que NO deben contarse.
+    private async Task MarcarVendidosAsync(int loteId, int pagoId, int cantidad)
+    {
+        await using var db = api.NuevoDbContext();
+        var cuyes = await db.CuyRegistros
+            .Where(c => c.LoteId == loteId)
+            .OrderBy(c => c.NumeroEnLote)
+            .Take(cantidad)
+            .ToListAsync();
+        foreach (var cuy in cuyes) cuy.VentaLocalPagoId = pagoId;
+        await db.SaveChangesAsync();
+    }
+
+    /// Lote de `vendidos + sinVender` animales, con un pago de venta local
+    /// que cubre solo los primeros `vendidos` (por NumeroEnLote). Los
+    /// `sinVender` restantes quedan sin VentaLocalPagoId.
+    private async Task SembrarVentaLocalAsync(
+        int vendidos, int sinVender, string cat = "PAT", string? cedula = null,
+        DateTime? fechaPago = null)
+    {
+        var (productora, lote) = await SembrarLoteAsync(
+            cedula ?? CedulaUnidades, vendidos + sinVender, cat);
+        var pagoId = await SembrarPagoVentaLocalAsync(
+            productora.Id, lote.Id, montoPagado: vendidos * 10m, fechaPago);
+        await MarcarVendidosAsync(lote.Id, pagoId, vendidos);
+    }
+
+    /// Igual que SembrarVentaLocalAsync, pero el pago se fecha un mes atrás:
+    /// prueba que la venta se agrupa por la fecha del PAGO (cuándo se
+    /// cobra), no por la fecha de entrega del animal. Usa CedulaSecundaria
+    /// para no chocar con la productora por defecto de SembrarVentaLocalAsync
+    /// dentro de la misma prueba.
+    private async Task SembrarVentaLocalDeOtroMesAsync(int vendidos)
+    {
+        await SembrarVentaLocalAsync(
+            vendidos, sinVender: 0, cedula: CedulaSecundaria,
+            fechaPago: DateTime.UtcNow.AddMonths(-1));
+    }
+
+    /// Despacho fechado a las 02:00 UTC del 1 de septiembre de 2026 (mismo
+    /// instante fijo que FinDeMesUtc, no calculado por diferencia contra
+    /// UtcNow): localmente son las 21:00 del 31 de agosto, así que
+    /// pertenece a agosto y no a septiembre. Devuelve la cadena "yyyy-MM"
+    /// del mes al que debe agruparse (el anterior a FinDeMesUtc).
+    private async Task<string> SembrarDespachoDeFinDeMesAsync(int unidades)
+    {
+        var (_, lote) = await SembrarLoteAsync(CedulaUnidades, unidades);
+        await SembrarDespachoAsync(
+            lote, Enumerable.Range(1, unidades).ToArray(), precioUnitario: 5m,
+            cliente: "Cliente de prueba", fechaDespacho: FinDeMesUtc);
+
+        var mesAnterior = FinDeMesUtc.AddMonths(-1);
+        return $"{mesAnterior.Year:D4}-{mesAnterior.Month:D2}";
     }
 
     // ── Llamadas HTTP ───────────────────────────────────────────────────
