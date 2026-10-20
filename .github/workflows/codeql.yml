@@ -27,7 +27,7 @@ jobs:
           dotnet-version: "8.0.x"
 
       - name: Inicializar CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: csharp
           # Manual y no autobuild: la solución es un .slnx, formato nuevo que
@@ -44,6 +44,6 @@ jobs:
           dotnet build CoopagcuyApi.csproj -c Release --no-restore
 
       - name: Analizar
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         with:
           category: "/language:csharp"
