@@ -140,7 +140,7 @@ jobs:
       # contra el SDK que trajera el runner por defecto en vez del 8.0.x
       # fijado — silenciosamente, sin fallar, solo con resultados que no
       # corresponden a la versión que se despliega.
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         if: always()
         with:
           dotnet-version: "8.0.x"
